@@ -731,15 +731,12 @@ impl Tree {
 /// Transform an axis-aligned `Rect` by an `Affine` and return a conservative
 /// axis-aligned bounding box in world space.
 fn transform_rect_bbox(affine: Affine, rect: Rect) -> Rect {
-    let p0 = affine * Point::new(rect.x0, rect.y0);
-    let p1 = affine * Point::new(rect.x1, rect.y0);
-    let p2 = affine * Point::new(rect.x0, rect.y1);
-    let p3 = affine * Point::new(rect.x1, rect.y1);
-    let min_x = p0.x.min(p1.x).min(p2.x).min(p3.x);
-    let min_y = p0.y.min(p1.y).min(p2.y).min(p3.y);
-    let max_x = p0.x.max(p1.x).max(p2.x).max(p3.x);
-    let max_y = p0.y.max(p1.y).max(p2.y).max(p3.y);
-    Rect::new(min_x, min_y, max_x, max_y)
+    let [a, b, c, d, e, f] = affine.as_coeffs();
+    let min_x = (a * rect.x0).min(a * rect.x1) + (c * rect.y0).min(c * rect.y1);
+    let max_x = (a * rect.x0).max(a * rect.x1) + (c * rect.y0).max(c * rect.y1);
+    let min_y = (b * rect.x0).min(b * rect.x1) + (d * rect.y0).min(d * rect.y1);
+    let max_y = (b * rect.x0).max(b * rect.x1) + (d * rect.y0).max(d * rect.y1);
+    Rect::new(min_x + e, min_y + f, max_x + e, max_y + f)
 }
 
 fn rect_to_aabb(r: Rect) -> Aabb2D<f64> {
