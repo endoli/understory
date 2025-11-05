@@ -283,6 +283,10 @@ impl Tree {
     }
 
     /// Hit test a world-space point. Returns the topmost node.
+    ///
+    /// If multiple nodes overlap with the same `z_index`, the newer [`NodeId`] wins.
+    /// This tie-break is intentionally deterministic for now.
+    /// In the future this may be made configurable (for example via a `TieBreakPolicy`).
     pub fn hit_test_point(&self, pt: Point, filter: QueryFilter) -> Option<Hit> {
         let candidates: Vec<NodeId> = self
             .index
@@ -308,10 +312,12 @@ impl Tree {
             }
             match best {
                 None => best = Some((id, node.local.z_index)),
-                Some((_, z_best)) if node.local.z_index >= z_best => {
-                    best = Some((id, node.local.z_index));
+                Some((best_id, z_best)) => {
+                    let z = node.local.z_index;
+                    if z > z_best || (z == z_best && Self::id_is_newer(id, best_id)) {
+                        best = Some((id, z));
+                    }
                 }
-                _ => {}
             }
         }
         best.map(|(node, _)| Hit {
@@ -355,7 +361,6 @@ impl Tree {
     }
 
     #[inline]
-    #[allow(dead_code, reason = "Used in tests; behavior change lands next PR")]
     fn id_is_newer(a: NodeId, b: NodeId) -> bool {
         (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
     }
@@ -602,5 +607,74 @@ mod tests {
         assert!(Tree::id_is_newer(newer_same_slot, old));
         assert!(Tree::id_is_newer(same_gen_higher_slot, newer_same_slot));
         assert!(!Tree::id_is_newer(same_gen_lower_slot, newer_same_slot));
+    }
+
+    #[test]
+    fn hit_equal_z_newer_wins() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                ..Default::default()
+            },
+        );
+
+        // Two overlapping children at the same z.
+        let a = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 5,
+                ..Default::default()
+            },
+        );
+        let b = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 5,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Sanity: with equal z, the newer of (a, b) should win; typically b is newer.
+        let hit1 = tree
+            .hit_test_point(
+                Point::new(60.0, 60.0),
+                QueryFilter {
+                    visible_only: true,
+                    pickable_only: true,
+                },
+            )
+            .unwrap();
+        let expected1 = if Tree::id_is_newer(b, a) { b } else { a };
+        assert_eq!(hit1.node, expected1);
+
+        // Make a stale by removing it, then insert c reusing a's slot (generation++),
+        // still equal z and overlapping; c is strictly newer than b by generation.
+        tree.remove(a);
+        let c = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 5,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+        assert!(Tree::id_is_newer(c, b));
+
+        let hit2 = tree
+            .hit_test_point(
+                Point::new(60.0, 60.0),
+                QueryFilter {
+                    visible_only: true,
+                    pickable_only: true,
+                },
+            )
+            .unwrap();
+        assert_eq!(hit2.node, c, "newer id should win on equal z");
     }
 }
