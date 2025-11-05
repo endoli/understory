@@ -19,7 +19,8 @@ impl Default for Tree {
 
 /// Top-level region tree.
 pub struct Tree {
-    nodes: Vec<Option<Node>>, // generational slots
+    nodes: Vec<Option<Node>>, // slots
+    generations: Vec<u32>,    // last generation per slot (persists across frees)
     pub(crate) free_list: Vec<usize>,
     pub(crate) epoch: u64,
     pub(crate) index: AabbIndex<f64, NodeId>,
@@ -112,6 +113,7 @@ impl Tree {
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
+            generations: Vec::new(),
             free_list: Vec::new(),
             epoch: 0,
             index: AabbIndex::default(),
@@ -144,7 +146,8 @@ impl Tree {
     /// Insert a new node as a child of `parent` (or as a root if `None`).
     pub fn insert(&mut self, parent: Option<NodeId>, local: LocalNode) -> NodeId {
         let (idx, generation) = if let Some(idx) = self.free_list.pop() {
-            let generation = self.nodes[idx].as_ref().map(|n| n.generation).unwrap_or(0) + 1;
+            let generation = self.generations[idx].saturating_add(1);
+            self.generations[idx] = generation;
             self.nodes[idx] = Some(Node::new(generation, local));
             #[allow(
                 clippy::cast_possible_truncation,
@@ -154,6 +157,7 @@ impl Tree {
         } else {
             let generation = 1_u32;
             self.nodes.push(Some(Node::new(generation, local)));
+            self.generations.push(generation);
             #[allow(
                 clippy::cast_possible_truncation,
                 reason = "NodeId uses 32-bit indices by design."
@@ -337,12 +341,23 @@ impl Tree {
 
     // --- internals ---
 
-    fn is_alive(&self, id: NodeId) -> bool {
+    /// Returns true if `id` refers to a live node.
+    ///
+    /// A `NodeId` is considered live if its slot exists and its generation matches
+    /// the current generation stored in that slot.
+    /// See [`NodeId`] docs for the generational semantics.
+    pub fn is_alive(&self, id: NodeId) -> bool {
         self.nodes
             .get(id.idx())
             .and_then(|n| n.as_ref())
             .map(|n| n.generation == id.1)
             .unwrap_or(false)
+    }
+
+    #[inline]
+    #[allow(dead_code, reason = "Used in tests; behavior change lands next PR")]
+    fn id_is_newer(a: NodeId, b: NodeId) -> bool {
+        (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
     }
 
     fn node_opt_mut(&mut self, id: NodeId) -> Option<&mut Node> {
@@ -531,5 +546,61 @@ mod tests {
         let _nb = tree.node(n).world.world_bounds;
         let _expected =
             transform_rect_bbox(Affine::rotate(FRAC_PI_4), Rect::new(0.0, 0.0, 10.0, 10.0));
+    }
+
+    #[test]
+    fn liveness_insert_remove_reuse() {
+        let mut tree = Tree::new();
+        // Insert a root, then a child.
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                ..Default::default()
+            },
+        );
+        let a = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                ..Default::default()
+            },
+        );
+
+        assert!(tree.is_alive(root));
+        assert!(tree.is_alive(a));
+
+        // Remove child; id becomes stale.
+        tree.remove(a);
+        assert!(!tree.is_alive(a));
+
+        // Reuse slot by inserting a new node; old id must remain stale; new id is live.
+        let b = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                ..Default::default()
+            },
+        );
+        assert!(tree.is_alive(b));
+        assert!(!tree.is_alive(a));
+        // Sanity: either same slot or different, but if same slot, generation must be greater.
+        if a.0 == b.0 {
+            assert!(b.1 > a.1, "generation must increase on reuse");
+        }
+    }
+
+    #[test]
+    fn newer_than_semantics() {
+        // Construct synthetic NodeId pairs and verify newer ordering.
+        let old = NodeId::new(10, 1);
+        let newer_same_slot = NodeId::new(10, 2);
+        let same_gen_higher_slot = NodeId::new(11, 2);
+        let same_gen_lower_slot = NodeId::new(9, 2);
+
+        // Private helper is in scope within the module.
+        assert!(Tree::id_is_newer(newer_same_slot, old));
+        assert!(Tree::id_is_newer(same_gen_higher_slot, newer_same_slot));
+        assert!(!Tree::id_is_newer(same_gen_lower_slot, newer_same_slot));
     }
 }

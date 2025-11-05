@@ -5,7 +5,34 @@
 
 use kurbo::{Affine, Rect, RoundedRect};
 
-/// Identifier for a node in the tree (generational).
+/// Identifier for a node in the tree.
+///
+/// This is a small, copyable handle that stays stable across updates but becomes
+/// invalid when the underlying slot is reused.
+/// It consists of a slot index and a generation counter.
+///
+/// ## Semantics
+///
+/// - On insert, a fresh slot is allocated with generation `1`.
+/// - On remove, the slot is freed; any existing `NodeId` that pointed to that slot is now stale.
+/// - On reuse of a freed slot, its generation is incremented, producing a new, distinct `NodeId`.
+///
+/// ### Newer
+///
+/// A `NodeId` is considered newer than another when it has a higher generation.
+/// If generations are equal, the one with the higher slot index is considered newer.
+/// This total order is used only for deterministic tie-breaks in
+/// [hit testing](crate::Tree::hit_test_point).
+///
+/// ### Liveness
+///
+/// Use [`Tree::is_alive`](crate::Tree::is_alive) to check whether a `NodeId` still refers to a live node.
+/// Stale `NodeId`s never alias a different live node because the generation must match.
+///
+/// ### Notes
+///
+/// - The generation increments on slot reuse and never decreases.
+/// - `u32` is ample for practical lifetimes; behavior on generation overflow is unspecified.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct NodeId(pub(crate) u32, pub(crate) u32);
 
