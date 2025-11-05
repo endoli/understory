@@ -73,43 +73,6 @@ impl Rng {
     }
 }
 
-fn gen_random_rects(
-    n: usize,
-    count: usize,
-    max_w: f64,
-    max_h: f64,
-    rect_w: f64,
-    rect_h: f64,
-) -> Vec<Aabb2D<f64>> {
-    let mut out = Vec::with_capacity(count);
-    let mut rng = Rng::new(0xCAFE_F00D_DEAD_BEEF);
-    let _n = n; // reserved for potential clustered variants
-    for _ in 0..count {
-        let x0 = rng.next_f64() * (max_w - rect_w).max(1.0);
-        let y0 = rng.next_f64() * (max_h - rect_h).max(1.0);
-        out.push(Aabb2D::<f64>::from_xywh(x0, y0, rect_w, rect_h));
-    }
-    out
-}
-
-fn gen_banded_rects(
-    n_bands: usize,
-    per_band: usize,
-    band_height: f64,
-    width: f64,
-) -> Vec<Aabb2D<f64>> {
-    let mut out = Vec::with_capacity(n_bands * per_band);
-    let mut rng = Rng::new(0xBADC_F00D_1234_5678);
-    for b in 0..n_bands {
-        let y0 = b as f64 * band_height * 2.0;
-        for _ in 0..per_band {
-            let x0 = rng.next_f64() * width;
-            out.push(Aabb2D::<f64>::from_xywh(x0, y0, band_height, band_height));
-        }
-    }
-    out
-}
-
 fn gen_clustered_rects(n_clusters: usize, per_cluster: usize, spread: f64) -> Vec<Aabb2D<f64>> {
     let mut out = Vec::with_capacity(n_clusters * per_cluster);
     let mut rng = Rng::new(0xC1A5_7E55_9999_ABCD);
@@ -177,48 +140,6 @@ fn bench_flatvec(c: &mut Criterion) {
                 let _ = idx.commit();
                 let hits: usize = idx
                     .query_rect(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0))
-                    .count();
-                black_box(hits);
-            },
-            BatchSize::SmallInput,
-        )
-    });
-    group.finish();
-}
-
-fn bench_grid(c: &mut Criterion) {
-    let mut group = c.benchmark_group("grid");
-    for &n in &[32usize, 64, 128] {
-        let rects = gen_grid_rects(n, 10.0);
-        group.throughput(Throughput::Elements((n * n) as u64));
-        group.bench_function(format!("insert_commit_rect_n{}", n), |b| {
-            b.iter_batched(
-                || Index::<f64, u32>::with_uniform_grid(32.0, 32.0),
-                |mut idx| {
-                    for (i, r) in rects.iter().copied().enumerate() {
-                        let _ = idx.insert(r, i as u32);
-                    }
-                    let _ = idx.commit();
-                    let hits: usize = idx
-                        .query_rect(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0))
-                        .count();
-                    black_box(hits);
-                },
-                BatchSize::SmallInput,
-            )
-        });
-    }
-    let rects = gen_random_rects(64, 4096, 2000.0, 2000.0, 12.0, 12.0);
-    group.bench_function("insert_commit_rect_random", |b| {
-        b.iter_batched(
-            || Index::<f64, u32>::with_uniform_grid(32.0, 32.0),
-            |mut idx| {
-                for (i, r) in rects.iter().copied().enumerate() {
-                    let _ = idx.insert(r, i as u32);
-                }
-                let _ = idx.commit();
-                let hits: usize = idx
-                    .query_rect(Aabb2D::<f64>::from_xywh(800.0, 800.0, 400.0, 400.0))
                     .count();
                 black_box(hits);
             },
@@ -433,32 +354,9 @@ fn bench_bvh_clustered_f64(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_grid_banded_f64(c: &mut Criterion) {
-    let mut group = c.benchmark_group("grid_f64_banded");
-    let rects = gen_banded_rects(64, 64, 8.0, 2000.0);
-    group.bench_function("insert_commit_query", |b| {
-        b.iter_batched(
-            || Index::<f64, u32>::with_uniform_grid(32.0, 32.0),
-            |mut idx| {
-                for (i, r) in rects.iter().copied().enumerate() {
-                    let _ = idx.insert(r, i as u32);
-                }
-                let _ = idx.commit();
-                let hits = idx
-                    .query_rect(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0))
-                    .count();
-                black_box(hits);
-            },
-            BatchSize::SmallInput,
-        )
-    });
-    group.finish();
-}
-
 criterion_group!(
     benches,
     bench_flatvec,
-    bench_grid,
     bench_bvh,
     bench_bvh_f32,
     bench_rtree,
@@ -467,6 +365,5 @@ criterion_group!(
     bench_update_heavy_rtree_i64,
     bench_query_heavy_rtree_f64,
     bench_bvh_clustered_f64,
-    bench_grid_banded_f64,
 );
 criterion_main!(benches);

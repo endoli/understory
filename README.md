@@ -8,7 +8,7 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
 ## Crates
 
 - `understory_index`
-  - A generic 2D AABB index with pluggable backends: FlatVec (linear scan), uniform Grid, R‑tree, and BVH.
+  - A generic 2D AABB index with pluggable backends: FlatVec (linear scan), R‑tree, and BVH.
   - Works across `f32`/`f64`/`i64` coordinate spaces with widened accumulator metrics for robust splits.
   - Point and rectangle queries.
   - Batched updates via `commit()` with coarse damage (added, removed, moved).
@@ -49,14 +49,13 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
 - Arena‑backed R‑tree and BVH reduce allocations and pointer chasing.
 - STR and SAH‑like builds are available.
 - Benchmarks live under `benches/` and compare backends across distributions and sizes.
-- Choose Grid for regular distributions and good locality.
 - Choose R‑tree or BVH for general scenes.
 - Choose FlatVec for tiny sets.
 
 ## Roadmap (sketch)
 
 - Render tree crate and composition and layering utilities.
-- More backends and tuning such as grid origins, heuristics, bulk builders, and churn optimizations.
+- Backend tuning (SAH weights, fanout/leaf sizes), bulk builders, hygiene/rotation, and churn optimizations.
 - Extended benches such as update mixes, overlap stress, and external comparisons.
 - Integration examples with upstream toolkits.
 

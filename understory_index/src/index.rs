@@ -221,32 +221,6 @@ impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Default for Index<T, P> {
 }
 
 impl<P: Copy + Debug> Index<f64, P> {
-    /// Create a grid-backed index with given cell size (non-negative world coords assumed).
-    pub fn with_uniform_grid(
-        cell_w: f64,
-        cell_h: f64,
-    ) -> IndexGeneric<f64, P, crate::backends::grid::GridF64<P>> {
-        IndexGeneric {
-            entries: Vec::new(),
-            free_list: Vec::new(),
-            backend: crate::backends::grid::GridF64::<P>::new(cell_w, cell_h, 0.0, 0.0),
-        }
-    }
-
-    /// Create a grid-backed index with explicit origin offset.
-    pub fn with_uniform_grid_with_origin(
-        cell_w: f64,
-        cell_h: f64,
-        origin_x: f64,
-        origin_y: f64,
-    ) -> IndexGeneric<f64, P, crate::backends::grid::GridF64<P>> {
-        IndexGeneric {
-            entries: Vec::new(),
-            free_list: Vec::new(),
-            backend: crate::backends::grid::GridF64::<P>::new(cell_w, cell_h, origin_x, origin_y),
-        }
-    }
-
     /// Create a BVH-backed index using SAH-like splits.
     pub fn with_bvh() -> IndexGeneric<f64, P, crate::backends::bvh::BVHF64<P>> {
         IndexGeneric {
@@ -323,37 +297,9 @@ impl<P: Copy + Debug> Index<i64, P> {
         idx.backend = crate::backends::rtree::RTreeI64::bulk_build_default(&pairs);
         idx
     }
-
-    /// Create an i64 grid-backed index.
-    pub fn with_uniform_grid_i64(
-        cell_w: i64,
-        cell_h: i64,
-        origin_x: i64,
-        origin_y: i64,
-    ) -> IndexGeneric<i64, P, crate::backends::grid::GridI64<P>> {
-        IndexGeneric {
-            entries: Vec::new(),
-            free_list: Vec::new(),
-            backend: crate::backends::grid::GridI64::<P>::new(cell_w, cell_h, origin_x, origin_y),
-        }
-    }
 }
 
 impl<P: Copy + Debug> Index<f32, P> {
-    /// Create an f32 grid-backed index with origin offset.
-    pub fn with_uniform_grid(
-        cell_w: f32,
-        cell_h: f32,
-        origin_x: f32,
-        origin_y: f32,
-    ) -> IndexGeneric<f32, P, crate::backends::grid::GridF32<P>> {
-        IndexGeneric {
-            entries: Vec::new(),
-            free_list: Vec::new(),
-            backend: crate::backends::grid::GridF32::<P>::new(cell_w, cell_h, origin_x, origin_y),
-        }
-    }
-
     /// Create a BVH-backed index (f32 coordinates).
     pub fn with_bvh() -> IndexGeneric<f32, P, crate::backends::bvh::BVHF32<P>> {
         IndexGeneric {

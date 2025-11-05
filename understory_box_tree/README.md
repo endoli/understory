@@ -50,11 +50,10 @@ Think of this as a scene and spatial index, not a layout system.
 ## Integration with Understory Index
 
 This crate uses [`understory_index`] for spatial queries. You can choose the backend and scalar to
-fit your workload (flat vector, uniform grid for `f32`/`f64`/`i64`, R-tree or BVH). Float inputs are
+fit your workload (flat vector, R-tree or BVH). Float inputs are
 assumed to be finite (no NaNs). AABBs are conservative for non-axis transforms and rounded clips.
 
-See [`understory_index::Index`], [`understory_index::GridF32`]/[`understory_index::GridF64`]/[`understory_index::GridI64`],
-[`understory_index::RTreeF32`]/[`understory_index::RTreeF64`]/[`understory_index::RTreeI64`], and
+See [`understory_index::Index`], [`understory_index::RTreeF32`]/[`understory_index::RTreeF64`]/[`understory_index::RTreeI64`], and
 [`understory_index::BVHF32`]/[`understory_index::BVHF64`]/[`understory_index::BVHI64`] for details.
 
 ## API overview

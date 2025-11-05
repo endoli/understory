@@ -4,7 +4,6 @@
 //! Backend implementations for different spatial strategies.
 //!
 //! - `flatvec`: flat vector with linear scans (small, simple).
-//! - `grid`: uniform grid for f64 coordinates (non-negative), great locality.
 //! - `rtree`: generic R-tree (`T: Scalar`) with SAH-like split (aliases: `RTreeI64`, `RTreeF32`, `RTreeF64`).
 //! - `bvh`: generic BVH (`T: Scalar`) with SAH-like split (aliases: `BVHF32`, `BVHF64`, `BVHI64`).
 //!
@@ -22,7 +21,4 @@
 
 pub mod bvh;
 pub mod flatvec;
-pub mod grid;
 pub mod rtree;
-
-pub use grid::{GridF32, GridF64, GridI64};
