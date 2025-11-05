@@ -3,7 +3,6 @@
 
 //! Binary bounding hierarchy backend generic over scalar `T: Scalar`.
 
-use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -291,10 +290,9 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for BVH<T, P> {
         self.slots.clear();
     }
 
-    fn query_point<'a>(&'a self, x: T, y: T) -> Box<dyn Iterator<Item = usize> + 'a> {
-        let mut out = Vec::new();
+    fn visit_point<F: FnMut(usize)>(&self, x: T, y: T, mut f: F) {
         let Some(root_idx) = self.root else {
-            return Box::new(out.into_iter());
+            return;
         };
         let p = Aabb2D::new(x, y, x, y);
         let mut stack = vec![root_idx];
@@ -307,7 +305,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for BVH<T, P> {
                 Kind::Leaf(items) => {
                     for (s, b) in items {
                         if !b.intersect(&p).is_empty() {
-                            out.push(*s);
+                            f(*s);
                         }
                     }
                 }
@@ -317,13 +315,11 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for BVH<T, P> {
                 }
             }
         }
-        Box::new(out.into_iter())
     }
 
-    fn query_rect<'a>(&'a self, rect: Aabb2D<T>) -> Box<dyn Iterator<Item = usize> + 'a> {
-        let mut out = Vec::new();
+    fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<T>, mut f: F) {
         let Some(root_idx) = self.root else {
-            return Box::new(out.into_iter());
+            return;
         };
         let mut stack = vec![root_idx];
         while let Some(i) = stack.pop() {
@@ -335,7 +331,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for BVH<T, P> {
                 Kind::Leaf(items) => {
                     for (s, b) in items {
                         if !b.intersect(&rect).is_empty() {
-                            out.push(*s);
+                            f(*s);
                         }
                     }
                 }
@@ -345,7 +341,6 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for BVH<T, P> {
                 }
             }
         }
-        Box::new(out.into_iter())
     }
 }
 

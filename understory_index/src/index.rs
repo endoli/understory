@@ -178,26 +178,38 @@ where
 
     /// Query for entries whose AABB contains the point.
     pub fn query_point(&self, x: T, y: T) -> impl Iterator<Item = (Key, P)> + '_ {
-        let slots = self.backend.query_point(x, y);
         let mut out = Vec::new();
-        for i in slots {
-            if let Some(Some(e)) = self.entries.get(i) {
-                out.push((Key::new(i, e.generation), e.payload));
-            }
-        }
+        self.visit_point(x, y, |k, p| out.push((k, p)));
         out.into_iter()
+    }
+
+    /// Visit entries whose AABB contains the point (does not allocate result storage).
+    ///
+    /// Calls `f(key, payload)` for each match. The order is backend-dependent.
+    pub fn visit_point<F: FnMut(Key, P)>(&self, x: T, y: T, mut f: F) {
+        self.backend.visit_point(x, y, |i| {
+            if let Some(Some(e)) = self.entries.get(i) {
+                f(Key::new(i, e.generation), e.payload);
+            }
+        });
     }
 
     /// Query for entries whose AABB intersects the given rectangle.
     pub fn query_rect(&self, rect: Aabb2D<T>) -> impl Iterator<Item = (Key, P)> + '_ {
-        let slots = self.backend.query_rect(rect);
         let mut out = Vec::new();
-        for i in slots {
-            if let Some(Some(e)) = self.entries.get(i) {
-                out.push((Key::new(i, e.generation), e.payload));
-            }
-        }
+        self.visit_rect(rect, |k, p| out.push((k, p)));
         out.into_iter()
+    }
+
+    /// Visit entries whose AABB intersects the given rectangle (does not allocate result storage).
+    ///
+    /// Calls `f(key, payload)` for each match. The order is backend-dependent.
+    pub fn visit_rect<F: FnMut(Key, P)>(&self, rect: Aabb2D<T>, mut f: F) {
+        self.backend.visit_rect(rect, |i| {
+            if let Some(Some(e)) = self.entries.get(i) {
+                f(Key::new(i, e.generation), e.payload);
+            }
+        });
     }
 
     fn entry_mut(&mut self, key: Key) -> Option<&mut Entry<T, P>> {
@@ -394,5 +406,24 @@ mod tests {
         let (a, b) = dmg.moved[0];
         assert_eq!(a, Aabb2D::new(0, 0, 10, 10));
         assert_eq!(b, Aabb2D::new(5, 5, 15, 15));
+    }
+
+    #[test]
+    fn visit_point_and_rect_match_query_counts() {
+        let mut idx: Index<i64, u32> = Index::new();
+        let _k1 = idx.insert(Aabb2D::new(0, 0, 10, 10), 1);
+        let _k2 = idx.insert(Aabb2D::new(5, 5, 15, 15), 2);
+        let _ = idx.commit();
+
+        let it_count = idx.query_point(6, 6).count();
+        let mut visit_count = 0;
+        idx.visit_point(6, 6, |_k, _p| visit_count += 1);
+        assert_eq!(visit_count, it_count);
+
+        let r = Aabb2D::new(8, 8, 12, 12);
+        let it_count_r = idx.query_rect(r).count();
+        let mut visit_count_r = 0;
+        idx.visit_rect(r, |_k, _p| visit_count_r += 1);
+        assert_eq!(visit_count_r, it_count_r);
     }
 }

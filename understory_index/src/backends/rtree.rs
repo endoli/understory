@@ -4,7 +4,6 @@
 //! R-tree backend generic over scalar `T: Scalar` with SAH-like split.
 
 use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -641,10 +640,9 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for RTree<T, P> {
         self.slots.clear();
     }
 
-    fn query_point<'a>(&'a self, x: T, y: T) -> Box<dyn Iterator<Item = usize> + 'a> {
-        let mut out = Vec::new();
+    fn visit_point<F: FnMut(usize)>(&self, x: T, y: T, mut f: F) {
         let Some(root_idx) = self.root else {
-            return Box::new(out.into_iter());
+            return;
         };
         let p = Aabb2D::new(x, y, x, y);
         let mut stack = vec![root_idx];
@@ -658,7 +656,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for RTree<T, P> {
                     if let RChild::Item { slot, bbox, .. } = c
                         && !bbox.intersect(&p).is_empty()
                     {
-                        out.push(*slot);
+                        f(*slot);
                     }
                 }
             } else {
@@ -669,13 +667,11 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for RTree<T, P> {
                 }
             }
         }
-        Box::new(out.into_iter())
     }
 
-    fn query_rect<'a>(&'a self, rect: Aabb2D<T>) -> Box<dyn Iterator<Item = usize> + 'a> {
-        let mut out = Vec::new();
+    fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<T>, mut f: F) {
         let Some(root_idx) = self.root else {
-            return Box::new(out.into_iter());
+            return;
         };
         let mut stack = vec![root_idx];
         while let Some(i) = stack.pop() {
@@ -688,7 +684,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for RTree<T, P> {
                     if let RChild::Item { slot, bbox, .. } = c
                         && !bbox.intersect(&rect).is_empty()
                     {
-                        out.push(*slot);
+                        f(*slot);
                     }
                 }
             } else {
@@ -699,7 +695,6 @@ impl<T: Scalar, P: Copy + Debug> Backend<T, P> for RTree<T, P> {
                 }
             }
         }
-        Box::new(out.into_iter())
     }
 }
 

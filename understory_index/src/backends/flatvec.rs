@@ -3,7 +3,6 @@
 
 //! Flat vector backend with linear scans. Small and simple; good for tiny sets.
 
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
@@ -56,26 +55,24 @@ impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Backend<T, P> for FlatVec<T,
     fn clear(&mut self) {
         self.entries.clear();
     }
-    fn query_point<'a>(&'a self, x: T, y: T) -> Box<dyn Iterator<Item = usize> + 'a> {
-        let mut out = Vec::new();
+
+    fn visit_point<F: FnMut(usize)>(&self, x: T, y: T, mut f: F) {
         for (i, slot) in self.entries.iter().enumerate() {
             if let Some(a) = slot.as_ref()
                 && a.contains_point(x, y)
             {
-                out.push(i);
+                f(i);
             }
         }
-        Box::new(out.into_iter())
     }
-    fn query_rect<'a>(&'a self, rect: Aabb2D<T>) -> Box<dyn Iterator<Item = usize> + 'a> {
-        let mut out = Vec::new();
+
+    fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<T>, mut f: F) {
         for (i, slot) in self.entries.iter().enumerate() {
             if let Some(a) = slot.as_ref()
                 && !a.intersect(&rect).is_empty()
             {
-                out.push(i);
+                f(i);
             }
         }
-        Box::new(out.into_iter())
     }
 }

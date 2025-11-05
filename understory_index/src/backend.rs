@@ -4,6 +4,7 @@
 //! Backend trait for spatial indexing implementations.
 
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 
 use crate::types::Aabb2D;
 use core::fmt::Debug;
@@ -22,9 +23,23 @@ pub trait Backend<T: Copy + PartialOrd + Debug, P: Copy + Debug> {
     /// Clear all spatial structures.
     fn clear(&mut self);
 
-    /// Query slots whose AABB contains the point.
-    fn query_point<'a>(&'a self, x: T, y: T) -> Box<dyn Iterator<Item = usize> + 'a>;
+    /// Visit slots whose AABB contains the point.
+    fn visit_point<F: FnMut(usize)>(&self, x: T, y: T, f: F);
 
-    /// Query slots whose AABB intersects the rectangle.
-    fn query_rect<'a>(&'a self, rect: Aabb2D<T>) -> Box<dyn Iterator<Item = usize> + 'a>;
+    /// Visit slots whose AABB intersects the rectangle.
+    fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<T>, f: F);
+
+    /// Query slots whose AABB contains the point. Default: collects `visit_point`.
+    fn query_point<'a>(&'a self, x: T, y: T) -> Box<dyn Iterator<Item = usize> + 'a> {
+        let mut out = Vec::new();
+        self.visit_point(x, y, |i| out.push(i));
+        Box::new(out.into_iter())
+    }
+
+    /// Query slots whose AABB intersects the rectangle. Default: collects `visit_rect`.
+    fn query_rect<'a>(&'a self, rect: Aabb2D<T>) -> Box<dyn Iterator<Item = usize> + 'a> {
+        let mut out = Vec::new();
+        self.visit_rect(rect, |i| out.push(i));
+        Box::new(out.into_iter())
+    }
 }
