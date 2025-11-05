@@ -1,0 +1,25 @@
+[package]
+name = "understory_responder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic, no_std event responder chain for UI: capture → target → bubble"
+keywords = ["ui", "events", "router", "responder", "no_std", "understory"]
+categories = ["gui", "data-structures"]
+
+[features]
+default = []
+# Enable std mode for deps that support it.
+std = ["kurbo/std", "understory_box_tree/std"]
+# Enable no_std numeric support via libm for deps that support it.
+libm = ["kurbo/libm", "understory_box_tree/libm"]
+# Adapter depends on box tree + kurbo; default to libm for no_std builds.
+box_tree_adapter = ["dep:understory_box_tree", "dep:kurbo", "libm"]
+
+[dependencies]
+understory_box_tree = { path = "../understory_box_tree", default-features = false, optional = true }
+kurbo = { workspace = true, default-features = false, optional = true }
+
+[lints]
+workspace = true

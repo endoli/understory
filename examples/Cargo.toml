@@ -1,0 +1,13 @@
+[package]
+name = "understory_examples"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+understory_responder = { path = "../understory_responder", features = [
+  "box_tree_adapter",
+  "std",
+] }
+understory_box_tree = { path = "../understory_box_tree" }
+kurbo = { workspace = true, default-features = true }

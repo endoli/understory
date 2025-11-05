@@ -19,6 +19,11 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Not a layout engine.
   - Upstream code (your layout system) decides sizes and positions and then updates this tree.
 
+- `understory_responder`
+  - A deterministic event router that builds the responder chain sequence: capture → target → bubble.
+  - Consumes pre‑resolved hits (from a picker or the box tree) and emits an ordered dispatch sequence.
+  - Supports pointer capture with path reconstruction via a `ParentLookup` provider and bypasses scope filters.
+
 Both crates are `#![no_std]` and use `alloc`.
 Examples and tests use `std`.
 
@@ -64,10 +69,14 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
 - Read the crate READMEs.
   - `understory_index/README.md` has the API and a “Choosing a backend” guide.
   - `understory_box_tree/README.md` has usage, hit‑testing, and visible‑set examples.
+  - `understory_responder/README.md` explains routing, capture, and how to integrate with a picker.
 - Run examples.
   - `cargo run -p understory_index --example basic_index`
   - `cargo run -p understory_box_tree --example basic_box_tree`
   - `cargo run -p understory_box_tree --example visible_list`
+  - `cargo run -p understory_examples --example responder_basics`
+  - `cargo run -p understory_examples --example responder_hover`
+  - `cargo run -p understory_examples --example responder_box_tree`
 
 ## MSRV & License
 

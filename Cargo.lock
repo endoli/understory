@@ -505,8 +505,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "understory_examples"
+version = "0.1.0"
+dependencies = [
+ "kurbo",
+ "understory_box_tree",
+ "understory_responder",
+]
+
+[[package]]
 name = "understory_index"
 version = "0.0.1"
+
+[[package]]
+name = "understory_responder"
+version = "0.1.0"
+dependencies = [
+ "kurbo",
+ "understory_box_tree",
+]
 
 [[package]]
 name = "unicode-ident"

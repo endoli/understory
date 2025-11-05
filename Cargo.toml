@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["understory_index", "understory_box_tree", "benches"]
+members = [
+  "understory_index",
+  "understory_box_tree",
+  "understory_responder",
+  "benches",
+  "examples",
+]
 
 [workspace.package]
 version = "0.1.0"
