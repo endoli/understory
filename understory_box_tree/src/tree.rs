@@ -1,0 +1,535 @@
+// Copyright 2025 the Understory Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Core tree implementation: structure, updates, queries.
+
+use alloc::vec::Vec;
+use kurbo::{Affine, Point, Rect, RoundedRect};
+use understory_index::{Aabb2D, Index as AabbIndex, Key as AabbKey};
+
+use crate::damage::Damage;
+use crate::types::{LocalNode, NodeFlags, NodeId};
+use crate::util::{rect_to_aabb, transform_rect_bbox};
+
+impl Default for Tree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Top-level region tree.
+pub struct Tree {
+    nodes: Vec<Option<Node>>, // generational slots
+    pub(crate) free_list: Vec<usize>,
+    pub(crate) epoch: u64,
+    pub(crate) index: AabbIndex<f64, NodeId>,
+}
+
+impl core::fmt::Debug for Tree {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let total = self.nodes.len();
+        let alive = self.nodes.iter().filter(|n| n.is_some()).count();
+        let free = self.free_list.len();
+        f.debug_struct("Tree")
+            .field("nodes_total", &total)
+            .field("nodes_alive", &alive)
+            .field("free_list", &free)
+            .field("epoch", &self.epoch)
+            .field("index", &self.index)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Results of a hit test.
+#[derive(Clone, Debug)]
+pub struct Hit {
+    /// The matched node.
+    pub node: NodeId,
+    /// Path from root to node (inclusive).
+    pub path: Vec<NodeId>,
+}
+
+/// Filters applied during hit testing and rectangle intersection.
+///
+/// Used by [`Tree::hit_test_point`] and [`Tree::intersect_rect`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct QueryFilter {
+    /// If true, only consider nodes marked [`NodeFlags::VISIBLE`].
+    pub visible_only: bool,
+    /// If true, only consider nodes marked [`NodeFlags::PICKABLE`] (hit-test).
+    pub pickable_only: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct WorldNode {
+    world_transform: Affine,
+    world_bounds: Rect, // AABB of transformed (and clipped) local bounds
+    world_clip: Option<Rect>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct Dirty {
+    layout: bool,
+    transform: bool,
+    clip: bool,
+    z: bool,
+    index: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Node {
+    generation: u32,
+    parent: Option<NodeId>,
+    children: Vec<NodeId>,
+    local: LocalNode,
+    world: WorldNode,
+    dirty: Dirty,
+    index_key: Option<AabbKey>,
+}
+
+impl Node {
+    fn new(generation: u32, local: LocalNode) -> Self {
+        Self {
+            generation,
+            parent: None,
+            children: Vec::new(),
+            local,
+            world: WorldNode::default(),
+            dirty: Dirty {
+                layout: true,
+                transform: true,
+                clip: true,
+                z: true,
+                index: true,
+            },
+            index_key: None,
+        }
+    }
+}
+
+impl Tree {
+    /// Create a new empty tree.
+    pub fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            free_list: Vec::new(),
+            epoch: 0,
+            index: AabbIndex::default(),
+        }
+    }
+
+    /// Default creates an empty tree.
+    pub fn default_tree() -> Self {
+        Self::new()
+    }
+
+    fn mark_subtree_dirty(&mut self, id: NodeId, flags: Dirty) {
+        if !self.is_alive(id) {
+            return;
+        }
+        let children = {
+            let n = self.node_mut(id);
+            n.dirty.layout |= flags.layout;
+            n.dirty.transform |= flags.transform;
+            n.dirty.clip |= flags.clip;
+            n.dirty.z |= flags.z;
+            n.dirty.index |= flags.index;
+            n.children.clone()
+        };
+        for c in children {
+            self.mark_subtree_dirty(c, flags);
+        }
+    }
+
+    /// Insert a new node as a child of `parent` (or as a root if `None`).
+    pub fn insert(&mut self, parent: Option<NodeId>, local: LocalNode) -> NodeId {
+        let (idx, generation) = if let Some(idx) = self.free_list.pop() {
+            let generation = self.nodes[idx].as_ref().map(|n| n.generation).unwrap_or(0) + 1;
+            self.nodes[idx] = Some(Node::new(generation, local));
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "NodeId uses 32-bit indices by design."
+            )]
+            (idx as u32, generation)
+        } else {
+            let generation = 1_u32;
+            self.nodes.push(Some(Node::new(generation, local)));
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "NodeId uses 32-bit indices by design."
+            )]
+            ((self.nodes.len() - 1) as u32, generation)
+        };
+        let id = NodeId::new(idx, generation);
+        if let Some(p) = parent {
+            self.link_parent(id, p);
+        }
+        id
+    }
+
+    /// Remove a node (and its subtree) from the tree.
+    pub fn remove(&mut self, id: NodeId) {
+        if !self.is_alive(id) {
+            return;
+        }
+        if let Some(parent) = self.node(id).parent {
+            self.unlink_parent(id, parent);
+        }
+        let children = self.node(id).children.clone();
+        for child in children {
+            self.remove(child);
+        }
+        if let Some(key) = self.node(id).index_key {
+            self.index.remove(key);
+        }
+        self.nodes[id.idx()] = None;
+        self.free_list.push(id.idx());
+    }
+
+    /// Reparent `id` under `new_parent`.
+    pub fn reparent(&mut self, id: NodeId, new_parent: Option<NodeId>) {
+        if !self.is_alive(id) {
+            return;
+        }
+        if let Some(parent) = self.node(id).parent {
+            self.unlink_parent(id, parent);
+        }
+        if let Some(p) = new_parent {
+            self.link_parent(id, p);
+        }
+        self.mark_subtree_dirty(
+            id,
+            Dirty {
+                layout: true,
+                transform: true,
+                clip: true,
+                z: true,
+                index: true,
+            },
+        );
+    }
+
+    /// Update local transform.
+    pub fn set_local_transform(&mut self, id: NodeId, tf: Affine) {
+        if let Some(n) = self.node_opt_mut(id) {
+            n.local.local_transform = tf;
+            n.dirty.transform = true;
+            n.dirty.index = true;
+        }
+    }
+
+    /// Update local clip.
+    pub fn set_local_clip(&mut self, id: NodeId, clip: Option<RoundedRect>) {
+        if let Some(n) = self.node_opt_mut(id) {
+            n.local.local_clip = clip;
+            n.dirty.clip = true;
+            n.dirty.index = true;
+        }
+    }
+
+    /// Update z index.
+    pub fn set_z_index(&mut self, id: NodeId, z: i32) {
+        if let Some(n) = self.node_opt_mut(id) {
+            n.local.z_index = z;
+            n.dirty.z = true;
+        }
+    }
+
+    /// Access a node for debugging; panics if `id` is stale.
+    pub(crate) fn node(&self, id: NodeId) -> &Node {
+        self.nodes[id.idx()].as_ref().expect("dangling NodeId")
+    }
+
+    /// Access a node mutably for debugging; panics if `id` is stale.
+    pub(crate) fn node_mut(&mut self, id: NodeId) -> &mut Node {
+        self.nodes[id.idx()].as_mut().expect("dangling NodeId")
+    }
+
+    /// Run the batched update and return coarse damage.
+    pub fn commit(&mut self) -> Damage {
+        let mut damage = Damage::default();
+        let roots: Vec<NodeId> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| match n {
+                Some(n) if n.parent.is_none() =>
+                {
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "NodeId uses 32-bit indices by design."
+                    )]
+                    Some(NodeId::new(i as u32, n.generation))
+                }
+                _ => None,
+            })
+            .collect();
+
+        for root in roots {
+            self.update_world_recursive(root, Affine::IDENTITY, None, &mut damage);
+        }
+
+        let idx_damage = self.index.commit();
+        if let Some(u) = idx_damage.union() {
+            let r = Rect::new(u.min_x, u.min_y, u.max_x, u.max_y);
+            damage.dirty_rects.push(r);
+        }
+
+        damage
+    }
+
+    /// Hit test a world-space point. Returns the topmost node.
+    pub fn hit_test_point(&self, pt: Point, filter: QueryFilter) -> Option<Hit> {
+        let candidates: Vec<NodeId> = self
+            .index
+            .query_point(pt.x, pt.y)
+            .map(|(_, id)| id)
+            .collect();
+        let mut best: Option<(NodeId, i32)> = None;
+        for id in candidates {
+            let Some(node) = self.nodes[id.idx()].as_ref() else {
+                continue;
+            };
+            if filter.visible_only && !node.local.flags.contains(NodeFlags::VISIBLE) {
+                continue;
+            }
+            if filter.pickable_only && !node.local.flags.contains(NodeFlags::PICKABLE) {
+                continue;
+            }
+            if let Some(clip) = node.local.local_clip {
+                let world_pt = node.world.world_transform.inverse() * pt;
+                if !clip.rect().contains(world_pt) {
+                    continue;
+                }
+            }
+            match best {
+                None => best = Some((id, node.local.z_index)),
+                Some((_, z_best)) if node.local.z_index >= z_best => {
+                    best = Some((id, node.local.z_index));
+                }
+                _ => {}
+            }
+        }
+        best.map(|(node, _)| Hit {
+            node,
+            path: self.path_to_root(node),
+        })
+    }
+
+    /// Iterate nodes intersecting a world-space rect.
+    pub fn intersect_rect<'a>(
+        &'a self,
+        rect: Rect,
+        filter: QueryFilter,
+    ) -> impl Iterator<Item = NodeId> + 'a {
+        let q = rect_to_aabb(rect);
+        let ids: Vec<NodeId> = self.index.query_rect(q).map(|(_, id)| id).collect();
+        ids.into_iter().filter(move |id| {
+            let Some(node) = self.nodes[id.idx()].as_ref() else {
+                return false;
+            };
+            if filter.visible_only && !node.local.flags.contains(NodeFlags::VISIBLE) {
+                return false;
+            }
+            true
+        })
+    }
+
+    // --- internals ---
+
+    fn is_alive(&self, id: NodeId) -> bool {
+        self.nodes
+            .get(id.idx())
+            .and_then(|n| n.as_ref())
+            .map(|n| n.generation == id.1)
+            .unwrap_or(false)
+    }
+
+    fn node_opt_mut(&mut self, id: NodeId) -> Option<&mut Node> {
+        let n = self.nodes.get_mut(id.idx())?.as_mut()?;
+        if n.generation != id.1 {
+            return None;
+        }
+        Some(n)
+    }
+
+    fn link_parent(&mut self, id: NodeId, parent: NodeId) {
+        let parent_node = self.node_mut(parent);
+        parent_node.children.push(id);
+        self.node_mut(id).parent = Some(parent);
+    }
+
+    fn unlink_parent(&mut self, id: NodeId, parent: NodeId) {
+        let p = self.node_mut(parent);
+        p.children.retain(|c| *c != id);
+        self.node_mut(id).parent = None;
+    }
+
+    fn path_to_root(&self, mut id: NodeId) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        loop {
+            out.push(id);
+            let parent = self.node(id).parent;
+            match parent {
+                Some(p) => id = p,
+                None => break,
+            }
+        }
+        out.reverse();
+        out
+    }
+
+    fn update_world_recursive(
+        &mut self,
+        id: NodeId,
+        parent_tf: Affine,
+        parent_clip: Option<Rect>,
+        damage: &mut Damage,
+    ) {
+        enum IndexOp {
+            Update(AabbKey, Aabb2D<f64>),
+            Insert(Aabb2D<f64>),
+        }
+        let (old_bounds, child_ids, (_local, world), index_op) = {
+            let node = self.node_mut(id);
+            let old = node.world.world_bounds;
+            node.world.world_transform = parent_tf * node.local.local_transform;
+            let mut world_bounds =
+                transform_rect_bbox(node.world.world_transform, node.local.local_bounds);
+            let world_clip = node
+                .local
+                .local_clip
+                .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()))
+                .or(parent_clip);
+            if let Some(c) = world_clip {
+                world_bounds = world_bounds.intersect(c);
+            }
+            node.world.world_bounds = world_bounds;
+            node.world.world_clip = world_clip;
+            let aabb = rect_to_aabb(world_bounds);
+            let op = if let Some(key) = node.index_key {
+                IndexOp::Update(key, aabb)
+            } else {
+                IndexOp::Insert(aabb)
+            };
+            let child_ids = node.children.clone();
+            (old, child_ids, (node.local.clone(), node.world.clone()), op)
+        };
+
+        match index_op {
+            IndexOp::Update(key, aabb) => self.index.update(key, aabb),
+            IndexOp::Insert(aabb) => {
+                let key = self.index.insert(aabb, id);
+                self.node_mut(id).index_key = Some(key);
+            }
+        }
+
+        if old_bounds != world.world_bounds {
+            if old_bounds.width() > 0.0 && old_bounds.height() > 0.0 {
+                damage.dirty_rects.push(old_bounds);
+            }
+            if world.world_bounds.width() > 0.0 && world.world_bounds.height() > 0.0 {
+                damage.dirty_rects.push(world.world_bounds);
+            }
+        }
+
+        for child in child_ids {
+            self.update_world_recursive(child, world.world_transform, world.world_clip, damage);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::f64::consts::FRAC_PI_4;
+    use kurbo::Vec2;
+
+    #[test]
+    fn insert_and_hit_test() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                ..Default::default()
+            },
+        );
+        let _a = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(10.0, 10.0, 60.0, 60.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let b = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 10,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let hit = tree
+            .hit_test_point(
+                Point::new(50.0, 50.0),
+                QueryFilter {
+                    visible_only: true,
+                    pickable_only: true,
+                },
+            )
+            .unwrap();
+        assert_eq!(hit.node, b, "topmost by z should win");
+        assert_eq!(hit.path.first().copied(), Some(root));
+        assert_eq!(hit.path.last().copied(), Some(b));
+    }
+
+    #[test]
+    fn transform_and_damage() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let n = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+        tree.set_local_transform(n, Affine::translate(Vec2::new(50.0, 0.0)));
+        let dmg = tree.commit();
+        assert!(dmg.union_rect().is_some());
+    }
+
+    #[test]
+    fn rotated_bbox_expands() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 0.0, 0.0),
+                ..Default::default()
+            },
+        );
+        let n = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+        let _nb = tree.node(n).world.world_bounds;
+        let _expected =
+            transform_rect_bbox(Affine::rotate(FRAC_PI_4), Rect::new(0.0, 0.0, 10.0, 10.0));
+    }
+}
