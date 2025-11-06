@@ -1,7 +1,12 @@
 // Copyright 2025 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Basic example: build a small tree, move a node, commit to compute damage, and hit-test.
+//! Box tree basics.
+//!
+//! Build a small tree, move a node, commit damage, and hit-test.
+//!
+//! Run:
+//! - `cargo run -p understory_examples --example box_tree_basics`
 
 use kurbo::{Affine, Point, Rect, Vec2};
 use understory_box_tree::{LocalNode, QueryFilter, Tree};

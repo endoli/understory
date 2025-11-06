@@ -1,7 +1,10 @@
 // Copyright 2025 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Demonstrate using `intersect_rect` as a visible-window computation for a long list.
+//! Visible-window example using box tree rectangle intersection.
+//!
+//! Run:
+//! - `cargo run -p understory_examples --example box_tree_visible_list`
 
 use kurbo::Rect;
 use understory_box_tree::{LocalNode, QueryFilter, Tree};

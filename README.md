@@ -71,9 +71,9 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
   - `understory_box_tree/README.md` has usage, hit‑testing, and visible‑set examples.
   - `understory_responder/README.md` explains routing, capture, and how to integrate with a picker.
 - Run examples.
-  - `cargo run -p understory_index --example basic_index`
-  - `cargo run -p understory_box_tree --example basic_box_tree`
-  - `cargo run -p understory_box_tree --example visible_list`
+  - `cargo run -p understory_examples --example index_basics`
+  - `cargo run -p understory_examples --example box_tree_basics`
+  - `cargo run -p understory_examples --example box_tree_visible_list`
   - `cargo run -p understory_examples --example responder_basics`
   - `cargo run -p understory_examples --example responder_hover`
   - `cargo run -p understory_examples --example responder_box_tree`

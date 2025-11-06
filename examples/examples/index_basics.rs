@@ -1,7 +1,12 @@
 // Copyright 2025 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Basic usage of Understory Index: insert, update, commit damage, and query.
+//! Index basics.
+//!
+//! Insert, update, commit damage, and query.
+//!
+//! Run:
+//! - `cargo run -p understory_examples --example index_basics`
 
 use understory_index::{Aabb2D, Index};
 

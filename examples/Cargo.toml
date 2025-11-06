@@ -10,4 +10,5 @@ understory_responder = { path = "../understory_responder", features = [
   "std",
 ] }
 understory_box_tree = { path = "../understory_box_tree" }
+understory_index = { path = "../understory_index" }
 kurbo = { workspace = true, default-features = true }
