@@ -5,7 +5,7 @@
 //!
 //! - `flatvec`: flat vector with linear scans (small, simple).
 //! - `rtree`: generic R-tree (`T: Scalar`) with SAH-like split (aliases: `RTreeI64`, `RTreeF32`, `RTreeF64`).
-//! - `bvh`: generic BVH (`T: Scalar`) with SAH-like split (aliases: `BVHF32`, `BVHF64`, `BVHI64`).
+//! - `bvh`: generic BVH (`T: Scalar`) with SAH-like split (aliases: `BvhF32`, `BvhF64`, `BvhI64`).
 //!
 //! SAH note
 //! --------
