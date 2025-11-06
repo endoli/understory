@@ -46,7 +46,7 @@ struct Entry<T, P> {
 
 /// A generic AABB index parameterized by a spatial backend.
 #[derive(Debug)]
-pub struct IndexGeneric<T: Copy + PartialOrd + Debug, P: Copy + Debug, B: Backend<T, P>> {
+pub struct IndexGeneric<T: Copy + PartialOrd + Debug, P: Copy + Debug, B: Backend<T>> {
     entries: Vec<Option<Entry<T, P>>>,
     free_list: Vec<usize>,
     backend: B,
@@ -56,7 +56,7 @@ impl<T, P, B> IndexGeneric<T, P, B>
 where
     T: Copy + PartialOrd + Debug,
     P: Copy + Debug,
-    B: Backend<T, P> + Default,
+    B: Backend<T> + Default,
 {
     /// Create an empty index using the backend's default constructor.
     pub fn new() -> Self {
@@ -72,7 +72,7 @@ impl<T, P, B> IndexGeneric<T, P, B>
 where
     T: Copy + PartialOrd + Debug,
     P: Copy + Debug,
-    B: Backend<T, P>,
+    B: Backend<T>,
 {
     /// Reserve space for at least `n` entries.
     pub fn reserve(&mut self, n: usize) {
@@ -224,7 +224,7 @@ where
 // Debug is derived above; backends implement Debug with concise, partial output.
 
 /// Default index using a flat vector backend.
-pub type Index<T, P> = IndexGeneric<T, P, crate::backends::flatvec::FlatVec<T, P>>;
+pub type Index<T, P> = IndexGeneric<T, P, crate::backends::flatvec::FlatVec<T>>;
 
 impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Default for Index<T, P> {
     fn default() -> Self {
@@ -234,7 +234,7 @@ impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Default for Index<T, P> {
 
 impl<P: Copy + Debug> Index<f64, P> {
     /// Create a BVH-backed index using SAH-like splits.
-    pub fn with_bvh() -> IndexGeneric<f64, P, crate::backends::bvh::BVHF64<P>> {
+    pub fn with_bvh() -> IndexGeneric<f64, P, crate::backends::bvh::BVHF64> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),
@@ -313,7 +313,7 @@ impl<P: Copy + Debug> Index<i64, P> {
 
 impl<P: Copy + Debug> Index<f32, P> {
     /// Create a BVH-backed index (f32 coordinates).
-    pub fn with_bvh() -> IndexGeneric<f32, P, crate::backends::bvh::BVHF32<P>> {
+    pub fn with_bvh() -> IndexGeneric<f32, P, crate::backends::bvh::BVHF32> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),

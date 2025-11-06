@@ -10,21 +10,19 @@ use crate::backend::Backend;
 use crate::types::Aabb2D;
 
 /// Flat vector backend with linear scans.
-pub struct FlatVec<T: Copy + PartialOrd + Debug, P: Copy + Debug> {
+pub struct FlatVec<T: Copy + PartialOrd + Debug> {
     entries: Vec<Option<Aabb2D<T>>>,
-    _p: core::marker::PhantomData<P>,
 }
 
-impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Default for FlatVec<T, P> {
+impl<T: Copy + PartialOrd + Debug> Default for FlatVec<T> {
     fn default() -> Self {
         Self {
             entries: Vec::new(),
-            _p: core::marker::PhantomData,
         }
     }
 }
 
-impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Debug for FlatVec<T, P> {
+impl<T: Copy + PartialOrd + Debug> Debug for FlatVec<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let total = self.entries.len();
         let alive = self.entries.iter().filter(|e| e.is_some()).count();
@@ -35,7 +33,7 @@ impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Debug for FlatVec<T, P> {
     }
 }
 
-impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Backend<T, P> for FlatVec<T, P> {
+impl<T: Copy + PartialOrd + Debug> Backend<T> for FlatVec<T> {
     fn insert(&mut self, slot: usize, aabb: Aabb2D<T>) {
         if self.entries.len() <= slot {
             self.entries.resize_with(slot + 1, || None);

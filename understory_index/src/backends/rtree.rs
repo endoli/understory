@@ -559,7 +559,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
     }
 }
 
-impl<T: Scalar, P: Copy + Debug> Backend<T, P> for RTree<T, P> {
+impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
     fn insert(&mut self, slot: usize, aabb: Aabb2D<T>) {
         self.ensure_slot(slot, aabb);
         match self.root {

@@ -10,7 +10,7 @@ use crate::types::Aabb2D;
 use core::fmt::Debug;
 
 /// Spatial backend abstraction used by `IndexGeneric`.
-pub trait Backend<T: Copy + PartialOrd + Debug, P: Copy + Debug> {
+pub trait Backend<T: Copy + PartialOrd + Debug> {
     /// Insert a new slot into the spatial structure.
     fn insert(&mut self, slot: usize, aabb: Aabb2D<T>);
 
