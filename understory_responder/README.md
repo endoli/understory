@@ -65,6 +65,15 @@ The router only computes the traversal order. A higher‑level dispatcher can ex
    and feed it to [`HoverState`](https://docs.rs/understory_responder/latest/understory_responder/hover/struct.HoverState.html). `HoverState` emits leave (inner→outer)
    and enter (outer→inner) events for the minimal transition between old and new paths.
 
+## Focus
+
+Focus routing is separate from pointer routing.
+Use [`Router::dispatch_for`](router::Router::dispatch_for) to emit a capture → target → bubble sequence for the focused node.
+The router reconstructs the root→target path via [`ParentLookup`](https://docs.rs/understory_responder/latest/understory_responder/types/trait.ParentLookup.html) or falls back to a singleton path.
+Use [`FocusState`](https://docs.rs/understory_responder/latest/understory_responder/focus/struct.FocusState.html) to compute `Enter(..)` and `Leave(..)` transitions between old and new focus paths.
+Keyboard and IME events typically route to focus and may bypass scope filters by policy at a higher layer.
+Click‑to‑focus can be implemented by setting focus after a pointer route and then routing subsequent key input via `dispatch_for`.
+
 ## Dispatcher sketch
 
 The snippet below shows how a higher‑level layer could walk the router’s sequence and honor stop/cancel rules.
