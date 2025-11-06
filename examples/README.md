@@ -14,6 +14,10 @@ These examples form a short, progressive walkthrough from routing basics to inte
   - Resolve hits from `understory_box_tree`, route them, and compute hover transitions. Includes a tiny ASCII tree and prints box rects and query coordinates.
   - Run: `cargo run -p understory_examples --example responder_box_tree`
 
+- responder_focus
+  - Dispatch to focused target via `dispatch_for` and compute focus transitions with `FocusState`.
+  - Run: `cargo run -p understory_examples --example responder_focus`
+
 - index_basics
   - Insert, update, commit damage, and query using `understory_index`.
   - Run: `cargo run -p understory_examples --example index_basics`

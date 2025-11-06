@@ -199,6 +199,31 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         self.emit_path(path, best.localizer.clone(), Some(best.meta.clone()))
     }
 
+    /// Emit a dispatch sequence for a specific target node by reconstructing its path.
+    ///
+    /// Uses [`ParentLookup`] to derive the root→target path. `scope` and capture settings
+    /// are not consulted; this is intended for focused routing (keyboard/IME).
+    pub fn dispatch_for<M>(&self, target: K) -> Vec<Dispatch<K, L::WidgetId, M>>
+    where
+        M: Clone,
+    {
+        self.dispatch_for_with::<M>(target, Localizer::default(), None)
+    }
+
+    /// Emit a dispatch sequence for a specific target with explicit localizer/meta.
+    pub fn dispatch_for_with<M>(
+        &self,
+        target: K,
+        localizer: Localizer,
+        meta: Option<M>,
+    ) -> Vec<Dispatch<K, L::WidgetId, M>>
+    where
+        M: Clone,
+    {
+        let path = Self::reconstruct_path(target, &self.parent);
+        self.emit_path(path, localizer, meta)
+    }
+
     fn make_dispatch<M: Clone>(
         &self,
         phase: Phase,
@@ -762,6 +787,54 @@ mod tests {
         assert_eq!(
             phases,
             vec![(Phase::Capture, 9), (Phase::Target, 9), (Phase::Bubble, 9),]
+        );
+    }
+
+    // dispatch_for reconstructs a path via ParentLookup and emits capture→target→bubble.
+    #[test]
+    fn dispatch_for_reconstructs_path() {
+        struct Parents;
+        impl ParentLookup<Node> for Parents {
+            fn parent_of(&self, node: &Node) -> Option<Node> {
+                match node.0 {
+                    3 => Some(Node(2)),
+                    2 => Some(Node(1)),
+                    _ => None,
+                }
+            }
+        }
+        let lookup = Lookup;
+        let router: Router<Node, Lookup, Parents> = Router::with_parent(lookup, Parents);
+        let out = router.dispatch_for::<()>(Node(3));
+        let phases: Vec<(Phase, u32)> = out.iter().map(|d| (d.phase, d.node.0)).collect();
+        assert_eq!(
+            phases,
+            vec![
+                (Phase::Capture, 1),
+                (Phase::Capture, 2),
+                (Phase::Capture, 3),
+                (Phase::Target, 3),
+                (Phase::Bubble, 3),
+                (Phase::Bubble, 2),
+                (Phase::Bubble, 1),
+            ]
+        );
+    }
+
+    // dispatch_for without parent lookup falls back to singleton path.
+    #[test]
+    fn dispatch_for_singleton_without_parent() {
+        let lookup = Lookup;
+        let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
+        let out = router.dispatch_for::<()>(Node(42));
+        let phases: Vec<(Phase, u32)> = out.iter().map(|d| (d.phase, d.node.0)).collect();
+        assert_eq!(
+            phases,
+            vec![
+                (Phase::Capture, 42),
+                (Phase::Target, 42),
+                (Phase::Bubble, 42)
+            ]
         );
     }
 }
