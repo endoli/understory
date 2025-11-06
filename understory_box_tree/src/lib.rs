@@ -37,7 +37,7 @@
 //! assumed to be finite (no NaNs). AABBs are conservative for non-axis transforms and rounded clips.
 //!
 //! See [`understory_index::Index`], [`understory_index::RTreeF32`]/[`understory_index::RTreeF64`]/[`understory_index::RTreeI64`], and
-//! [`understory_index::BVHF32`]/[`understory_index::BVHF64`]/[`understory_index::BVHI64`] for details.
+//! [`understory_index::BvhF32`]/[`understory_index::BvhF64`]/[`understory_index::BvhI64`] for details.
 //!
 //! ## API overview
 //!

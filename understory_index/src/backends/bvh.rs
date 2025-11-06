@@ -11,7 +11,7 @@ use crate::backend::Backend;
 use crate::types::{Aabb2D, Scalar, area, union_aabb};
 
 /// A simple BVH backend using SAH-like splits.
-pub struct BVH<T: Scalar> {
+pub struct Bvh<T: Scalar> {
     max_leaf: usize,
     root: Option<NodeIdx>,
     arena: Vec<Node<T>>,
@@ -41,7 +41,7 @@ impl NodeIdx {
     }
 }
 
-impl<T: Scalar> Default for BVH<T> {
+impl<T: Scalar> Default for Bvh<T> {
     fn default() -> Self {
         Self {
             max_leaf: 8,
@@ -57,7 +57,7 @@ type BvhItem<TS> = (usize, Aabb2D<TS>);
 type BvhItems<TS> = Vec<BvhItem<TS>>;
 type BvhBestSplit<TS> = Option<(crate::types::ScalarAcc<TS>, BvhItems<TS>, BvhItems<TS>)>;
 
-impl<T: Scalar> BVH<T> {
+impl<T: Scalar> Bvh<T> {
     fn ensure_slot(&mut self, slot: usize, bbox: Aabb2D<T>) {
         if self.slots.len() <= slot {
             self.slots.resize_with(slot + 1, || None);
@@ -244,7 +244,7 @@ impl<T: Scalar> BVH<T> {
     }
 }
 
-impl<T: Scalar> Backend<T> for BVH<T> {
+impl<T: Scalar> Backend<T> for Bvh<T> {
     fn insert(&mut self, slot: usize, aabb: Aabb2D<T>) {
         self.ensure_slot(slot, aabb);
         match self.root {
@@ -342,12 +342,12 @@ impl<T: Scalar> Backend<T> for BVH<T> {
     }
 }
 
-impl<T: Scalar> Debug for BVH<T> {
+impl<T: Scalar> Debug for Bvh<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let total = self.slots.len();
         let alive = self.slots.iter().filter(|e| e.is_some()).count();
         let has_root = self.root.is_some();
-        f.debug_struct("BVH")
+        f.debug_struct("Bvh")
             .field("max_leaf", &self.max_leaf)
             .field("arena_nodes", &self.arena.len())
             .field("total_slots", &total)
@@ -359,13 +359,13 @@ impl<T: Scalar> Debug for BVH<T> {
 
 /// Convenience type aliases for common scalar choices.
 /// BVH with f32 coordinates and f64 metrics.
-pub type BVHF32 = BVH<f32>;
+pub type BvhF32 = Bvh<f32>;
 
 /// BVH with f64 coordinates and f64 metrics.
-pub type BVHF64 = BVH<f64>;
+pub type BvhF64 = Bvh<f64>;
 
 /// BVH with i64 coordinates and i128 metrics.
-pub type BVHI64 = BVH<i64>;
+pub type BvhI64 = Bvh<i64>;
 
 #[cfg(test)]
 mod tests {
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn bvh_f64_update_move_correctness() {
         // Use backend directly to inspect structure behavior on updates.
-        let mut b: BVH<f64> = BVH::default();
+        let mut b: Bvh<f64> = Bvh::default();
         b.insert(0, Aabb2D::new(0.0, 0.0, 10.0, 10.0));
         b.insert(1, Aabb2D::new(12.0, 0.0, 22.0, 10.0));
 
@@ -423,7 +423,7 @@ mod tests {
 
     #[test]
     fn bvh_i64_update_churn_small() {
-        let mut b: BVH<i64> = BVH::default();
+        let mut b: Bvh<i64> = Bvh::default();
         b.insert(0, Aabb2D::new(0, 0, 10, 10));
         b.insert(1, Aabb2D::new(12, 0, 22, 10));
         let baseline_nodes = b.arena.len();
@@ -448,7 +448,7 @@ mod tests {
     fn bvh_f64_split_then_updates_on_internal() {
         // Force a split by exceeding max_leaf (8), then update several items and
         // verify the internal-node tree remains correct.
-        let mut b: BVH<f64> = BVH::default();
+        let mut b: Bvh<f64> = Bvh::default();
 
         // Build 12 non-overlapping AABBs along the x-axis
         let n = 12_usize;

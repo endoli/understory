@@ -234,11 +234,11 @@ impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Default for Index<T, P> {
 
 impl<P: Copy + Debug> Index<f64, P> {
     /// Create a BVH-backed index using SAH-like splits.
-    pub fn with_bvh() -> IndexGeneric<f64, P, crate::backends::bvh::BVHF64> {
+    pub fn with_bvh() -> IndexGeneric<f64, P, crate::backends::bvh::BvhF64> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),
-            backend: crate::backends::bvh::BVHF64::default(),
+            backend: crate::backends::bvh::BvhF64::default(),
         }
     }
 
@@ -313,11 +313,11 @@ impl<P: Copy + Debug> Index<i64, P> {
 
 impl<P: Copy + Debug> Index<f32, P> {
     /// Create a BVH-backed index (f32 coordinates).
-    pub fn with_bvh() -> IndexGeneric<f32, P, crate::backends::bvh::BVHF32> {
+    pub fn with_bvh() -> IndexGeneric<f32, P, crate::backends::bvh::BvhF32> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),
-            backend: crate::backends::bvh::BVHF32::default(),
+            backend: crate::backends::bvh::BvhF32::default(),
         }
     }
 

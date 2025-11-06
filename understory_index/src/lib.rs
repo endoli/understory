@@ -63,7 +63,7 @@
 //! - `RTreeF32`/`RTreeF64`/`RTreeI64`: R-tree with SAH-like splits and widened metrics; good
 //!   general-purpose index when distribution is irregular and updates are frequent.
 //!   See the [`backends`] docs for a brief SAH overview.
-//! - `BVHF32`/`BVHF64`/`BVHI64`: binary hierarchy with SAH-like splits; excels when bulk-build
+//! - `BvhF32`/`BvhF64`/`BvhI64`: binary hierarchy with SAH-like splits; excels when bulk-build
 //!   and query performance matter; updates are supported but may be costlier than R-tree.
 //!
 //! ### Float semantics
@@ -82,7 +82,7 @@ pub mod index;
 pub mod types;
 
 pub use backend::Backend;
-pub use backends::bvh::{BVHF32, BVHF64, BVHI64};
+pub use backends::bvh::{BvhF32, BvhF64, BvhI64};
 pub use backends::flatvec::FlatVec;
 pub use backends::rtree::{RTreeF32, RTreeF64, RTreeI64};
 pub use damage::Damage;
