@@ -27,20 +27,22 @@ use crate::types::{DepthKey, Localizer, ResolvedHit};
 /// Notes
 /// - Path is populated from the box tree's hit test result so the router does
 ///   not need a parent lookup.
-/// - `DepthKey` is set to `Z(0)` since only a single candidate is returned.
-///   TODO: populate with the node's actual z-index once a public getter exists.
+/// - `DepthKey` is derived from the node's z-index; since only a single candidate
+///   is returned, ordering is irrelevant.
 pub fn top_hit_for_point(
     tree: &Tree,
     pt: Point,
     filter: QueryFilter,
 ) -> Option<ResolvedHit<understory_box_tree::NodeId, ()>> {
     let hit = tree.hit_test_point(pt, filter)?;
+    let depth_key = tree
+        .z_index(hit.node)
+        .map(DepthKey::Z)
+        .unwrap_or(DepthKey::Z(0));
     Some(ResolvedHit {
         node: hit.node,
         path: Some(hit.path),
-        // TODO: use the node's z-index for DepthKey when available; for a
-        // single candidate this value is not consulted.
-        depth_key: DepthKey::Z(0),
+        depth_key,
         localizer: Localizer::default(),
         meta: (),
     })
@@ -50,9 +52,8 @@ pub fn top_hit_for_point(
 ///
 /// Path is not populated; the router can reconstruct a singleton path (or a
 /// parent-aware path if constructed with a parent lookup). Depth keys are set
-/// to `Z(0)`; consumers may apply their own ordering if desired.
-/// TODO: populate `DepthKey::Z(actual_z)` when the box tree exposes a z getter
-/// or provide a convenience helper that returns a z-sorted hit list.
+/// to each node's z-index; the returned list preserves the box tree's original
+/// iteration order so downstream consumers can sort as needed.
 pub fn hits_for_rect(
     tree: &Tree,
     rect: Rect,
@@ -62,8 +63,7 @@ pub fn hits_for_rect(
         .map(|id| ResolvedHit {
             node: id,
             path: None,
-            // TODO: set to actual z-index when available
-            depth_key: DepthKey::Z(0),
+            depth_key: tree.z_index(id).map(DepthKey::Z).unwrap_or(DepthKey::Z(0)),
             localizer: Localizer::default(),
             meta: (),
         })

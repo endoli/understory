@@ -360,6 +360,17 @@ impl Tree {
             .unwrap_or(false)
     }
 
+    /// Returns the z-index of a node if the identifier is live.
+    pub fn z_index(&self, id: NodeId) -> Option<i32> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.z_index)
+    }
+
     #[inline]
     fn id_is_newer(a: NodeId, b: NodeId) -> bool {
         (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
@@ -676,5 +687,31 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hit2.node, c, "newer id should win on equal z");
+    }
+
+    #[test]
+    fn z_index_accessor_respects_liveness() {
+        let mut tree = Tree::new();
+        let node = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                z_index: 7,
+                ..Default::default()
+            },
+        );
+        assert_eq!(tree.z_index(node), Some(7));
+        tree.remove(node);
+        assert_eq!(tree.z_index(node), None, "stale ids must return None");
+        let new_node = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                z_index: 3,
+                ..Default::default()
+            },
+        );
+        assert_eq!(tree.z_index(new_node), Some(3));
+        assert!(Tree::id_is_newer(new_node, node));
     }
 }
