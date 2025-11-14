@@ -239,6 +239,23 @@ impl Tree {
         }
     }
 
+    /// Update local bounds.
+    pub fn set_local_bounds(&mut self, id: NodeId, bounds: Rect) {
+        if let Some(n) = self.node_opt_mut(id) {
+            n.local.local_bounds = bounds;
+            n.dirty.layout = true;
+            n.dirty.index = true;
+        }
+    }
+
+    /// Update node flags.
+    pub fn set_flags(&mut self, id: NodeId, flags: NodeFlags) {
+        if let Some(n) = self.node_opt_mut(id) {
+            n.local.flags = flags;
+            n.dirty.index = true;
+        }
+    }
+
     /// Access a node for debugging; panics if `id` is stale.
     pub(crate) fn node(&self, id: NodeId) -> &Node {
         self.nodes[id.idx()].as_ref().expect("dangling NodeId")
