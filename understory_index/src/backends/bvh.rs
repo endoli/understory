@@ -7,15 +7,16 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, SubtreeFilter, SubtreeSummary};
 use crate::types::{Aabb2D, Scalar, area, union_aabb};
 
 /// A simple BVH backend using SAH-like splits.
-pub struct Bvh<T: Scalar> {
+pub struct Bvh<T: Scalar, S: SubtreeSummary = ()> {
     max_leaf: usize,
     root: Option<NodeIdx>,
-    arena: Vec<Node<T>>,
+    arena: Vec<Node<T, S>>,
     slots: Vec<Option<Aabb2D<T>>>,
+    slots_summary: Vec<S>,
 }
 
 enum Kind<T: Scalar> {
@@ -23,8 +24,9 @@ enum Kind<T: Scalar> {
     Internal { left: NodeIdx, right: NodeIdx },
 }
 
-struct Node<T: Scalar> {
+struct Node<T: Scalar, S: SubtreeSummary> {
     bbox: Aabb2D<T>,
+    summary: S,
     kind: Kind<T>,
 }
 
@@ -41,13 +43,14 @@ impl NodeIdx {
     }
 }
 
-impl<T: Scalar> Default for Bvh<T> {
+impl<T: Scalar, S: SubtreeSummary> Default for Bvh<T, S> {
     fn default() -> Self {
         Self {
             max_leaf: 8,
             root: None,
             arena: Vec::new(),
             slots: Vec::new(),
+            slots_summary: Vec::new(),
         }
     }
 }
@@ -57,7 +60,7 @@ type BvhItem<TS> = (usize, Aabb2D<TS>);
 type BvhItems<TS> = Vec<BvhItem<TS>>;
 type BvhBestSplit<TS> = Option<(crate::types::ScalarAcc<TS>, BvhItems<TS>, BvhItems<TS>)>;
 
-impl<T: Scalar> Bvh<T> {
+impl<T: Scalar, S: SubtreeSummary> Bvh<T, S> {
     fn ensure_slot(&mut self, slot: usize, bbox: Aabb2D<T>) {
         if self.slots.len() <= slot {
             self.slots.resize_with(slot + 1, || None);
@@ -76,6 +79,40 @@ impl<T: Scalar> Bvh<T> {
         } else {
             Aabb2D::new(T::zero(), T::zero(), T::zero(), T::zero())
         }
+    }
+
+    fn recompute_summaries_from_root(&mut self) {
+        if let Some(root_idx) = self.root {
+            Self::recompute_summaries_node(&mut self.arena, &self.slots_summary, root_idx.get());
+        }
+    }
+
+    fn recompute_summaries_node(
+        arena: &mut Vec<Node<T, S>>,
+        slots_summary: &[S],
+        node_idx: usize,
+    ) -> S {
+        let summary;
+        // Avoid aliasing arena by taking a copy of indices where needed.
+        match &arena[node_idx].kind {
+            Kind::Leaf(items) => {
+                let mut acc = S::empty();
+                for (slot, _) in items {
+                    let leaf = slots_summary.get(*slot).copied().unwrap_or_else(S::empty);
+                    acc = S::combine(acc, leaf);
+                }
+                summary = acc;
+            }
+            Kind::Internal { left, right } => {
+                let left_idx = left.get();
+                let right_idx = right.get();
+                let ls = Self::recompute_summaries_node(arena, slots_summary, left_idx);
+                let rs = Self::recompute_summaries_node(arena, slots_summary, right_idx);
+                summary = S::combine(ls, rs);
+            }
+        }
+        arena[node_idx].summary = summary;
+        summary
     }
 
     /// SAH-like split: sort along an axis, precompute prefix/suffix AABBs, and
@@ -139,7 +176,7 @@ impl<T: Scalar> Bvh<T> {
     }
 
     fn insert_node(
-        arena: &mut Vec<Node<T>>,
+        arena: &mut Vec<Node<T, S>>,
         node_idx: usize,
         slot: usize,
         bbox: Aabb2D<T>,
@@ -155,11 +192,13 @@ impl<T: Scalar> Bvh<T> {
                     let l_idx = arena.len();
                     arena.push(Node {
                         bbox: Self::bbox_items(&l),
+                        summary: S::empty(),
                         kind: Kind::Leaf(l),
                     });
                     let r_idx = arena.len();
                     arena.push(Node {
                         bbox: Self::bbox_items(&r),
+                        summary: S::empty(),
                         kind: Kind::Leaf(r),
                     });
                     node_bbox = union_aabb(arena[l_idx].bbox, arena[r_idx].bbox);
@@ -191,7 +230,7 @@ impl<T: Scalar> Bvh<T> {
     }
 
     fn remove_node(
-        arena: &mut Vec<Node<T>>,
+        arena: &mut Vec<Node<T, S>>,
         node_idx: usize,
         slot: usize,
         old: &Aabb2D<T>,
@@ -244,7 +283,7 @@ impl<T: Scalar> Bvh<T> {
     }
 }
 
-impl<T: Scalar> Backend<T> for Bvh<T> {
+impl<T: Scalar, S: SubtreeSummary> Backend<T, S> for Bvh<T, S> {
     fn insert(&mut self, slot: usize, aabb: Aabb2D<T>) {
         self.ensure_slot(slot, aabb);
         match self.root {
@@ -252,6 +291,7 @@ impl<T: Scalar> Backend<T> for Bvh<T> {
                 let idx = self.arena.len();
                 self.arena.push(Node {
                     bbox: aabb,
+                    summary: S::empty(),
                     kind: Kind::Leaf(vec![(slot, aabb)]),
                 });
                 self.root = Some(NodeIdx::new(idx));
@@ -286,6 +326,15 @@ impl<T: Scalar> Backend<T> for Bvh<T> {
         self.root = None;
         self.arena.clear();
         self.slots.clear();
+        self.slots_summary.clear();
+    }
+
+    fn set_summary(&mut self, slot: usize, summary: S) {
+        if self.slots_summary.len() <= slot {
+            self.slots_summary.resize(slot + 1, S::empty());
+        }
+        self.slots_summary[slot] = summary;
+        self.recompute_summaries_from_root();
     }
 
     fn visit_point<F: FnMut(usize)>(&self, x: T, y: T, mut f: F) {
@@ -304,6 +353,44 @@ impl<T: Scalar> Backend<T> for Bvh<T> {
                     for (s, b) in items {
                         if !b.intersect(&p).is_empty() {
                             f(*s);
+                        }
+                    }
+                }
+                Kind::Internal { left, right } => {
+                    stack.push(*left);
+                    stack.push(*right);
+                }
+            }
+        }
+    }
+
+    fn visit_point_filtered<Q, Filt, F>(&self, x: T, y: T, query: &Q, filter: &Filt, mut f: F)
+    where
+        Filt: SubtreeFilter<S, Q>,
+        F: FnMut(usize),
+    {
+        let Some(root_idx) = self.root else {
+            return;
+        };
+        let p = Aabb2D::new(x, y, x, y);
+        let mut stack = vec![root_idx];
+        while let Some(i) = stack.pop() {
+            let n = &self.arena[i.get()];
+            if !filter.may_contain(&n.summary, query) {
+                continue;
+            }
+            if n.bbox.intersect(&p).is_empty() {
+                continue;
+            }
+            match &n.kind {
+                Kind::Leaf(items) => {
+                    for (s, b) in items {
+                        if !b.intersect(&p).is_empty() {
+                            let summary =
+                                self.slots_summary.get(*s).copied().unwrap_or_else(S::empty);
+                            if filter.may_contain(&summary, query) {
+                                f(*s);
+                            }
                         }
                     }
                 }
@@ -340,9 +427,46 @@ impl<T: Scalar> Backend<T> for Bvh<T> {
             }
         }
     }
+
+    fn visit_rect_filtered<Q, Filt, F>(&self, rect: Aabb2D<T>, query: &Q, filter: &Filt, mut f: F)
+    where
+        Filt: SubtreeFilter<S, Q>,
+        F: FnMut(usize),
+    {
+        let Some(root_idx) = self.root else {
+            return;
+        };
+        let mut stack = vec![root_idx];
+        while let Some(i) = stack.pop() {
+            let n = &self.arena[i.get()];
+            if !filter.may_contain(&n.summary, query) {
+                continue;
+            }
+            if n.bbox.intersect(&rect).is_empty() {
+                continue;
+            }
+            match &n.kind {
+                Kind::Leaf(items) => {
+                    for (s, b) in items {
+                        if !b.intersect(&rect).is_empty() {
+                            let summary =
+                                self.slots_summary.get(*s).copied().unwrap_or_else(S::empty);
+                            if filter.may_contain(&summary, query) {
+                                f(*s);
+                            }
+                        }
+                    }
+                }
+                Kind::Internal { left, right } => {
+                    stack.push(*left);
+                    stack.push(*right);
+                }
+            }
+        }
+    }
 }
 
-impl<T: Scalar> Debug for Bvh<T> {
+impl<T: Scalar, S: SubtreeSummary> Debug for Bvh<T, S> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let total = self.slots.len();
         let alive = self.slots.iter().filter(|e| e.is_some()).count();

@@ -8,21 +8,23 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, SubtreeFilter, SubtreeSummary};
 use crate::types::{Aabb2D, Scalar, area, union_aabb};
 
 /// R-tree backend using SAH-like splits and widened accumulator metrics.
-pub struct RTree<T: Scalar, P: Copy + Debug> {
+pub struct RTree<T: Scalar, P: Copy + Debug, S: SubtreeSummary = ()> {
     max_children: usize,
     min_children: usize,
     root: Option<NodeIdx>,
-    arena: Vec<RNode<T, P>>,
+    arena: Vec<RNode<T, P, S>>,
     slots: Vec<Option<Aabb2D<T>>>,
+    slots_summary: Vec<S>,
 }
 
 #[derive(Clone)]
-struct RNode<T: Scalar, P: Copy + Debug> {
+struct RNode<T: Scalar, P: Copy + Debug, S: SubtreeSummary> {
     bbox: Aabb2D<T>,
+    summary: S,
     leaf: bool,
     children: Vec<RChild<T, P>>,
 }
@@ -50,7 +52,7 @@ impl NodeIdx {
     }
 }
 
-impl<T: Scalar, P: Copy + Debug> Default for RTree<T, P> {
+impl<T: Scalar, P: Copy + Debug, S: SubtreeSummary> Default for RTree<T, P, S> {
     fn default() -> Self {
         Self {
             max_children: 8,
@@ -58,6 +60,7 @@ impl<T: Scalar, P: Copy + Debug> Default for RTree<T, P> {
             root: None,
             arena: Vec::new(),
             slots: Vec::new(),
+            slots_summary: Vec::new(),
         }
     }
 }
@@ -70,7 +73,7 @@ type RBestSplit<TS, PS> = Option<(
     RChildren<TS, PS>,
 )>;
 
-impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
+impl<T: Scalar, P: Copy + Debug, S: SubtreeSummary> RTree<T, P, S> {
     fn ensure_slot(&mut self, slot: usize, bbox: Aabb2D<T>) {
         if self.slots.len() <= slot {
             self.slots.resize_with(slot + 1, || None);
@@ -93,7 +96,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
 
     /// STR-like bulk builder: creates a packed tree from items in one pass into `arena`.
     fn bulk_build_nodes(
-        arena: &mut Vec<RNode<T, P>>,
+        arena: &mut Vec<RNode<T, P, S>>,
         items: &mut [(usize, Aabb2D<T>)],
         max_children: usize,
     ) -> Option<NodeIdx> {
@@ -134,6 +137,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
                 let idx = arena.len();
                 arena.push(RNode {
                     bbox,
+                    summary: S::empty(),
                     leaf: true,
                     children,
                 });
@@ -176,6 +180,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
                     let idx = arena.len();
                     arena.push(RNode {
                         bbox,
+                        summary: S::empty(),
                         leaf: false,
                         children,
                     });
@@ -199,6 +204,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
             let root_idx = arena.len();
             arena.push(RNode {
                 bbox,
+                summary: S::empty(),
                 leaf: false,
                 children,
             });
@@ -210,7 +216,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
     pub fn bulk_build_default(pairs: &[(usize, Aabb2D<T>)]) -> Self {
         let max_children = 8; // default matches Self::default
         let mut items = pairs.to_vec();
-        let mut arena: Vec<RNode<T, P>> = Vec::new();
+        let mut arena: Vec<RNode<T, P, S>> = Vec::new();
         let root = Self::bulk_build_nodes(&mut arena, &mut items[..], max_children);
         let mut slots: Vec<Option<Aabb2D<T>>> = Vec::new();
         for (slot, bbox) in pairs.iter().copied() {
@@ -219,16 +225,18 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
             }
             slots[slot] = Some(bbox);
         }
+        let slots_summary: Vec<S> = slots.iter().map(|_| S::empty()).collect();
         Self {
             max_children,
             min_children: 4,
             root,
             arena,
             slots,
+            slots_summary,
         }
     }
 
-    fn node_bbox(arena: &[RNode<T, P>], children: &[RChild<T, P>]) -> Aabb2D<T> {
+    fn node_bbox(arena: &[RNode<T, P, S>], children: &[RChild<T, P>]) -> Aabb2D<T> {
         let mut it = children.iter();
         let first = match it.next() {
             Some(RChild::Node(i)) => arena[i.get()].bbox,
@@ -241,12 +249,54 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         })
     }
 
+    fn recompute_summaries_from_root(&mut self) {
+        if let Some(root_idx) = self.root {
+            Self::recompute_summaries_node(&mut self.arena, &self.slots_summary, root_idx.get());
+        }
+    }
+
+    fn recompute_summaries_node(
+        arena: &mut [RNode<T, P, S>],
+        slots_summary: &[S],
+        node_idx: usize,
+    ) -> S {
+        let summary;
+        let leaf = arena[node_idx].leaf;
+        if leaf {
+            let mut acc = S::empty();
+            let children = arena[node_idx].children.clone();
+            for c in &children {
+                if let RChild::Item { slot, .. } = c {
+                    let leaf = slots_summary.get(*slot).copied().unwrap_or_else(S::empty);
+                    acc = S::combine(acc, leaf);
+                }
+            }
+            summary = acc;
+        } else {
+            let children = arena[node_idx].children.clone();
+            let mut acc = S::empty();
+            for c in &children {
+                if let RChild::Node(idx) = c {
+                    let s = Self::recompute_summaries_node(arena, slots_summary, idx.get());
+                    acc = S::combine(acc, s);
+                }
+            }
+            summary = acc;
+        }
+        arena[node_idx].summary = summary;
+        summary
+    }
+
     fn enlarge_cost(a: &Aabb2D<T>, b: &Aabb2D<T>) -> T::Acc {
         let u = union_aabb(*a, *b);
         area(&u) - area(a)
     }
 
-    fn choose_child(arena: &[RNode<T, P>], children: &[RChild<T, P>], bbox: &Aabb2D<T>) -> usize {
+    fn choose_child(
+        arena: &[RNode<T, P, S>],
+        children: &[RChild<T, P>],
+        bbox: &Aabb2D<T>,
+    ) -> usize {
         let mut best_idx = 0_usize;
         let mut best_cost: Option<T::Acc> = None;
         for (i, c) in children.iter().enumerate() {
@@ -337,7 +387,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
     }
 
     fn insert_node(
-        arena: &mut Vec<RNode<T, P>>,
+        arena: &mut Vec<RNode<T, P, S>>,
         node_idx: usize,
         slot: usize,
         bbox: Aabb2D<T>,
@@ -382,6 +432,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
             let r_idx = arena.len();
             arena.push(RNode {
                 bbox: r_bbox,
+                summary: S::empty(),
                 leaf: true,
                 children: right,
             });
@@ -430,6 +481,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
                     let r_idx = arena.len();
                     arena.push(RNode {
                         bbox: r_bbox,
+                        summary: S::empty(),
                         leaf: false,
                         children: right,
                     });
@@ -441,7 +493,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
     }
 
     fn search_remove(
-        arena: &mut Vec<RNode<T, P>>,
+        arena: &mut Vec<RNode<T, P, S>>,
         node_idx: usize,
         slot: usize,
         old: &Aabb2D<T>,
@@ -505,7 +557,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
     /// Attempt to update an item's AABB in-place without remove+insert.
     /// Returns true if the item was found and updated; recomputes ancestor bboxes on the path.
     fn update_in_place(
-        arena: &mut Vec<RNode<T, P>>,
+        arena: &mut Vec<RNode<T, P, S>>,
         node_idx: usize,
         slot: usize,
         old: Aabb2D<T>,
@@ -559,13 +611,14 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
     }
 }
 
-impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
+impl<T: Scalar, P: Copy + Debug, S: SubtreeSummary> Backend<T, S> for RTree<T, P, S> {
     fn insert(&mut self, slot: usize, aabb: Aabb2D<T>) {
         self.ensure_slot(slot, aabb);
         match self.root {
             None => {
-                let mut leaf = RNode::<T, P> {
+                let mut leaf = RNode::<T, P, S> {
                     bbox: aabb,
+                    summary: S::empty(),
                     leaf: true,
                     children: Vec::new(),
                 };
@@ -599,6 +652,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
                     let idx = self.arena.len();
                     self.arena.push(RNode {
                         bbox: new_bb,
+                        summary: S::empty(),
                         leaf: false,
                         children,
                     });
@@ -638,6 +692,15 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
         self.root = None;
         self.arena.clear();
         self.slots.clear();
+        self.slots_summary.clear();
+    }
+
+    fn set_summary(&mut self, slot: usize, summary: S) {
+        if self.slots_summary.len() <= slot {
+            self.slots_summary.resize(slot + 1, S::empty());
+        }
+        self.slots_summary[slot] = summary;
+        self.recompute_summaries_from_root();
     }
 
     fn visit_point<F: FnMut(usize)>(&self, x: T, y: T, mut f: F) {
@@ -657,6 +720,49 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
                         && !bbox.intersect(&p).is_empty()
                     {
                         f(*slot);
+                    }
+                }
+            } else {
+                for c in &n.children {
+                    if let RChild::Node(ci) = c {
+                        stack.push(*ci);
+                    }
+                }
+            }
+        }
+    }
+
+    fn visit_point_filtered<Q, Filt, F>(&self, x: T, y: T, query: &Q, filter: &Filt, mut f: F)
+    where
+        Filt: SubtreeFilter<S, Q>,
+        F: FnMut(usize),
+    {
+        let Some(root_idx) = self.root else {
+            return;
+        };
+        let p = Aabb2D::new(x, y, x, y);
+        let mut stack = vec![root_idx];
+        while let Some(i) = stack.pop() {
+            let n = &self.arena[i.get()];
+            if !filter.may_contain(&n.summary, query) {
+                continue;
+            }
+            if n.bbox.intersect(&p).is_empty() {
+                continue;
+            }
+            if n.leaf {
+                for c in &n.children {
+                    if let RChild::Item { slot, bbox, .. } = c
+                        && !bbox.intersect(&p).is_empty()
+                    {
+                        let summary = self
+                            .slots_summary
+                            .get(*slot)
+                            .copied()
+                            .unwrap_or_else(S::empty);
+                        if filter.may_contain(&summary, query) {
+                            f(*slot);
+                        }
                     }
                 }
             } else {
@@ -696,9 +802,51 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
             }
         }
     }
+
+    fn visit_rect_filtered<Q, Filt, F>(&self, rect: Aabb2D<T>, query: &Q, filter: &Filt, mut f: F)
+    where
+        Filt: SubtreeFilter<S, Q>,
+        F: FnMut(usize),
+    {
+        let Some(root_idx) = self.root else {
+            return;
+        };
+        let mut stack = vec![root_idx];
+        while let Some(i) = stack.pop() {
+            let n = &self.arena[i.get()];
+            if !filter.may_contain(&n.summary, query) {
+                continue;
+            }
+            if n.bbox.intersect(&rect).is_empty() {
+                continue;
+            }
+            if n.leaf {
+                for c in &n.children {
+                    if let RChild::Item { slot, bbox, .. } = c
+                        && !bbox.intersect(&rect).is_empty()
+                    {
+                        let summary = self
+                            .slots_summary
+                            .get(*slot)
+                            .copied()
+                            .unwrap_or_else(S::empty);
+                        if filter.may_contain(&summary, query) {
+                            f(*slot);
+                        }
+                    }
+                }
+            } else {
+                for c in &n.children {
+                    if let RChild::Node(ci) = c {
+                        stack.push(*ci);
+                    }
+                }
+            }
+        }
+    }
 }
 
-impl<T: Scalar, P: Copy + Debug> Debug for RTree<T, P> {
+impl<T: Scalar, P: Copy + Debug, S: SubtreeSummary> Debug for RTree<T, P, S> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let total = self.slots.len();
         let alive = self.slots.iter().filter(|e| e.is_some()).count();

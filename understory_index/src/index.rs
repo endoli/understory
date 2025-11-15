@@ -6,7 +6,7 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, SubtreeFilter, SubtreeSummary};
 use crate::damage::Damage;
 use crate::types::Aabb2D;
 
@@ -36,27 +36,35 @@ enum Mark {
 }
 
 #[derive(Clone, Debug)]
-struct Entry<T, P> {
+struct Entry<T, P, S> {
     generation: u32,
     aabb: Aabb2D<T>,
     payload: P,
+    summary: S,
     mark: Option<Mark>,
     prev_aabb: Option<Aabb2D<T>>, // for moved damage
 }
 
 /// A generic AABB index parameterized by a spatial backend.
 #[derive(Debug)]
-pub struct IndexGeneric<T: Copy + PartialOrd + Debug, P: Copy + Debug, B: Backend<T>> {
-    entries: Vec<Option<Entry<T, P>>>,
+pub struct IndexGeneric<T, P, B, S>
+where
+    T: Copy + PartialOrd + Debug,
+    P: Copy + Debug,
+    S: SubtreeSummary + Debug,
+    B: Backend<T, S>,
+{
+    entries: Vec<Option<Entry<T, P, S>>>,
     free_list: Vec<usize>,
     backend: B,
 }
 
-impl<T, P, B> IndexGeneric<T, P, B>
+impl<T, P, B, S> IndexGeneric<T, P, B, S>
 where
     T: Copy + PartialOrd + Debug,
     P: Copy + Debug,
-    B: Backend<T> + Default,
+    S: SubtreeSummary + Debug,
+    B: Backend<T, S> + Default,
 {
     /// Create an empty index using the backend's default constructor.
     pub fn new() -> Self {
@@ -68,11 +76,12 @@ where
     }
 }
 
-impl<T, P, B> IndexGeneric<T, P, B>
+impl<T, P, B, S> IndexGeneric<T, P, B, S>
 where
     T: Copy + PartialOrd + Debug,
     P: Copy + Debug,
-    B: Backend<T>,
+    S: SubtreeSummary + Debug,
+    B: Backend<T, S>,
 {
     /// Reserve space for at least `n` entries.
     pub fn reserve(&mut self, n: usize) {
@@ -91,6 +100,7 @@ where
                 generation,
                 aabb,
                 payload,
+                summary: S::empty(),
                 mark: Some(Mark::Added),
                 prev_aabb: None,
             });
@@ -101,6 +111,7 @@ where
                 generation,
                 aabb,
                 payload,
+                summary: S::empty(),
                 mark: Some(Mark::Added),
                 prev_aabb: None,
             }));
@@ -133,6 +144,26 @@ where
                 e.mark = Some(Mark::Removed);
             }
         }
+    }
+
+    /// Set the summary associated with an entry.
+    ///
+    /// Summaries are backend-agnostic aggregation hints; higher layers can interpret them as
+    /// interest masks, layer sets, or other per-entry metadata that enables subtree pruning.
+    pub fn set_summary(&mut self, key: Key, summary: S) {
+        if let Some(e) = self.entry_mut(key) {
+            e.summary = summary;
+            self.backend.set_summary(key.idx(), summary);
+        }
+    }
+
+    /// Read the summary associated with an entry.
+    pub fn summary(&self, key: Key) -> Option<S> {
+        let e = self.entries.get(key.idx())?.as_ref()?;
+        if e.generation != key.1 {
+            return None;
+        }
+        Some(e.summary)
     }
 
     /// Clear the index (without reporting damage).
@@ -194,6 +225,23 @@ where
         });
     }
 
+    /// Visit entries whose AABB contains the point, with an optional subtree filter.
+    ///
+    /// This delegates to the backend's `visit_point_filtered`, which may use cached subtree
+    /// summaries to prune portions of the spatial structure. When no summaries are set or the
+    /// filter chooses not to prune, this behaves like [`IndexGeneric::visit_point`].
+    pub fn visit_point_filtered<Q, Filt, F>(&self, x: T, y: T, query: &Q, filter: &Filt, mut f: F)
+    where
+        Filt: SubtreeFilter<S, Q>,
+        F: FnMut(Key, P),
+    {
+        self.backend.visit_point_filtered(x, y, query, filter, |i| {
+            if let Some(Some(e)) = self.entries.get(i) {
+                f(Key::new(i, e.generation), e.payload);
+            }
+        });
+    }
+
     /// Query for entries whose AABB intersects the given rectangle.
     pub fn query_rect(&self, rect: Aabb2D<T>) -> impl Iterator<Item = (Key, P)> + '_ {
         let mut out = Vec::new();
@@ -212,7 +260,28 @@ where
         });
     }
 
-    fn entry_mut(&mut self, key: Key) -> Option<&mut Entry<T, P>> {
+    /// Visit entries whose AABB intersects the rectangle, with an optional subtree filter.
+    ///
+    /// This delegates to the backend's `visit_rect_filtered`, which may use cached subtree
+    /// summaries to prune portions of the spatial structure.
+    pub fn visit_rect_filtered<Q, Filt, F>(
+        &self,
+        rect: Aabb2D<T>,
+        query: &Q,
+        filter: &Filt,
+        mut f: F,
+    ) where
+        Filt: SubtreeFilter<S, Q>,
+        F: FnMut(Key, P),
+    {
+        self.backend.visit_rect_filtered(rect, query, filter, |i| {
+            if let Some(Some(e)) = self.entries.get(i) {
+                f(Key::new(i, e.generation), e.payload);
+            }
+        });
+    }
+
+    fn entry_mut(&mut self, key: Key) -> Option<&mut Entry<T, P, S>> {
         let e = self.entries.get_mut(key.idx())?.as_mut()?;
         if e.generation != key.1 {
             return None;
@@ -223,8 +292,8 @@ where
 
 // Debug is derived above; backends implement Debug with concise, partial output.
 
-/// Default index using a flat vector backend.
-pub type Index<T, P> = IndexGeneric<T, P, crate::backends::flatvec::FlatVec<T>>;
+/// Default index using a flat vector backend and no subtree summaries.
+pub type Index<T, P> = IndexGeneric<T, P, crate::backends::flatvec::FlatVec<T>, ()>;
 
 impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Default for Index<T, P> {
     fn default() -> Self {
@@ -234,7 +303,7 @@ impl<T: Copy + PartialOrd + Debug, P: Copy + Debug> Default for Index<T, P> {
 
 impl<P: Copy + Debug> Index<f64, P> {
     /// Create a BVH-backed index using SAH-like splits.
-    pub fn with_bvh() -> IndexGeneric<f64, P, crate::backends::bvh::BvhF64> {
+    pub fn with_bvh() -> IndexGeneric<f64, P, crate::backends::bvh::BvhF64, ()> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),
@@ -243,7 +312,7 @@ impl<P: Copy + Debug> Index<f64, P> {
     }
 
     /// Create an R-tree-backed index (f64 coordinates).
-    pub fn with_rtree() -> IndexGeneric<f64, P, crate::backends::rtree::RTreeF64<P>> {
+    pub fn with_rtree() -> IndexGeneric<f64, P, crate::backends::rtree::RTreeF64<P>, ()> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),
@@ -254,8 +323,8 @@ impl<P: Copy + Debug> Index<f64, P> {
     /// Build an R-tree-backed index in bulk from entries.
     pub fn with_rtree_bulk(
         entries: &[(Aabb2D<f64>, P)],
-    ) -> IndexGeneric<f64, P, crate::backends::rtree::RTreeF64<P>> {
-        let mut idx = IndexGeneric {
+    ) -> IndexGeneric<f64, P, crate::backends::rtree::RTreeF64<P>, ()> {
+        let mut idx: IndexGeneric<_, _, _, ()> = IndexGeneric {
             entries: Vec::with_capacity(entries.len()),
             free_list: Vec::new(),
             backend: crate::backends::rtree::RTreeF64::default(),
@@ -266,6 +335,7 @@ impl<P: Copy + Debug> Index<f64, P> {
                 generation: 1,
                 aabb,
                 payload,
+                summary: (),
                 mark: None,
                 prev_aabb: None,
             }));
@@ -278,7 +348,7 @@ impl<P: Copy + Debug> Index<f64, P> {
 
 impl<P: Copy + Debug> Index<i64, P> {
     /// Create an i64 R-tree-backed index using integer SAH splits.
-    pub fn with_rtree() -> IndexGeneric<i64, P, crate::backends::rtree::RTreeI64<P>> {
+    pub fn with_rtree() -> IndexGeneric<i64, P, crate::backends::rtree::RTreeI64<P>, ()> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),
@@ -289,8 +359,8 @@ impl<P: Copy + Debug> Index<i64, P> {
     /// Build an i64 R-tree-backed index in bulk from entries.
     pub fn with_rtree_bulk(
         entries: &[(Aabb2D<i64>, P)],
-    ) -> IndexGeneric<i64, P, crate::backends::rtree::RTreeI64<P>> {
-        let mut idx = IndexGeneric {
+    ) -> IndexGeneric<i64, P, crate::backends::rtree::RTreeI64<P>, ()> {
+        let mut idx: IndexGeneric<_, _, _, ()> = IndexGeneric {
             entries: Vec::with_capacity(entries.len()),
             free_list: Vec::new(),
             backend: crate::backends::rtree::RTreeI64::default(),
@@ -301,6 +371,7 @@ impl<P: Copy + Debug> Index<i64, P> {
                 generation: 1,
                 aabb,
                 payload,
+                summary: (),
                 mark: None,
                 prev_aabb: None,
             }));
@@ -313,7 +384,7 @@ impl<P: Copy + Debug> Index<i64, P> {
 
 impl<P: Copy + Debug> Index<f32, P> {
     /// Create a BVH-backed index (f32 coordinates).
-    pub fn with_bvh() -> IndexGeneric<f32, P, crate::backends::bvh::BvhF32> {
+    pub fn with_bvh() -> IndexGeneric<f32, P, crate::backends::bvh::BvhF32, ()> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),
@@ -322,7 +393,7 @@ impl<P: Copy + Debug> Index<f32, P> {
     }
 
     /// Create an R-tree-backed index (f32 coordinates).
-    pub fn with_rtree() -> IndexGeneric<f32, P, crate::backends::rtree::RTreeF32<P>> {
+    pub fn with_rtree() -> IndexGeneric<f32, P, crate::backends::rtree::RTreeF32<P>, ()> {
         IndexGeneric {
             entries: Vec::new(),
             free_list: Vec::new(),
@@ -333,8 +404,8 @@ impl<P: Copy + Debug> Index<f32, P> {
     /// Build an f32 R-tree-backed index in bulk from entries.
     pub fn with_rtree_bulk(
         entries: &[(Aabb2D<f32>, P)],
-    ) -> IndexGeneric<f32, P, crate::backends::rtree::RTreeF32<P>> {
-        let mut idx = IndexGeneric {
+    ) -> IndexGeneric<f32, P, crate::backends::rtree::RTreeF32<P>, ()> {
+        let mut idx: IndexGeneric<_, _, _, ()> = IndexGeneric {
             entries: Vec::with_capacity(entries.len()),
             free_list: Vec::new(),
             backend: crate::backends::rtree::RTreeF32::default(),
@@ -345,6 +416,7 @@ impl<P: Copy + Debug> Index<f32, P> {
                 generation: 1,
                 aabb,
                 payload,
+                summary: (),
                 mark: None,
                 prev_aabb: None,
             }));
@@ -425,5 +497,46 @@ mod tests {
         let mut visit_count_r = 0;
         idx.visit_rect(r, |_k, _p| visit_count_r += 1);
         assert_eq!(visit_count_r, it_count_r);
+    }
+
+    #[test]
+    fn subtree_filter_can_prune_results_for_point_and_rect() {
+        // Use an index with a u64 summary type and an R-tree backend so that
+        // summaries can be cached in internal nodes.
+        type MaskedIndex =
+            IndexGeneric<i64, u32, crate::backends::rtree::RTree<i64, u32, u64>, u64>;
+
+        let mut idx: MaskedIndex = IndexGeneric {
+            entries: Vec::new(),
+            free_list: Vec::new(),
+            backend: crate::backends::rtree::RTree::<i64, u32, u64>::default(),
+        };
+
+        let k1 = idx.insert(Aabb2D::new(0, 0, 10, 10), 1);
+        let k2 = idx.insert(Aabb2D::new(5, 5, 15, 15), 2);
+        let _ = idx.commit();
+
+        // Assign summaries: bit 0 for first, bit 1 for second.
+        idx.set_summary(k1, 0b0001);
+        idx.set_summary(k2, 0b0010);
+
+        // Unfiltered query sees both.
+        let hits_all: Vec<_> = idx.query_point(6, 6).collect();
+        assert_eq!(hits_all.len(), 2);
+
+        // Filtered visit sees only the matching entry for point queries.
+        let mut masked_ids = Vec::new();
+        let required = 0b0001_u64;
+        idx.visit_point_filtered(6, 6, &required, &(), |k, _p| masked_ids.push(k));
+        assert_eq!(masked_ids.len(), 1);
+        assert_eq!(idx.summary(masked_ids[0]), Some(0b0001));
+
+        // Rect variant behaves the same.
+        let r = Aabb2D::new(8, 8, 12, 12);
+        let mut masked_rect_ids = Vec::new();
+        let required_rect = 0b0010_u64;
+        idx.visit_rect_filtered(r, &required_rect, &(), |k, _p| masked_rect_ids.push(k));
+        assert_eq!(masked_rect_ids.len(), 1);
+        assert_eq!(idx.summary(masked_rect_ids[0]), Some(0b0010));
     }
 }

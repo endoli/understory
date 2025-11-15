@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use criterion::{BatchSize, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use understory_index::{Aabb2D, Index};
+use understory_index::backends::rtree::RTree;
+use understory_index::{Aabb2D, Index, IndexGeneric};
 
 fn gen_grid_rects(n: usize, cell: f64) -> Vec<Aabb2D<f64>> {
     let mut out = Vec::with_capacity(n * n);
@@ -354,6 +355,66 @@ fn bench_bvh_clustered_f64(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_rtree_masked_point_queries(c: &mut Criterion) {
+    let mut group = c.benchmark_group("rtree_f64_masked_point");
+    // Build a moderately large index with a mix of "cold" and "hot" entries.
+    let rects = gen_grid_rects(128, 8.0);
+    // Use an R-tree backend with a u64 subtree summary so internal nodes can cache bitmasks.
+    type MaskedIndex = IndexGeneric<f64, u32, RTree<f64, u32, u64>, u64>;
+    let mut idx: MaskedIndex = IndexGeneric::new();
+    let mut keys = Vec::new();
+    for (i, r) in rects.iter().copied().enumerate() {
+        keys.push(idx.insert(r, i as u32));
+    }
+    let _ = idx.commit();
+    // Mark a small fraction as "hot" for mask=1; others remain 0.
+    for (i, k) in keys.iter().copied().enumerate() {
+        if i % 16 == 0 {
+            idx.set_summary(k, 0b0001);
+        } else {
+            idx.set_summary(k, 0);
+        }
+    }
+
+    group.throughput(Throughput::Elements(rects.len() as u64));
+
+    group.bench_function("visit_point_unmasked", |b| {
+        b.iter(|| {
+            let mut count = 0usize;
+            idx.visit_point(400.0, 400.0, |_k, _p| {
+                count += 1;
+            });
+            black_box(count);
+        });
+    });
+
+    group.bench_function("visit_point_masked_hot", |b| {
+        b.iter(|| {
+            let mut count = 0usize;
+            let required = 0b0001_u64;
+            idx.visit_point_filtered(400.0, 400.0, &required, &(), |_k, _p| {
+                count += 1;
+            });
+            black_box(count);
+        });
+    });
+
+    group.bench_function("visit_point_unmasked_user_filter", |b| {
+        b.iter(|| {
+            let mut count = 0usize;
+            let required = 0b0001_u64;
+            idx.visit_point(400.0, 400.0, |k, _p| {
+                if idx.summary(k).unwrap_or(0) & required != 0 {
+                    count += 1;
+                }
+            });
+            black_box(count);
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_flatvec,
@@ -365,5 +426,6 @@ criterion_group!(
     bench_update_heavy_rtree_i64,
     bench_query_heavy_rtree_f64,
     bench_bvh_clustered_f64,
+    bench_rtree_masked_point_queries,
 );
 criterion_main!(benches);

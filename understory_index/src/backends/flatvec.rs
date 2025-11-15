@@ -6,7 +6,7 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, SubtreeSummary};
 use crate::types::Aabb2D;
 
 /// Flat vector backend with linear scans.
@@ -33,7 +33,7 @@ impl<T: Copy + PartialOrd + Debug> Debug for FlatVec<T> {
     }
 }
 
-impl<T: Copy + PartialOrd + Debug> Backend<T> for FlatVec<T> {
+impl<T: Copy + PartialOrd + Debug, S: SubtreeSummary> Backend<T, S> for FlatVec<T> {
     fn insert(&mut self, slot: usize, aabb: Aabb2D<T>) {
         if self.entries.len() <= slot {
             self.entries.resize_with(slot + 1, || None);

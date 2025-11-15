@@ -8,7 +8,7 @@ use kurbo::{Affine, Point, Rect, RoundedRect};
 use understory_index::{Aabb2D, Index as AabbIndex, Key as AabbKey};
 
 use crate::damage::Damage;
-use crate::types::{LocalNode, NodeFlags, NodeId};
+use crate::types::{InterestMask, LocalNode, NodeFlags, NodeId};
 use crate::util::{rect_to_aabb, transform_rect_bbox};
 
 impl Default for Tree {
@@ -53,12 +53,28 @@ pub struct Hit {
 /// Filters applied during hit testing and rectangle intersection.
 ///
 /// Used by [`Tree::hit_test_point`] and [`Tree::intersect_rect`].
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct QueryFilter {
     /// If true, only consider nodes marked [`NodeFlags::VISIBLE`].
     pub visible_only: bool,
     /// If true, only consider nodes marked [`NodeFlags::PICKABLE`] (hit-test).
     pub pickable_only: bool,
+    /// If non-empty, only consider nodes whose interest overlaps this mask.
+    ///
+    /// This is a pruning hint for high-frequency inputs (pointer move, wheel, etc.).
+    /// When empty, interest is ignored and behavior matches the older `visible_only` /
+    /// `pickable_only` filter semantics.
+    pub interest_required: InterestMask,
+}
+
+impl Default for QueryFilter {
+    fn default() -> Self {
+        Self {
+            visible_only: false,
+            pickable_only: false,
+            interest_required: InterestMask::empty(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -85,6 +101,7 @@ pub(crate) struct Node {
     local: LocalNode,
     world: WorldNode,
     dirty: Dirty,
+    interest: InterestMask,
     index_key: Option<AabbKey>,
 }
 
@@ -103,6 +120,7 @@ impl Node {
                 z: true,
                 index: true,
             },
+            interest: InterestMask::empty(),
             index_key: None,
         }
     }
@@ -169,6 +187,28 @@ impl Tree {
             self.link_parent(id, p);
         }
         id
+    }
+
+    /// Set the local interest mask for a node.
+    ///
+    /// Interest is an optional, behavioral hint indicating which kinds of input this node
+    /// (or code associated with it) cares about. It is used to prune candidates in high-frequency
+    /// queries when [`QueryFilter::interest_required`] is non-empty.
+    pub fn set_interest(&mut self, id: NodeId, mask: InterestMask) {
+        if let Some(n) = self.node_opt_mut(id) {
+            n.interest = mask;
+        }
+    }
+
+    /// Read the local interest mask for a node.
+    ///
+    /// Returns an empty mask if the `NodeId` is stale or out of range.
+    pub fn interest(&self, id: NodeId) -> InterestMask {
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|n| n.interest)
+            .unwrap_or_else(InterestMask::empty)
     }
 
     /// Remove a node (and its subtree) from the tree.
@@ -305,11 +345,18 @@ impl Tree {
     /// This tie-break is intentionally deterministic for now.
     /// In the future this may be made configurable (for example via a `TieBreakPolicy`).
     pub fn hit_test_point(&self, pt: Point, filter: QueryFilter) -> Option<Hit> {
-        let candidates: Vec<NodeId> = self
-            .index
-            .query_point(pt.x, pt.y)
-            .map(|(_, id)| id)
-            .collect();
+        let candidates: Vec<NodeId> = if filter.interest_required.is_empty() {
+            self.index
+                .query_point(pt.x, pt.y)
+                .map(|(_, id)| id)
+                .collect()
+        } else {
+            let mut ids = Vec::new();
+            let required = filter.interest_required;
+            self.index
+                .visit_point_filtered(pt.x, pt.y, &required, &(), |_k, id| ids.push(id));
+            ids
+        };
         let mut best: Option<(NodeId, i32)> = None;
         for id in candidates {
             let Some(node) = self.nodes[id.idx()].as_ref() else {
@@ -319,6 +366,11 @@ impl Tree {
                 continue;
             }
             if filter.pickable_only && !node.local.flags.contains(NodeFlags::PICKABLE) {
+                continue;
+            }
+            if !filter.interest_required.is_empty()
+                && (node.interest & filter.interest_required).is_empty()
+            {
                 continue;
             }
             if let Some(clip) = node.local.local_clip {
@@ -350,12 +402,25 @@ impl Tree {
         filter: QueryFilter,
     ) -> impl Iterator<Item = NodeId> + 'a {
         let q = rect_to_aabb(rect);
-        let ids: Vec<NodeId> = self.index.query_rect(q).map(|(_, id)| id).collect();
+        let ids: Vec<NodeId> = if filter.interest_required.is_empty() {
+            self.index.query_rect(q).map(|(_, id)| id).collect()
+        } else {
+            let mut ids = Vec::new();
+            let required = filter.interest_required;
+            self.index
+                .visit_rect_filtered(q, &required, &(), |_k, id| ids.push(id));
+            ids
+        };
         ids.into_iter().filter(move |id| {
             let Some(node) = self.nodes[id.idx()].as_ref() else {
                 return false;
             };
             if filter.visible_only && !node.local.flags.contains(NodeFlags::VISIBLE) {
+                return false;
+            }
+            if !filter.interest_required.is_empty()
+                && (node.interest & filter.interest_required).is_empty()
+            {
                 return false;
             }
             true
@@ -465,7 +530,9 @@ impl Tree {
         };
 
         match index_op {
-            IndexOp::Update(key, aabb) => self.index.update(key, aabb),
+            IndexOp::Update(key, aabb) => {
+                self.index.update(key, aabb);
+            }
             IndexOp::Insert(aabb) => {
                 let key = self.index.insert(aabb, id);
                 self.node_mut(id).index_key = Some(key);
@@ -527,12 +594,66 @@ mod tests {
                 QueryFilter {
                     visible_only: true,
                     pickable_only: true,
+                    ..QueryFilter::default()
                 },
             )
             .unwrap();
         assert_eq!(hit.node, b, "topmost by z should win");
         assert_eq!(hit.path.first().copied(), Some(root));
         assert_eq!(hit.path.last().copied(), Some(b));
+    }
+
+    #[test]
+    fn interest_filter_can_prune_candidates() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                ..Default::default()
+            },
+        );
+        let a = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(10.0, 10.0, 60.0, 60.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let b = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 10,
+                ..Default::default()
+            },
+        );
+        // Only node B is interested in POINTER_MOVE.
+        tree.set_interest(a, InterestMask::empty());
+        tree.set_interest(b, InterestMask::POINTER_MOVE);
+        let _ = tree.commit();
+
+        let base_filter = QueryFilter {
+            visible_only: true,
+            pickable_only: true,
+            ..QueryFilter::default()
+        };
+        let hit_unfiltered = tree
+            .hit_test_point(Point::new(50.0, 50.0), base_filter)
+            .unwrap();
+        assert_eq!(hit_unfiltered.node, b);
+
+        // With interest_required set, A is pruned and B still wins.
+        let move_filter = QueryFilter {
+            visible_only: true,
+            pickable_only: true,
+            interest_required: InterestMask::POINTER_MOVE,
+        };
+        let hit_filtered = tree
+            .hit_test_point(Point::new(50.0, 50.0), move_filter)
+            .unwrap();
+        assert_eq!(hit_filtered.node, b);
     }
 
     #[test]
@@ -674,6 +795,7 @@ mod tests {
                 QueryFilter {
                     visible_only: true,
                     pickable_only: true,
+                    ..QueryFilter::default()
                 },
             )
             .unwrap();
@@ -700,6 +822,7 @@ mod tests {
                 QueryFilter {
                     visible_only: true,
                     pickable_only: true,
+                    ..QueryFilter::default()
                 },
             )
             .unwrap();
@@ -757,6 +880,7 @@ mod tests {
                 QueryFilter {
                     visible_only: true,
                     pickable_only: true,
+                    ..QueryFilter::default()
                 },
             )
             .expect("expected initial hit at root");
@@ -774,6 +898,7 @@ mod tests {
                 QueryFilter {
                     visible_only: true,
                     pickable_only: true,
+                    ..QueryFilter::default()
                 },
             )
             .expect("expected hit after bounds update");

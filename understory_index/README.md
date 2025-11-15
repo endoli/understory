@@ -71,6 +71,36 @@ let hits: Vec<_> = idx.query_point(10.0, 10.0).collect();
 assert_eq!(hits.len(), 1);
 ```
 
+## Subtree summaries and filters
+
+By default, [`Index`] is purely geometric: it stores only AABBs and payloads. When you need
+subtree pruning based on per-item metadata (for example, event-interest masks or layers), you
+can opt into a backend and summary type that cache a **subtree summary**.
+
+The building blocks are:
+
+- [`SubtreeSummary`]: a small value stored per subtree (for example, a bitmask or layer set),
+  with `empty()` and `combine(left, right)` to aggregate children.
+- [`SubtreeFilter`]: query-dependent logic that can say “this subtree cannot contain relevant
+  entries for this query”, allowing backends like the BVH or R-tree to prune entire branches.
+
+Summaries are generic and opt-in:
+
+- The default [`Index<T, P>`] uses `SubtreeSummary = ()`, which compiles down to zero bytes
+  per node and no extra pruning branches.
+- If you want subtree pruning by mask, you can use a backend that supports a summary type,
+  for example:
+  - `Bvh<f64, u64>` via `IndexGeneric<f64, P, BvhF64, u64>`
+  - `RTree<f64, P, u64>` via `IndexGeneric<f64, P, RTreeF64<P, u64>, u64>`
+    and set per-entry summaries with [`IndexGeneric::set_summary`].
+- `understory_index` provides a small convenience: for `u64` summaries, the unit `()` acts as a
+  `SubtreeFilter<u64, u64>` that interprets both summary and query as bitmasks and prunes when
+  they do not overlap.
+
+Higher layers (like `understory_box_tree`) can define their own summary types (for example,
+an `InterestMask` newtype) and filters that embody their semantics, while the core index stays
+generic and zero-cost when summaries are not used.
+
 ## Choosing a backend
 
 - `FlatVec` (default): simplest and smallest, linear scans. Good for very small sets

@@ -89,6 +89,7 @@ fn main() {
     let filter = QueryFilter {
         visible_only: true,
         pickable_only: true,
+        ..QueryFilter::default()
     };
     let hit: ResolvedHit<NodeId, ()> = top_hit_for_point(&bt, pt, filter).expect("expected a hit");
     println!("\nQuery point #1: ({:.1}, {:.1})", pt.x, pt.y);
@@ -125,6 +126,7 @@ fn main() {
         QueryFilter {
             visible_only: true,
             pickable_only: false,
+            ..QueryFilter::default()
         },
     );
     println!(

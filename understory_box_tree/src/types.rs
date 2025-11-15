@@ -4,6 +4,7 @@
 //! Public types for the box tree: node identifiers, flags, and local geometry.
 
 use kurbo::{Affine, Rect, RoundedRect};
+use understory_index::{SubtreeFilter, SubtreeSummary};
 
 /// Identifier for a node in the tree.
 ///
@@ -60,6 +61,112 @@ bitflags::bitflags! {
 impl Default for NodeFlags {
     fn default() -> Self {
         Self::VISIBLE | Self::PICKABLE
+    }
+}
+
+/// Bitmask describing which kinds of input a node (or its subtree) is interested in.
+///
+/// This is a behavioral hint used for pruning; it does not affect correctness.
+/// Nodes that never handle a given kind of event can leave the corresponding bit unset
+/// so that higher layers can cheaply skip them for those queries.
+///
+/// Typical usage:
+/// - Pointer move / hover routing.
+/// - Pointer down/up / drag gestures.
+/// - Wheel events.
+///
+/// The mask is intentionally open-ended. Callers may define their own bits using
+/// [`InterestMask::from_bits`] in addition to the built-in constants.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct InterestMask(pub(crate) u64);
+
+impl InterestMask {
+    /// An empty mask (no interest).
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    /// Construct a mask from raw bits.
+    ///
+    /// This is intentionally lenient: all bits are accepted. Use this to define
+    /// application-specific interests in addition to the built-in constants.
+    pub const fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
+
+    /// Return the underlying bit representation.
+    pub const fn bits(self) -> u64 {
+        self.0
+    }
+
+    /// Returns true if no bits are set.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Pointer move / hover interest.
+    pub const POINTER_MOVE: Self = Self(1 << 0);
+    /// Pointer down (press) interest.
+    pub const POINTER_DOWN: Self = Self(1 << 1);
+    /// Pointer up (release) interest.
+    pub const POINTER_UP: Self = Self(1 << 2);
+    /// Wheel / scroll interest.
+    pub const WHEEL: Self = Self(1 << 3);
+    /// Keyboard interest (typically routed via focus).
+    pub const KEY: Self = Self(1 << 4);
+    /// Text input interest.
+    pub const TEXT_INPUT: Self = Self(1 << 5);
+    /// IME composition interest.
+    pub const IME: Self = Self(1 << 6);
+    /// Drag / gesture interest.
+    pub const DRAG: Self = Self(1 << 7);
+    // 8..63 reserved for future expansion.
+}
+
+impl core::ops::BitOr for InterestMask {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for InterestMask {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
+impl core::ops::BitAnd for InterestMask {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitAndAssign for InterestMask {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 &= rhs.0;
+    }
+}
+
+impl SubtreeSummary for InterestMask {
+    #[inline]
+    fn empty() -> Self {
+        Self::empty()
+    }
+
+    #[inline]
+    fn combine(left: Self, right: Self) -> Self {
+        left | right
+    }
+}
+
+impl SubtreeFilter<InterestMask, InterestMask> for () {
+    #[inline]
+    fn may_contain(&self, summary: &InterestMask, query: &InterestMask) -> bool {
+        !(*summary & *query).is_empty()
     }
 }
 

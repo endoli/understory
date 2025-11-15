@@ -62,16 +62,35 @@ See [`understory_index::Index`], [`understory_index::RTreeF32`]/[`understory_ind
 - [`LocalNode`]: per-node local data (bounds, transform, optional clip, z, flags).
   See [`LocalNode::flags`] for visibility/picking controls.
 - [`NodeFlags`]: visibility and picking controls.
+- [`InterestMask`]: optional per-node input interest hints used for pruning.
 - [`NodeId`]: generational handle of a node.
-- [`QueryFilter`]: restricts hit/intersect results (visible/pickable).
-  See [`NodeFlags::VISIBLE`] and [`NodeFlags::PICKABLE`].
+- [`QueryFilter`]: restricts hit/intersect results (visible/pickable/interest).
+  See [`NodeFlags::VISIBLE`], [`NodeFlags::PICKABLE`], and [`InterestMask`].
 
 Key operations:
 - [`Tree::insert`](Tree::insert) → [`NodeId`]
 - [`Tree::set_local_transform`](Tree::set_local_transform) / [`Tree::set_local_clip`](Tree::set_local_clip) / [`Tree::set_local_bounds`](Tree::set_local_bounds) / [`Tree::set_flags`](Tree::set_flags)
+- [`Tree::set_interest`](Tree::set_interest) / [`Tree::interest`](Tree::interest)
 - [`Tree::commit`](Tree::commit) → damage summary; updates world data and the spatial index.
 - [`Tree::hit_test_point`](Tree::hit_test_point) and [`Tree::intersect_rect`](Tree::intersect_rect).
 - [`Tree::z_index`](Tree::z_index) exposes the stacking order of a live [`NodeId`].
+
+## Flags vs interest
+
+- [`NodeFlags`] control whether a node participates in rendering and hit-testing at all.
+  - `VISIBLE` gates visibility queries and rendering.
+  - `PICKABLE` gates hit-testing.
+- [`InterestMask`] is a separate, optional hint about which kinds of input a node (or its subtree)
+  cares about (pointer move, wheel, drag, key, etc.).
+  - Flags are a correctness filter: if a node is not visible/pickable, it should not be hit.
+  - Interest is a pruning hint: if `interest_required` is set on [`QueryFilter`], whole subtrees
+    that advertise no matching interest can be skipped for that query.
+  - When [`QueryFilter::interest_required`] is empty, behavior falls back to flags-only filtering.
+
+Typical usage for interest:
+- Pointer move / hover and wheel events over large scenes where many nodes are non-interactive.
+- Drag/gesture recognizers that only care about specific regions.
+- As a cache of “who might handle this class of event” for higher-level routing layers.
 
 ## Damage and debugging notes
 
