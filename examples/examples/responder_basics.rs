@@ -9,8 +9,11 @@
 //! Run:
 //! - `cargo run -p understory_examples --example responder_basics`
 
+use understory_responder::dispatcher;
 use understory_responder::router::Router;
-use understory_responder::types::{DepthKey, Localizer, ParentLookup, ResolvedHit, WidgetLookup};
+use understory_responder::types::{
+    DepthKey, Localizer, Outcome, ParentLookup, ResolvedHit, WidgetLookup,
+};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 struct Node(u32);
@@ -55,9 +58,10 @@ fn main() {
         },
     ];
 
-    let out = router.handle_with_hits::<()>(&hits);
+    let dispatch = router.handle_with_hits::<()>(&hits);
     println!("== Dispatch (capture → target → bubble) ==");
-    for d in out {
+    let _consumed = dispatcher::run(&dispatch, &mut (), |d, _| {
         println!("  {:?}  node={:?}  widget={:?}", d.phase, d.node, d.widget);
-    }
+        Outcome::Continue
+    });
 }

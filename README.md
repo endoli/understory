@@ -22,6 +22,7 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
 - `understory_responder`
   - A deterministic event router that builds the responder chain sequence: capture → target → bubble.
   - Consumes pre‑resolved hits (from a picker or the box tree) and emits an ordered dispatch sequence.
+  - Includes a tiny dispatcher helper (`dispatcher::run`) for executing handlers and honoring stop/cancelation.
   - Supports pointer capture with path reconstruction via a `ParentLookup` provider and bypasses scope filters.
 
 Both crates are `#![no_std]` and use `alloc`.

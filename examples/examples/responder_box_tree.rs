@@ -14,9 +14,10 @@ use std::collections::HashMap;
 use kurbo::{Affine, Point, Rect};
 use understory_box_tree::{LocalNode, NodeFlags, NodeId, QueryFilter, Tree};
 use understory_responder::adapters::box_tree::{hits_for_rect, top_hit_for_point};
+use understory_responder::dispatcher;
 use understory_responder::hover::{HoverState, path_from_dispatch};
 use understory_responder::router::Router;
-use understory_responder::types::{ResolvedHit, WidgetLookup};
+use understory_responder::types::{Outcome, ResolvedHit, WidgetLookup};
 
 fn main() {
     // Build a small scene with two overlapping siblings.
@@ -94,9 +95,10 @@ fn main() {
     println!("\nQuery point #1: ({:.1}, {:.1})", pt.x, pt.y);
     let dispatch = router.handle_with_hits(&[hit]);
     println!("\n== Dispatch (overlap @ 120,120) ==");
-    for d in &dispatch {
+    let _consumed = dispatcher::run(&dispatch, &mut (), |d, _| {
         println!("  {:?}  node={:?}  widget={:?}", d.phase, d.node, d.widget);
-    }
+        Outcome::Continue
+    });
 
     // Derive a hover path and compute transitions using HoverState.
     let mut hover = HoverState::new();
@@ -110,9 +112,10 @@ fn main() {
     println!("\nQuery point #2: ({:.1}, {:.1})", pt2.x, pt2.y);
     let dispatch2 = router.handle_with_hits(&[hit2]);
     println!("\n== Dispatch (point #2 @ {:.1},{:.1}) ==", pt2.x, pt2.y);
-    for d in &dispatch2 {
+    let _consumed = dispatcher::run(&dispatch2, &mut (), |d, _| {
         println!("  {:?}  node={:?}  widget={:?}", d.phase, d.node, d.widget);
-    }
+        Outcome::Continue
+    });
     let path2 = path_from_dispatch(&dispatch2);
     let second = hover.update_path(&path2);
     println!("\n== Hover transitions (second) ==\n  {:?}", second);

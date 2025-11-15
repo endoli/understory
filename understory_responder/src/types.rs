@@ -175,6 +175,76 @@ pub struct Dispatch<K, W, M = ()> {
     pub meta: Option<M>,
 }
 
+impl<K, W, M> Dispatch<K, W, M> {
+    /// Create a capture-phase dispatch for `node` with no widget and no metadata.
+    ///
+    /// Use the builder-style helpers to attach a widget id, localizer, or metadata.
+    ///
+    /// Example
+    /// ```
+    /// use understory_responder::types::{Dispatch, Localizer, Phase};
+    /// #[derive(Copy, Clone, Debug)] struct Node(u32);
+    /// // Build a simple capture → target → bubble sequence.
+    /// let seq: Vec<Dispatch<Node, (), ()>> = vec![
+    ///     Dispatch::capture(Node(1)),
+    ///     Dispatch::target(Node(2)).with_localizer(Localizer::default()),
+    ///     Dispatch::bubble(Node(1)),
+    /// ];
+    /// assert!(matches!(seq[0].phase, Phase::Capture));
+    /// assert!(matches!(seq[1].phase, Phase::Target));
+    /// assert!(matches!(seq[2].phase, Phase::Bubble));
+    /// ```
+    pub fn capture(node: K) -> Self {
+        Self {
+            phase: Phase::Capture,
+            node,
+            widget: None,
+            localizer: Localizer::default(),
+            meta: None,
+        }
+    }
+
+    /// Create a target-phase dispatch for `node` with no widget and no metadata.
+    pub fn target(node: K) -> Self {
+        Self {
+            phase: Phase::Target,
+            node,
+            widget: None,
+            localizer: Localizer::default(),
+            meta: None,
+        }
+    }
+
+    /// Create a bubble-phase dispatch for `node` with no widget and no metadata.
+    pub fn bubble(node: K) -> Self {
+        Self {
+            phase: Phase::Bubble,
+            node,
+            widget: None,
+            localizer: Localizer::default(),
+            meta: None,
+        }
+    }
+
+    /// Attach a widget id to this dispatch entry.
+    pub fn with_widget(mut self, w: W) -> Self {
+        self.widget = Some(w);
+        self
+    }
+
+    /// Attach a localizer to this dispatch entry.
+    pub fn with_localizer(mut self, loc: Localizer) -> Self {
+        self.localizer = loc;
+        self
+    }
+
+    /// Attach metadata to this dispatch entry.
+    pub fn with_meta(mut self, m: M) -> Self {
+        self.meta = Some(m);
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

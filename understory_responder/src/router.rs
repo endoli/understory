@@ -325,6 +325,7 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dispatcher;
     use crate::types::*;
     use alloc::vec;
 
@@ -834,6 +835,74 @@ mod tests {
                 (Phase::Capture, 42),
                 (Phase::Target, 42),
                 (Phase::Bubble, 42)
+            ]
+        );
+    }
+
+    #[test]
+    fn router_dispatch_and_dispatcher_run_visit_all_entries() {
+        let lookup = Lookup;
+        let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
+        let hits = vec![ResolvedHit {
+            node: Node(3),
+            path: Some(vec![Node(1), Node(2), Node(3)]),
+            depth_key: DepthKey::Z(10),
+            localizer: Localizer::default(),
+            meta: (),
+        }];
+        let dispatch = router.handle_with_hits::<()>(&hits);
+        let mut seen: Vec<(Phase, u32)> = Vec::new();
+        let consumed = dispatcher::run(&dispatch, &mut (), |d, _| {
+            seen.push((d.phase, d.node.0));
+            Outcome::Continue
+        });
+
+        assert!(!consumed);
+        assert_eq!(seen.len(), dispatch.len());
+        assert_eq!(
+            seen,
+            vec![
+                (Phase::Capture, 1),
+                (Phase::Capture, 2),
+                (Phase::Capture, 3),
+                (Phase::Target, 3),
+                (Phase::Bubble, 3),
+                (Phase::Bubble, 2),
+                (Phase::Bubble, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn router_dispatch_and_dispatcher_stop_and_consume_skip_bubble() {
+        let lookup = Lookup;
+        let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
+        let hits = vec![ResolvedHit {
+            node: Node(3),
+            path: Some(vec![Node(1), Node(2), Node(3)]),
+            depth_key: DepthKey::Z(10),
+            localizer: Localizer::default(),
+            meta: (),
+        }];
+        let dispatch = router.handle_with_hits::<()>(&hits);
+        let mut seen: Vec<(Phase, u32)> = Vec::new();
+        let consumed = dispatcher::run(&dispatch, &mut (), |d, _| {
+            seen.push((d.phase, d.node.0));
+            if matches!(d.phase, Phase::Target) {
+                Outcome::StopAndConsume
+            } else {
+                Outcome::Continue
+            }
+        });
+
+        assert!(consumed);
+        assert_eq!(
+            seen,
+            vec![
+                (Phase::Capture, 1),
+                (Phase::Capture, 2),
+                (Phase::Capture, 3),
+                (Phase::Target, 3),
             ]
         );
     }

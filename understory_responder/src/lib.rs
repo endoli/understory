@@ -57,62 +57,40 @@
 //! Keyboard and IME events typically route to focus and may bypass scope filters by policy at a higher layer.
 //! Click‑to‑focus can be implemented by setting focus after a pointer route and then routing subsequent key input via `dispatch_for`.
 //!
-//! ## Dispatcher sketch
+//! ## Dispatcher
 //!
-//! The snippet below shows how a higher‑level layer could walk the router’s sequence and honor stop/cancel rules.
-//! It groups contiguous entries by phase and allows a handler to stop within a phase or stop‑and‑consume the event entirely.
+//! Execute handlers over the responder sequence and honor stop/cancelation with [`dispatcher::run`].
 //!
 //! ```no_run
+//! use understory_responder::dispatcher;
 //! use understory_responder::types::{Dispatch, Outcome, Phase};
-//!
-//! /// Deliver a single dispatch item to your toolkit and return
-//! /// whether to continue propagation or stop.
-//! fn deliver<K, W, M>(_d: &Dispatch<K, W, M>) -> Outcome {
-//!     Outcome::Continue
-//! }
-//!
-//! /// Walk the dispatch sequence produced by the router.
-//! /// Returns true if the event was consumed (e.g., default prevented).
-//! fn run_dispatch<K, W, M>(seq: &[Dispatch<K, W, M>]) -> bool {
-//!     let mut consumed = false;
-//!     let mut i = 0;
-//!     while i < seq.len() {
-//!         let phase = seq[i].phase;
-//!         // Process contiguous entries for the same phase.
-//!         while i < seq.len() && seq[i].phase == phase {
-//!             match deliver(&seq[i]) {
-//!                 Outcome::Continue => {}
-//!                 Outcome::Stop => {
-//!                     // Skip remaining entries in this phase.
-//!                     while i + 1 < seq.len() && seq[i + 1].phase == phase {
-//!                         i += 1;
-//!                     }
-//!                 }
-//!                 Outcome::StopAndConsume => {
-//!                     consumed = true;
-//!                     // Abort remaining phases.
-//!                     return consumed;
-//!                 }
-//!             }
-//!             i += 1;
-//!         }
+//! # #[derive(Copy, Clone, Debug)] struct Node(u32);
+//! # let seq: Vec<Dispatch<Node, (), ()>> = vec![
+//! #     Dispatch::capture(Node(1)),
+//! #     Dispatch::target(Node(1)),
+//! #     Dispatch::bubble(Node(1)),
+//! # ];
+//! let mut default_prevented = false;
+//! let consumed = dispatcher::run(&seq, &mut default_prevented, |d, flag| {
+//!     if matches!(d.phase, Phase::Target) {
+//!         *flag = true;
 //!     }
-//!     consumed
-//! }
-//!
-//! # // Example: invoking with a dummy sequence
-//! # fn _example<K, W, M>(seq: &[Dispatch<K, W, M>]) { let _ = run_dispatch(seq); }
+//!     Outcome::Continue
+//! });
+//! assert!(!consumed);
+//! assert!(default_prevented);
 //! ```
 //!
+//! See the `dispatcher` module docs for additional patterns and helpers.
+//!
 //! This crate is `no_std` and uses `alloc`.
-//!
-//!
 
 #![no_std]
 
 extern crate alloc;
 
 pub mod adapters;
+pub mod dispatcher;
 pub mod focus;
 pub mod hover;
 pub mod router;
