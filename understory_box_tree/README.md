@@ -72,6 +72,7 @@ Key operations:
 - [`Tree::commit`](Tree::commit) → damage summary; updates world data and the spatial index.
 - [`Tree::hit_test_point`](Tree::hit_test_point) and [`Tree::intersect_rect`](Tree::intersect_rect).
 - [`Tree::z_index`](Tree::z_index) exposes the stacking order of a live [`NodeId`].
+- [`Tree::parent_of`](Tree::parent_of) returns the parent of a live [`NodeId`].
 
 ## Damage and debugging notes
 

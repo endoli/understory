@@ -388,6 +388,17 @@ impl Tree {
             .map(|node| node.local.z_index)
     }
 
+    /// Returns the parent of a node if live, or `None` for roots or stale ids.
+    pub fn parent_of(&self, id: NodeId) -> Option<NodeId> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .and_then(|node| node.parent)
+    }
+
     #[inline]
     fn id_is_newer(a: NodeId, b: NodeId) -> bool {
         (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
@@ -780,5 +791,28 @@ mod tests {
         assert_eq!(hit_after.node, n);
         assert_eq!(hit_after.path.first().copied(), Some(root));
         assert_eq!(hit_after.path.last().copied(), Some(n));
+    }
+
+    #[test]
+    fn parent_of_respects_liveness_and_roots() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                ..Default::default()
+            },
+        );
+        assert_eq!(tree.parent_of(child), Some(root));
+        assert_eq!(tree.parent_of(root), None);
+        tree.remove(child);
+        assert_eq!(tree.parent_of(child), None);
     }
 }
