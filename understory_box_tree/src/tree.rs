@@ -731,4 +731,54 @@ mod tests {
         assert_eq!(tree.z_index(new_node), Some(3));
         assert!(Tree::id_is_newer(new_node, node));
     }
+
+    #[test]
+    fn update_bounds_and_damage_and_hit() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let n = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let hit_before = tree
+            .hit_test_point(
+                Point::new(50.0, 50.0),
+                QueryFilter {
+                    visible_only: true,
+                    pickable_only: true,
+                },
+            )
+            .expect("expected initial hit at root");
+        assert_eq!(hit_before.node, root);
+        assert_eq!(hit_before.path.first().copied(), Some(root));
+        assert_eq!(hit_before.path.last().copied(), Some(root));
+
+        tree.set_local_bounds(n, Rect::new(40.0, 40.0, 60.0, 60.0));
+        let dmg = tree.commit();
+        assert!(dmg.union_rect().is_some());
+
+        let hit_after = tree
+            .hit_test_point(
+                Point::new(50.0, 50.0),
+                QueryFilter {
+                    visible_only: true,
+                    pickable_only: true,
+                },
+            )
+            .expect("expected hit after bounds update");
+        assert_eq!(hit_after.node, n);
+        assert_eq!(hit_after.path.first().copied(), Some(root));
+        assert_eq!(hit_after.path.last().copied(), Some(n));
+    }
 }

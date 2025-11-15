@@ -68,7 +68,7 @@ See [`understory_index::Index`], [`understory_index::RTreeF32`]/[`understory_ind
 
 Key operations:
 - [`Tree::insert`](Tree::insert) → [`NodeId`]
-- [`Tree::set_local_transform`](Tree::set_local_transform) / [`Tree::set_local_clip`](Tree::set_local_clip)
+- [`Tree::set_local_transform`](Tree::set_local_transform) / [`Tree::set_local_clip`](Tree::set_local_clip) / [`Tree::set_local_bounds`](Tree::set_local_bounds) / [`Tree::set_flags`](Tree::set_flags)
 - [`Tree::commit`](Tree::commit) → damage summary; updates world data and the spatial index.
 - [`Tree::hit_test_point`](Tree::hit_test_point) and [`Tree::intersect_rect`](Tree::intersect_rect).
 - [`Tree::z_index`](Tree::z_index) exposes the stacking order of a live [`NodeId`].
