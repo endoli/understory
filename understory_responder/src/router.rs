@@ -263,15 +263,18 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         meta: Option<M>,
     ) -> Vec<Dispatch<K, L::WidgetId, M>> {
         let mut out = Vec::new();
-        // Capture: root→target
-        for &n in &path {
+        let target = *path.last().unwrap();
+
+        // Capture: root→parent (excluding target)
+        for &n in &path[..path.len().saturating_sub(1)] {
             out.push(self.make_dispatch(Phase::Capture, n, localizer.clone(), meta.clone()));
         }
-        // Target
-        let target = *path.last().unwrap();
+
+        // Target: only the target element
         out.push(self.make_dispatch(Phase::Target, target, localizer.clone(), meta.clone()));
-        // Bubble: target→root
-        for &n in path.iter().rev() {
+
+        // Bubble: parent→root (excluding target)
+        for &n in path[..path.len().saturating_sub(1)].iter().rev() {
             out.push(self.make_dispatch(Phase::Bubble, n, localizer.clone(), meta.clone()));
         }
         out
@@ -374,9 +377,7 @@ mod tests {
             vec![
                 (Phase::Capture, 1),
                 (Phase::Capture, 2),
-                (Phase::Capture, 3),
                 (Phase::Target, 3),
-                (Phase::Bubble, 3),
                 (Phase::Bubble, 2),
                 (Phase::Bubble, 1),
             ]
@@ -401,13 +402,7 @@ mod tests {
         let phases: Vec<(Phase, u32)> = out.iter().map(|d| (d.phase, d.node.0)).collect();
         assert_eq!(
             phases,
-            vec![
-                (Phase::Capture, 1),
-                (Phase::Capture, 7),
-                (Phase::Target, 7),
-                (Phase::Bubble, 7),
-                (Phase::Bubble, 1),
-            ]
+            vec![(Phase::Capture, 1), (Phase::Target, 7), (Phase::Bubble, 1),]
         );
         assert!(
             out.iter()
@@ -448,13 +443,13 @@ mod tests {
             meta: (),
         }];
         let out = router.handle_with_hits::<()>(&hits);
-        assert_eq!(out.len(), 7);
+        assert_eq!(out.len(), 5);
         assert!(matches!(out[0].phase, Phase::Capture));
         assert_eq!(out[0].node.0, 1);
-        assert!(matches!(out[3].phase, Phase::Target));
-        assert_eq!(out[3].node.0, 3);
-        assert!(matches!(out[6].phase, Phase::Bubble));
-        assert_eq!(out[6].node.0, 1);
+        assert!(matches!(out[2].phase, Phase::Target));
+        assert_eq!(out[2].node.0, 3);
+        assert!(matches!(out[4].phase, Phase::Bubble));
+        assert_eq!(out[4].node.0, 1);
     }
 
     #[test]
@@ -521,9 +516,7 @@ mod tests {
             vec![
                 (Phase::Capture, 1),
                 (Phase::Capture, 2),
-                (Phase::Capture, 3),
                 (Phase::Target, 3),
-                (Phase::Bubble, 3),
                 (Phase::Bubble, 2),
                 (Phase::Bubble, 1),
             ]
@@ -717,13 +710,7 @@ mod tests {
         let phases: Vec<(Phase, u32)> = out.iter().map(|d| (d.phase, d.node.0)).collect();
         assert_eq!(
             phases,
-            vec![
-                (Phase::Capture, 1),
-                (Phase::Capture, 7),
-                (Phase::Target, 7),
-                (Phase::Bubble, 7),
-                (Phase::Bubble, 1),
-            ]
+            vec![(Phase::Capture, 1), (Phase::Target, 7), (Phase::Bubble, 1),]
         );
         assert!(
             out.iter()
@@ -785,10 +772,7 @@ mod tests {
         }];
         let out = router.handle_with_hits::<()>(&hits);
         let phases: Vec<(Phase, u32)> = out.iter().map(|d| (d.phase, d.node.0)).collect();
-        assert_eq!(
-            phases,
-            vec![(Phase::Capture, 9), (Phase::Target, 9), (Phase::Bubble, 9),]
-        );
+        assert_eq!(phases, vec![(Phase::Target, 9)]);
     }
 
     // dispatch_for reconstructs a path via ParentLookup and emits capture→target→bubble.
@@ -813,9 +797,7 @@ mod tests {
             vec![
                 (Phase::Capture, 1),
                 (Phase::Capture, 2),
-                (Phase::Capture, 3),
                 (Phase::Target, 3),
-                (Phase::Bubble, 3),
                 (Phase::Bubble, 2),
                 (Phase::Bubble, 1),
             ]
@@ -829,14 +811,7 @@ mod tests {
         let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
         let out = router.dispatch_for::<()>(Node(42));
         let phases: Vec<(Phase, u32)> = out.iter().map(|d| (d.phase, d.node.0)).collect();
-        assert_eq!(
-            phases,
-            vec![
-                (Phase::Capture, 42),
-                (Phase::Target, 42),
-                (Phase::Bubble, 42)
-            ]
-        );
+        assert_eq!(phases, vec![(Phase::Target, 42)]);
     }
 
     #[test]
@@ -864,9 +839,7 @@ mod tests {
             vec![
                 (Phase::Capture, 1),
                 (Phase::Capture, 2),
-                (Phase::Capture, 3),
                 (Phase::Target, 3),
-                (Phase::Bubble, 3),
                 (Phase::Bubble, 2),
                 (Phase::Bubble, 1),
             ]
@@ -898,12 +871,50 @@ mod tests {
         assert!(consumed);
         assert_eq!(
             seen,
-            vec![
-                (Phase::Capture, 1),
-                (Phase::Capture, 2),
-                (Phase::Capture, 3),
-                (Phase::Target, 3),
-            ]
+            vec![(Phase::Capture, 1), (Phase::Capture, 2), (Phase::Target, 3),]
         );
+    }
+
+    #[test]
+    fn target_element_receives_event_only_once() {
+        let lookup = Lookup;
+        let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
+        let hits = vec![ResolvedHit {
+            node: Node(5),
+            path: Some(vec![Node(1), Node(2), Node(5)]),
+            depth_key: DepthKey::Z(10),
+            localizer: Localizer::default(),
+            meta: (),
+        }];
+        let dispatch = router.handle_with_hits::<()>(&hits);
+
+        // Count how many times each node receives events
+        let mut node_event_counts = alloc::collections::BTreeMap::new();
+        for d in &dispatch {
+            *node_event_counts.entry(d.node.0).or_insert(0) += 1;
+        }
+
+        // Target node (5) should receive exactly 1 event (only during target phase)
+        // This matches DOM behavior where target elements don't participate in capture/bubble
+        assert_eq!(
+            node_event_counts[&5], 1,
+            "Target node should only receive event once during target phase"
+        );
+
+        // Verify the target node only gets the target phase
+        let target_phases: Vec<Phase> = dispatch
+            .iter()
+            .filter(|d| d.node.0 == 5)
+            .map(|d| d.phase)
+            .collect();
+        assert_eq!(
+            target_phases,
+            vec![Phase::Target],
+            "Target node should only receive event in target phase"
+        );
+
+        // Parent nodes should receive 2 events each (capture + bubble)
+        assert_eq!(node_event_counts[&1], 2);
+        assert_eq!(node_event_counts[&2], 2);
     }
 }
