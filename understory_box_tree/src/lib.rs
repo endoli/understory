@@ -58,6 +58,9 @@
 //! - [`Tree::parent_of`](Tree::parent_of) returns the parent of a live [`NodeId`].
 //! - [`Tree::world_transform`](Tree::world_transform) / [`Tree::world_bounds`](Tree::world_bounds)
 //!   expose the local→world transform and world-space AABB for a live [`NodeId`].
+//! - [`Tree::children_of`](Tree::children_of) returns the children of a live [`NodeId`].
+//! - [`Tree::next_depth_first`](Tree::next_depth_first) and [`Tree::prev_depth_first`](Tree::prev_depth_first) provide depth-first tree traversal.
+//! - [`Tree::next_depth_first_filtered`](Tree::next_depth_first_filtered) and [`Tree::prev_depth_first_filtered`](Tree::prev_depth_first_filtered) provide filtered depth-first traversal using [`QueryFilter`].
 //!
 //! ## Damage and debugging notes
 //!
