@@ -256,6 +256,35 @@ impl Tree {
         }
     }
 
+    /// Return the world transform for a live node as of the last [`Tree::commit`].
+    ///
+    /// The returned [`Affine`] maps from the node's local coordinate space into
+    /// the tree's root/world space. Returns `None` for stale identifiers.
+    pub fn world_transform(&self, id: NodeId) -> Option<Affine> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.world.world_transform)
+    }
+
+    /// Return the world-space axis-aligned bounding box for a live node.
+    ///
+    /// This is the conservative AABB computed during [`Tree::commit`], after
+    /// applying local transforms and any active clips. Returns `None` for stale
+    /// identifiers.
+    pub fn world_bounds(&self, id: NodeId) -> Option<Rect> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.world.world_bounds)
+    }
+
     /// Access a node for debugging; panics if `id` is stale.
     pub(crate) fn node(&self, id: NodeId) -> &Node {
         self.nodes[id.idx()].as_ref().expect("dangling NodeId")
@@ -929,5 +958,67 @@ mod tests {
         assert_eq!(tree.parent_of(root), None);
         tree.remove(child);
         assert_eq!(tree.parent_of(child), None);
+    }
+
+    #[test]
+    fn world_transform_and_bounds_match_updates() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_transform: Affine::translate(Vec2::new(10.0, 20.0)),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                local_transform: Affine::translate(Vec2::new(5.0, 7.0)),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Root transform is just its local transform.
+        let root_tf = tree.world_transform(root).expect("root should be live");
+        assert_eq!(root_tf, Affine::translate(Vec2::new(10.0, 20.0)));
+
+        // Child transform composes parent and local.
+        let child_tf = tree.world_transform(child).expect("child should be live");
+        let expected_child_tf =
+            Affine::translate(Vec2::new(10.0, 20.0)) * Affine::translate(Vec2::new(5.0, 7.0));
+        assert_eq!(child_tf, expected_child_tf);
+
+        // World bounds match the transformed local bounds.
+        let child_bounds = tree
+            .world_bounds(child)
+            .expect("child should have world bounds");
+        let expected_bounds =
+            transform_rect_bbox(expected_child_tf, Rect::new(0.0, 0.0, 10.0, 10.0));
+        assert_eq!(child_bounds, expected_bounds);
+    }
+
+    #[test]
+    fn world_transform_and_bounds_respect_liveness() {
+        let mut tree = Tree::new();
+        let node = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        assert!(tree.world_transform(node).is_some());
+        assert!(tree.world_bounds(node).is_some());
+
+        tree.remove(node);
+
+        // Stale ids must not expose transforms or bounds.
+        assert!(tree.world_transform(node).is_none());
+        assert!(tree.world_bounds(node).is_none());
     }
 }
