@@ -49,6 +49,7 @@ fn main() {
     let filter = QueryFilter {
         visible_only: true,
         pickable_only: true,
+        focusable_only: false,
     };
     let hit = tree.hit_test_point(Point::new(50.0, 50.0), filter).unwrap();
     println!("hit node: {:?}", hit.node);

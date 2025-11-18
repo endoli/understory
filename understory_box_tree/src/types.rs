@@ -47,13 +47,15 @@ impl NodeId {
 }
 
 bitflags::bitflags! {
-    /// Node flags controlling visibility and picking.
+    /// Node flags controlling visibility, picking, and focus behavior.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct NodeFlags: u8 {
         /// Node is visible (participates in rendering and intersection queries).
         const VISIBLE  = 0b0000_0001;
         /// Node is pickable (participates in hit testing).
         const PICKABLE = 0b0000_0010;
+        /// Node is focusable (can receive keyboard focus).
+        const FOCUSABLE = 0b0000_0100;
     }
 }
 

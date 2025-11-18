@@ -41,6 +41,7 @@ fn main() {
     let filter = QueryFilter {
         visible_only: true,
         pickable_only: false,
+        focusable_only: false,
     };
 
     // Simulate a few scroll positions by changing the viewport rectangle
