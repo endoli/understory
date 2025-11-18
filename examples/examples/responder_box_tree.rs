@@ -87,11 +87,7 @@ fn main() {
 
     // Point inside the overlap region; top_hit should be child_b (higher z).
     let pt = Point::new(120.0, 120.0);
-    let filter = QueryFilter {
-        visible_only: true,
-        pickable_only: true,
-        focusable_only: false,
-    };
+    let filter = QueryFilter::new().visible().pickable();
     let hit: ResolvedHit<NodeId, ()> = top_hit_for_point(&bt, pt, filter).expect("expected a hit");
     println!("\nQuery point #1: ({:.1}, {:.1})", pt.x, pt.y);
     let dispatch = router.handle_with_hits(&[hit]);
@@ -123,15 +119,7 @@ fn main() {
 
     // Visible set example: query a viewport.
     let viewport = Rect::new(0.0, 0.0, 300.0, 300.0);
-    let visible_hits = hits_for_rect(
-        &bt,
-        viewport,
-        QueryFilter {
-            visible_only: true,
-            pickable_only: false,
-            focusable_only: false,
-        },
-    );
+    let visible_hits = hits_for_rect(&bt, viewport, QueryFilter::new().visible());
     println!(
         "\n== Visible nodes in viewport ==\n  viewport: ({:.1},{:.1})–({:.1},{:.1})\n  count: {}",
         viewport.x0,

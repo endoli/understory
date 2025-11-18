@@ -38,11 +38,7 @@ fn main() {
     }
     let _ = tree.commit();
 
-    let filter = QueryFilter {
-        visible_only: true,
-        pickable_only: false,
-        focusable_only: false,
-    };
+    let filter = QueryFilter::new().visible();
 
     // Simulate a few scroll positions by changing the viewport rectangle
     for scroll in [0.0, 30.0, 200.0, 600.0] {

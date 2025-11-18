@@ -60,10 +60,10 @@ See [`understory_index::Index`], [`understory_index::RTreeF32`]/[`understory_ind
 
 - [`Tree`]: container managing nodes and the spatial index synchronization.
 - [`LocalNode`]: per-node local data (bounds, transform, optional clip, z, flags).
-  See [`LocalNode::flags`] for visibility/picking/focus controls.
-- [`NodeFlags`]: visibility, picking, and focus controls.
+  See [`LocalNode::flags`] for visibility/picking/focusable controls.
+- [`NodeFlags`]: visibility, picking, and focusable controls.
 - [`NodeId`]: generational handle of a node.
-- [`QueryFilter`]: restricts hit/intersect results (visible/pickable).
+- [`QueryFilter`]: restricts hit/intersect results (visible/pickable/focusable).
   See [`NodeFlags::VISIBLE`], [`NodeFlags::PICKABLE`], and [`NodeFlags::FOCUSABLE`].
 
 Key operations:

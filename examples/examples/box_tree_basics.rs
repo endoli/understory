@@ -46,11 +46,7 @@ fn main() {
     println!("damage rects: {:?}", damage.dirty_rects);
 
     // Hit-test prefers the higher z-index (node B)
-    let filter = QueryFilter {
-        visible_only: true,
-        pickable_only: true,
-        focusable_only: false,
-    };
+    let filter = QueryFilter::new().visible().pickable();
     let hit = tree.hit_test_point(Point::new(50.0, 50.0), filter).unwrap();
     println!("hit node: {:?}", hit.node);
     assert_eq!(hit.node, b, "hit-test should prefer higher z-index node B");
