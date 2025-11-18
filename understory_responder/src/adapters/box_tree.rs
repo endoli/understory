@@ -171,15 +171,7 @@ pub mod navigation {
             return false;
         };
 
-        if filter.visible_only && !flags.contains(understory_box_tree::NodeFlags::VISIBLE) {
-            return false;
-        }
-
-        if filter.pickable_only && !flags.contains(understory_box_tree::NodeFlags::PICKABLE) {
-            return false;
-        }
-
-        true
+        filter.matches(flags)
     }
 
     /// Find the root node of the subtree containing the given node.
@@ -254,8 +246,7 @@ pub mod navigation {
             );
 
             let filter = QueryFilter {
-                visible_only: true,
-                pickable_only: false,
+                required_flags: NodeFlags::VISIBLE,
             };
 
             // From root, next visible should be b (skipping hidden a)
@@ -310,8 +301,7 @@ pub mod navigation {
             );
 
             let filter = QueryFilter {
-                visible_only: false,
-                pickable_only: true,
+                required_flags: NodeFlags::PICKABLE,
             };
 
             // From root, next pickable should be b (skipping non-pickable a)
@@ -346,8 +336,7 @@ pub mod navigation {
             );
 
             let filter = QueryFilter {
-                visible_only: false,
-                pickable_only: true,
+                required_flags: NodeFlags::PICKABLE,
             };
 
             // Should return None since no nodes are pickable
@@ -387,8 +376,7 @@ pub mod navigation {
             );
 
             let filter = QueryFilter {
-                visible_only: true,
-                pickable_only: false,
+                required_flags: NodeFlags::VISIBLE,
             };
 
             // From visible_child (last visible), next should wrap to root
@@ -422,8 +410,7 @@ pub mod navigation {
             );
 
             let filter = QueryFilter {
-                visible_only: true,
-                pickable_only: false,
+                required_flags: NodeFlags::VISIBLE,
             };
 
             // Should work with live nodes
@@ -476,8 +463,7 @@ pub mod navigation {
             );
 
             let filter = QueryFilter {
-                visible_only: true,
-                pickable_only: false,
+                required_flags: NodeFlags::VISIBLE,
             };
 
             // From child1_visible (last visible in subtree1), should wrap to root1 (not cross to subtree2)

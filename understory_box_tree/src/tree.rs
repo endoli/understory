@@ -475,6 +475,7 @@ impl Tree {
     }
 
     /// Get the next node in depth-first traversal order.
+    ///
     /// Returns `None` if no next node exists or if the current node is stale.
     /// This is a standard tree traversal that does not wrap around.
     pub fn next_depth_first(&self, current: NodeId) -> Option<NodeId> {
@@ -486,6 +487,7 @@ impl Tree {
     }
 
     /// Get the previous node in reverse depth-first traversal order.
+    ///
     /// Returns `None` if no previous node exists or if the current node is stale.
     /// This is a standard tree traversal that does not wrap around.
     pub fn prev_depth_first(&self, current: NodeId) -> Option<NodeId> {
