@@ -463,30 +463,37 @@ impl Tree {
             .and_then(|node| node.parent)
     }
 
+    /// Returns the flags of a node if the identifier is live.
+    pub fn flags(&self, id: NodeId) -> Option<NodeFlags> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.flags)
+    }
+
     /// Get the next node in depth-first traversal order.
     /// Returns `None` if no next node exists or if the current node is stale.
-    /// Wraps around to the root of the current subtree when reaching the end.
+    /// This is a standard tree traversal that does not wrap around.
     pub fn next_depth_first(&self, current: NodeId) -> Option<NodeId> {
         if !self.is_alive(current) {
             return None;
         }
 
         self.next_in_order(current)
-            .or_else(|| self.find_root_of(current))
     }
 
     /// Get the previous node in reverse depth-first traversal order.
     /// Returns `None` if no previous node exists or if the current node is stale.
-    /// Wraps around to the last node of the current subtree when reaching the beginning.
+    /// This is a standard tree traversal that does not wrap around.
     pub fn prev_depth_first(&self, current: NodeId) -> Option<NodeId> {
         if !self.is_alive(current) {
             return None;
         }
 
-        self.prev_in_order(current).or_else(|| {
-            let root = self.find_root_of(current)?;
-            Some(self.find_last_descendant(root).unwrap_or(root))
-        })
+        self.prev_in_order(current)
     }
 
     /// Get the children of a node, or empty slice if node is stale.
@@ -495,83 +502,6 @@ impl Tree {
             return &[];
         }
         &self.node(id).children
-    }
-
-    /// Get the next node in depth-first traversal order that matches the filter.
-    /// Returns `None` if no matching node exists or if the current node is stale.
-    /// The search wraps around to the beginning of the tree to avoid infinite loops.
-    pub fn next_depth_first_filtered(
-        &self,
-        current: NodeId,
-        filter: QueryFilter,
-    ) -> Option<NodeId> {
-        if !self.is_alive(current) {
-            return None;
-        }
-
-        let start = current;
-        let mut node = current;
-
-        // Keep searching until we find a match or complete a full cycle
-        loop {
-            if let Some(next) = self.next_in_order(node) {
-                node = next;
-            } else {
-                // Wrap around to the root of this subtree when we reach the end
-                node = self.find_root_of(node)?;
-            }
-
-            // Check if we've completed a full cycle
-            if node == start {
-                break;
-            }
-
-            // Check if this node matches the filter
-            if self.node_matches_filter(node, filter) {
-                return Some(node);
-            }
-        }
-
-        None
-    }
-
-    /// Get the previous node in reverse depth-first traversal order that matches the filter.
-    /// Returns `None` if no matching node exists or if the current node is stale.
-    /// The search wraps around to the end of the tree to avoid infinite loops.
-    pub fn prev_depth_first_filtered(
-        &self,
-        current: NodeId,
-        filter: QueryFilter,
-    ) -> Option<NodeId> {
-        if !self.is_alive(current) {
-            return None;
-        }
-
-        let start = current;
-        let mut node = current;
-
-        // Keep searching until we find a match or complete a full cycle
-        loop {
-            if let Some(prev) = self.prev_in_order(node) {
-                node = prev;
-            } else {
-                // Wrap around to the last node of this subtree when we reach the beginning
-                let root = self.find_root_of(node)?;
-                node = self.find_last_descendant(root).unwrap_or(root);
-            }
-
-            // Check if we've completed a full cycle
-            if node == start {
-                break;
-            }
-
-            // Check if this node matches the filter
-            if self.node_matches_filter(node, filter) {
-                return Some(node);
-            }
-        }
-
-        None
     }
 
     fn next_in_order(&self, current: NodeId) -> Option<NodeId> {
@@ -631,52 +561,6 @@ impl Tree {
             return Some(node);
         }
         None
-    }
-
-    /// Check if a node matches the given filter criteria.
-    fn node_matches_filter(&self, id: NodeId, filter: QueryFilter) -> bool {
-        if !self.is_alive(id) {
-            return false;
-        }
-
-        let node = self.node(id);
-
-        if filter.visible_only && !node.local.flags.contains(NodeFlags::VISIBLE) {
-            return false;
-        }
-
-        if filter.pickable_only && !node.local.flags.contains(NodeFlags::PICKABLE) {
-            return false;
-        }
-
-        true
-    }
-
-    /// Find the rightmost (last in depth-first order) descendant of a node.
-    fn find_last_descendant(&self, mut node: NodeId) -> Option<NodeId> {
-        loop {
-            let children = &self.node(node).children;
-            if let Some(&last_child) = children.last()
-                && self.is_alive(last_child)
-            {
-                node = last_child;
-                continue;
-            }
-            return Some(node);
-        }
-    }
-
-    /// Find the root node of the subtree containing the given node.
-    fn find_root_of(&self, mut node: NodeId) -> Option<NodeId> {
-        if !self.is_alive(node) {
-            return None;
-        }
-
-        while let Some(parent) = self.parent_of(node) {
-            node = parent;
-        }
-
-        Some(node)
     }
 
     #[inline]
@@ -1409,8 +1293,8 @@ mod tests {
         let next_b = tree.next_depth_first(d).unwrap();
         assert_eq!(next_b, b);
 
-        // End of traversal wraps to root
-        assert_eq!(tree.next_depth_first(b).unwrap(), root);
+        // End of traversal
+        assert!(tree.next_depth_first(b).is_none());
     }
 
     #[test]
@@ -1466,8 +1350,8 @@ mod tests {
         let prev_root = tree.prev_depth_first(a).unwrap();
         assert_eq!(prev_root, root);
 
-        // Beginning of traversal wraps to last node (b)
-        assert_eq!(tree.prev_depth_first(root).unwrap(), b);
+        // Beginning of traversal
+        assert!(tree.prev_depth_first(root).is_none());
     }
 
     #[test]
@@ -1588,335 +1472,5 @@ mod tests {
 
         let prev = tree.prev_depth_first(a).unwrap();
         assert_eq!(prev, root);
-    }
-
-    #[test]
-    fn filtered_traversal_visible_only() {
-        let mut tree = Tree::new();
-
-        // Build tree: root(visible) -> [a(hidden), b(visible) -> c(visible)]
-        let root = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-        let _a = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::empty(), // hidden
-                ..Default::default()
-            },
-        );
-        let b = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-        let c = tree.insert(
-            Some(b),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-
-        let filter = QueryFilter {
-            visible_only: true,
-            pickable_only: false,
-        };
-
-        // From root, next visible should be b (skipping hidden a)
-        let next = tree.next_depth_first_filtered(root, filter).unwrap();
-        assert_eq!(next, b);
-
-        // From b, next visible should be c
-        let next = tree.next_depth_first_filtered(b, filter).unwrap();
-        assert_eq!(next, c);
-
-        // From c, should wrap around to root (no more visible after c)
-        let next = tree.next_depth_first_filtered(c, filter);
-        assert_eq!(next, Some(root));
-
-        // Reverse: from c, prev visible should be b
-        let prev = tree.prev_depth_first_filtered(c, filter).unwrap();
-        assert_eq!(prev, b);
-
-        // From b, prev visible should be root
-        let prev = tree.prev_depth_first_filtered(b, filter).unwrap();
-        assert_eq!(prev, root);
-    }
-
-    #[test]
-    fn filtered_traversal_pickable_only() {
-        let mut tree = Tree::new();
-
-        // Build tree where only some nodes are pickable
-        let root = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::PICKABLE,
-                ..Default::default()
-            },
-        );
-        let _a = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE, // visible but not pickable
-                ..Default::default()
-            },
-        );
-        let b = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::PICKABLE | NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-
-        let filter = QueryFilter {
-            visible_only: false,
-            pickable_only: true,
-        };
-
-        // From root, next pickable should be b (skipping non-pickable a)
-        let next = tree.next_depth_first_filtered(root, filter).unwrap();
-        assert_eq!(next, b);
-
-        // From b, should wrap around to root
-        let next = tree.next_depth_first_filtered(b, filter);
-        assert_eq!(next, Some(root));
-    }
-
-    #[test]
-    fn filtered_traversal_no_matches() {
-        let mut tree = Tree::new();
-
-        // Build tree with no pickable nodes
-        let root = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-        let a = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-
-        let filter = QueryFilter {
-            visible_only: false,
-            pickable_only: true,
-        };
-
-        // Should return None since no nodes are pickable
-        assert!(tree.next_depth_first_filtered(root, filter).is_none());
-        assert!(tree.prev_depth_first_filtered(root, filter).is_none());
-        assert!(tree.next_depth_first_filtered(a, filter).is_none());
-    }
-
-    #[test]
-    fn filtered_traversal_wraparound() {
-        let mut tree = Tree::new();
-
-        // Build tree: root -> [visible_child, hidden_child]
-        let root = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-        let visible_child = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-        let _hidden_child = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::empty(), // hidden
-                ..Default::default()
-            },
-        );
-
-        let filter = QueryFilter {
-            visible_only: true,
-            pickable_only: false,
-        };
-
-        // From visible_child (last visible), next should wrap to root
-        let next = tree
-            .next_depth_first_filtered(visible_child, filter)
-            .unwrap();
-        assert_eq!(next, root);
-
-        // From root, next visible should be visible_child
-        let next = tree.next_depth_first_filtered(root, filter).unwrap();
-        assert_eq!(next, visible_child);
-    }
-
-    #[test]
-    fn filtered_traversal_respects_liveness() {
-        let mut tree = Tree::new();
-
-        let root = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-        let child = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-
-        let filter = QueryFilter {
-            visible_only: true,
-            pickable_only: false,
-        };
-
-        // Should work with live nodes
-        assert!(tree.next_depth_first_filtered(root, filter).is_some());
-
-        tree.remove(child);
-
-        // Should return None for stale nodes
-        assert!(tree.next_depth_first_filtered(child, filter).is_none());
-        assert!(tree.prev_depth_first_filtered(child, filter).is_none());
-    }
-
-    #[test]
-    fn traversal_wraparound_within_subtree() {
-        let mut tree = Tree::new();
-
-        // Build two separate subtrees
-        let root1 = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                ..Default::default()
-            },
-        );
-        let child1 = tree.insert(
-            Some(root1),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                ..Default::default()
-            },
-        );
-
-        let root2 = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                ..Default::default()
-            },
-        );
-        let child2 = tree.insert(
-            Some(root2),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                ..Default::default()
-            },
-        );
-
-        // From child1 (last in subtree1), next should wrap to root1
-        let next = tree.next_depth_first(child1).unwrap();
-        assert_eq!(next, root1);
-
-        // From root1 (first in subtree1), prev should wrap to child1
-        let prev = tree.prev_depth_first(root1).unwrap();
-        assert_eq!(prev, child1);
-
-        // From child2 (last in subtree2), next should wrap to root2 (not cross to subtree1)
-        let next = tree.next_depth_first(child2).unwrap();
-        assert_eq!(next, root2);
-
-        // From root2 (first in subtree2), prev should wrap to child2 (not cross to subtree1)
-        let prev = tree.prev_depth_first(root2).unwrap();
-        assert_eq!(prev, child2);
-    }
-
-    #[test]
-    fn filtered_traversal_wraparound_within_subtree() {
-        let mut tree = Tree::new();
-
-        // Build two separate subtrees with mixed visibility
-        let root1 = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-        let _child1_hidden = tree.insert(
-            Some(root1),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::empty(), // hidden
-                ..Default::default()
-            },
-        );
-        let child1_visible = tree.insert(
-            Some(root1),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-
-        let _root2 = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
-                flags: NodeFlags::VISIBLE,
-                ..Default::default()
-            },
-        );
-
-        let filter = QueryFilter {
-            visible_only: true,
-            pickable_only: false,
-        };
-
-        // From child1_visible (last visible in subtree1), should wrap to root1 (not cross to subtree2)
-        let next = tree
-            .next_depth_first_filtered(child1_visible, filter)
-            .unwrap();
-        assert_eq!(next, root1);
-
-        // From root1, next visible should be child1_visible (skipping hidden child)
-        let next = tree.next_depth_first_filtered(root1, filter).unwrap();
-        assert_eq!(next, child1_visible);
     }
 }

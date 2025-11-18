@@ -83,6 +83,13 @@
 //!
 //! See the `dispatcher` module docs for additional patterns and helpers.
 //!
+//! ## Adapters
+//!
+//! The [`adapters`] module provides integration with other Understory crates:
+//!
+//! - **Box Tree Adapter** (`box_tree_adapter` feature): Converts [`understory_box_tree`] spatial queries
+//!   into [`ResolvedHit`](types::ResolvedHit) items. Includes filtered tree traversal for keyboard navigation.
+//!
 //! This crate is `no_std` and uses `alloc`.
 
 #![no_std]
