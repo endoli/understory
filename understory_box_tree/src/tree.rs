@@ -310,7 +310,7 @@ impl Tree {
             .query_point(pt.x, pt.y)
             .map(|(_, id)| id)
             .collect();
-        let mut best: Option<(NodeId, i32)> = None;
+        let mut best: Option<(NodeId, i32, usize)> = None;
         for id in candidates {
             let Some(node) = self.nodes[id.idx()].as_ref() else {
                 continue;
@@ -327,17 +327,22 @@ impl Tree {
                     continue;
                 }
             }
+            let depth = self.depth(id);
             match best {
-                None => best = Some((id, node.local.z_index)),
-                Some((best_id, z_best)) => {
+                None => best = Some((id, node.local.z_index, depth)),
+                Some((best_id, z_best, depth_best)) => {
                     let z = node.local.z_index;
-                    if z > z_best || (z == z_best && Self::id_is_newer(id, best_id)) {
-                        best = Some((id, z));
+                    if z > z_best
+                        || (z == z_best
+                            && (depth > depth_best
+                                || (depth == depth_best && Self::id_is_newer(id, best_id))))
+                    {
+                        best = Some((id, z, depth));
                     }
                 }
             }
         }
-        best.map(|(node, _)| Hit {
+        best.map(|(node, _, _)| Hit {
             node,
             path: self.path_to_root(node),
         })
@@ -402,6 +407,24 @@ impl Tree {
     #[inline]
     fn id_is_newer(a: NodeId, b: NodeId) -> bool {
         (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
+    }
+
+    /// Return the depth of a node in the tree (1-based), or 0 if the id is stale.
+    ///
+    /// Roots have depth 1, direct children of roots have depth 2, and so on.
+    fn depth(&self, mut id: NodeId) -> usize {
+        if !self.is_alive(id) {
+            return 0;
+        }
+        let mut d = 0;
+        loop {
+            d += 1;
+            match self.node(id).parent {
+                Some(p) => id = p,
+                None => break,
+            }
+        }
+        d
     }
 
     fn node_opt_mut(&mut self, id: NodeId) -> Option<&mut Node> {
@@ -501,6 +524,7 @@ impl Tree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
     use core::f64::consts::FRAC_PI_4;
     use kurbo::Vec2;
 
@@ -678,7 +702,7 @@ mod tests {
         );
         let _ = tree.commit();
 
-        // Sanity: with equal z, the newer of (a, b) should win; typically b is newer.
+        // Sanity: with equal z and equal depth, the newer of (a, b) should win; typically b is newer.
         let hit1 = tree
             .hit_test_point(
                 Point::new(60.0, 60.0),
@@ -714,7 +738,7 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(hit2.node, c, "newer id should win on equal z");
+        assert_eq!(hit2.node, c, "newer id should win on equal z and depth");
     }
 
     #[test]
@@ -741,6 +765,97 @@ mod tests {
         );
         assert_eq!(tree.z_index(new_node), Some(3));
         assert!(Tree::id_is_newer(new_node, node));
+    }
+
+    #[test]
+    fn deeper_node_wins_over_ancestor_at_equal_z() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 160.0, 160.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let grandchild = tree.insert(
+            Some(child),
+            LocalNode {
+                local_bounds: Rect::new(80.0, 80.0, 120.0, 120.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Point inside all three; deepest (grandchild) should win even if NodeId
+        // allocation order or reuse would prefer another by id alone.
+        let hit = tree
+            .hit_test_point(
+                Point::new(100.0, 100.0),
+                QueryFilter {
+                    visible_only: true,
+                    pickable_only: true,
+                },
+            )
+            .unwrap();
+        assert_eq!(hit.node, grandchild);
+        assert_eq!(hit.path, vec![root, child, grandchild]);
+    }
+
+    #[test]
+    fn id_tiebreak_only_used_when_depth_and_z_equal() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        // Two overlapping children at the same depth and z.
+        let a = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 160.0, 160.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let b = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 160.0, 160.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Both overlap the point; whichever is newer by NodeId wins when depth and z are equal.
+        let hit = tree
+            .hit_test_point(
+                Point::new(100.0, 100.0),
+                QueryFilter {
+                    visible_only: true,
+                    pickable_only: true,
+                },
+            )
+            .unwrap();
+        let expected = if Tree::id_is_newer(b, a) { b } else { a };
+        assert_eq!(hit.node, expected);
+        // Path still includes root then the chosen child.
+        assert_eq!(hit.path.first().copied(), Some(root));
+        assert_eq!(hit.path.last().copied(), Some(expected));
     }
 
     #[test]
