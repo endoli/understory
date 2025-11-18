@@ -263,18 +263,22 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         meta: Option<M>,
     ) -> Vec<Dispatch<K, L::WidgetId, M>> {
         let mut out = Vec::new();
-        let target = *path.last().unwrap();
+        // Split into ancestors and target. If path is empty, nothing to emit.
+        let (target, ancestors) = match path.split_last() {
+            Some((t, ancestors)) => (t, ancestors),
+            None => return out,
+        };
 
-        // Capture: root→parent (excluding target)
-        for &n in &path[..path.len().saturating_sub(1)] {
+        // Capture: root→(excluding target)
+        for &n in ancestors {
             out.push(self.make_dispatch(Phase::Capture, n, localizer.clone(), meta.clone()));
         }
 
         // Target: only the target element
-        out.push(self.make_dispatch(Phase::Target, target, localizer.clone(), meta.clone()));
+        out.push(self.make_dispatch(Phase::Target, *target, localizer.clone(), meta.clone()));
 
         // Bubble: parent→root (excluding target)
-        for &n in path[..path.len().saturating_sub(1)].iter().rev() {
+        for &n in ancestors.iter().rev() {
             out.push(self.make_dispatch(Phase::Bubble, n, localizer.clone(), meta.clone()));
         }
         out
