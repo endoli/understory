@@ -161,8 +161,8 @@ pub fn path_from_dispatch<K: Copy, W, M>(seq: &[Dispatch<K, W, M>]) -> Vec<K> {
     let mut path = Vec::new();
     for d in seq {
         match d.phase {
-            Phase::Capture => path.push(d.node),
-            Phase::Target | Phase::Bubble => break,
+            Phase::Capture | Phase::Target => path.push(d.node),
+            Phase::Bubble => break,
         }
     }
     path
@@ -264,5 +264,60 @@ mod tests {
         let second = h.update_path(&[7, 8]);
         assert!(second.is_empty());
         assert_eq!(h.current_path(), &[7, 8]);
+    }
+
+    // Test that `path_from_dispatch` includes `Target` phase in the path
+    #[test]
+    fn path_from_dispatch_includes_target_phase() {
+        use crate::types::{Dispatch, Localizer, Phase};
+
+        let seq = vec![
+            Dispatch {
+                phase: Phase::Capture,
+                node: 1_u32,
+                widget: Some(10),
+                localizer: Localizer::default(),
+                meta: Some(()),
+            },
+            Dispatch {
+                phase: Phase::Capture,
+                node: 2_u32,
+                widget: Some(20),
+                localizer: Localizer::default(),
+                meta: Some(()),
+            },
+            Dispatch {
+                phase: Phase::Target,
+                node: 3_u32,
+                widget: Some(30),
+                localizer: Localizer::default(),
+                meta: Some(()),
+            },
+            Dispatch {
+                phase: Phase::Bubble,
+                node: 3_u32,
+                widget: Some(30),
+                localizer: Localizer::default(),
+                meta: Some(()),
+            },
+            Dispatch {
+                phase: Phase::Bubble,
+                node: 2_u32,
+                widget: Some(20),
+                localizer: Localizer::default(),
+                meta: Some(()),
+            },
+            Dispatch {
+                phase: Phase::Bubble,
+                node: 1_u32,
+                widget: Some(10),
+                localizer: Localizer::default(),
+                meta: Some(()),
+            },
+        ];
+
+        let path = path_from_dispatch(&seq);
+        // Should include all `Capture` phases plus the `Target` phase
+        assert_eq!(path, vec![1, 2, 3]);
     }
 }
