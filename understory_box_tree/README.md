@@ -73,6 +73,8 @@ Key operations:
 - [`Tree::hit_test_point`](Tree::hit_test_point) and [`Tree::intersect_rect`](Tree::intersect_rect).
 - [`Tree::z_index`](Tree::z_index) exposes the stacking order of a live [`NodeId`].
 - [`Tree::parent_of`](Tree::parent_of) returns the parent of a live [`NodeId`].
+- [`Tree::world_transform`](Tree::world_transform) / [`Tree::world_bounds`](Tree::world_bounds)
+  expose the local→world transform and world-space AABB for a live [`NodeId`].
 
 ## Damage and debugging notes
 
