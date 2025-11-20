@@ -92,7 +92,7 @@ fn main() {
     println!("\nQuery point #1: ({:.1}, {:.1})", pt.x, pt.y);
     let dispatch = router.handle_with_hits(&[hit]);
     println!("\n== Dispatch (overlap @ 120,120) ==");
-    let _consumed = dispatcher::run(&dispatch, &mut (), |d, _| {
+    let _ = dispatcher::run(&dispatch, &mut (), |d, _| {
         println!("  {:?}  node={:?}  widget={:?}", d.phase, d.node, d.widget);
         Outcome::Continue
     });
@@ -109,7 +109,7 @@ fn main() {
     println!("\nQuery point #2: ({:.1}, {:.1})", pt2.x, pt2.y);
     let dispatch2 = router.handle_with_hits(&[hit2]);
     println!("\n== Dispatch (point #2 @ {:.1},{:.1}) ==", pt2.x, pt2.y);
-    let _consumed = dispatcher::run(&dispatch2, &mut (), |d, _| {
+    let _ = dispatcher::run(&dispatch2, &mut (), |d, _| {
         println!("  {:?}  node={:?}  widget={:?}", d.phase, d.node, d.widget);
         Outcome::Continue
     });

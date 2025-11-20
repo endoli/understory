@@ -831,12 +831,12 @@ mod tests {
         }];
         let dispatch = router.handle_with_hits::<()>(&hits);
         let mut seen: Vec<(Phase, u32)> = Vec::new();
-        let consumed = dispatcher::run(&dispatch, &mut (), |d, _| {
+        let stopped = dispatcher::run(&dispatch, &mut (), |d, _| {
             seen.push((d.phase, d.node.0));
             Outcome::Continue
         });
 
-        assert!(!consumed);
+        assert!(stopped.is_none());
         assert_eq!(seen.len(), dispatch.len());
         assert_eq!(
             seen,
@@ -851,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    fn router_dispatch_and_dispatcher_stop_and_consume_skip_bubble() {
+    fn router_dispatch_and_dispatcher_stop_skips_bubble() {
         let lookup = Lookup;
         let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
         let hits = vec![ResolvedHit {
@@ -863,16 +863,19 @@ mod tests {
         }];
         let dispatch = router.handle_with_hits::<()>(&hits);
         let mut seen: Vec<(Phase, u32)> = Vec::new();
-        let consumed = dispatcher::run(&dispatch, &mut (), |d, _| {
+        let stopped = dispatcher::run(&dispatch, &mut (), |d, _| {
             seen.push((d.phase, d.node.0));
             if matches!(d.phase, Phase::Target) {
-                Outcome::StopAndConsume
+                Outcome::Stop
             } else {
                 Outcome::Continue
             }
         });
 
-        assert!(consumed);
+        assert!(stopped.is_some());
+        let stopped = stopped.unwrap();
+        assert!(matches!(stopped.phase, Phase::Target));
+        assert_eq!(stopped.node.0, 3);
         assert_eq!(
             seen,
             vec![(Phase::Capture, 1), (Phase::Capture, 2), (Phase::Target, 3),]

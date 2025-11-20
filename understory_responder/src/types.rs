@@ -28,15 +28,14 @@ pub enum Phase {
 ///
 /// A higher‑level dispatcher (see crate docs) can use this as the return
 /// value from per‑node handlers to decide whether to continue within a phase
-/// or abort remaining phases.
+/// or abort remaining phases. Consumption / default‑prevention should be
+/// tracked on the event payload, not in this enum.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Outcome {
     /// Continue within the current phase.
     Continue,
     /// Stop propagation within the current phase.
     Stop,
-    /// Stop and mark consumed (for higher-level policies).
-    StopAndConsume,
 }
 
 /// Policy for breaking ties after equal primary depth.

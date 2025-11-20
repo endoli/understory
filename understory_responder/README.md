@@ -82,13 +82,13 @@ Execute handlers over the responder sequence and honor stop/cancelation with [`d
 use understory_responder::dispatcher;
 use understory_responder::types::{Dispatch, Outcome, Phase};
 let mut default_prevented = false;
-let consumed = dispatcher::run(&seq, &mut default_prevented, |d, flag| {
+let stop_at = dispatcher::run(&seq, &mut default_prevented, |d, flag| {
     if matches!(d.phase, Phase::Target) {
         *flag = true;
     }
     Outcome::Continue
 });
-assert!(!consumed);
+assert!(stop_at.is_none());
 assert!(default_prevented);
 ```
 

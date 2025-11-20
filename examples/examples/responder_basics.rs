@@ -60,7 +60,7 @@ fn main() {
 
     let dispatch = router.handle_with_hits::<()>(&hits);
     println!("== Dispatch (capture → target → bubble) ==");
-    let _consumed = dispatcher::run(&dispatch, &mut (), |d, _| {
+    let _ = dispatcher::run(&dispatch, &mut (), |d, _| {
         println!("  {:?}  node={:?}  widget={:?}", d.phase, d.node, d.widget);
         Outcome::Continue
     });
