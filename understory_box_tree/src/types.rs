@@ -6,20 +6,15 @@
 use kurbo::{Affine, Rect, RoundedRect};
 
 /// Controls how a node composes clipping from its own clip and any parent clip.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ClipBehavior {
     /// Do not apply any clip (ignore local clip and ancestor clip).
     None,
     /// Apply only the local clip for this node; ignore any ancestor clip.
+    #[default]
     LocalOnly,
     /// Apply parent clip if present; if both local and parent clips exist, intersect them.
     Inherit,
-}
-
-impl Default for ClipBehavior {
-    fn default() -> Self {
-        Self::LocalOnly
-    }
 }
 
 /// Identifier for a node in the tree.
