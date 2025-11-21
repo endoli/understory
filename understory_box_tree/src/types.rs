@@ -5,6 +5,23 @@
 
 use kurbo::{Affine, Rect, RoundedRect};
 
+/// Controls how a node composes clipping from its own clip and any parent clip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ClipBehavior {
+    /// Do not apply any clip (ignore local clip and ancestor clip).
+    None,
+    /// Apply only the local clip for this node; ignore any ancestor clip.
+    LocalOnly,
+    /// Apply parent clip if present; if both local and parent clips exist, intersect them.
+    Inherit,
+}
+
+impl Default for ClipBehavior {
+    fn default() -> Self {
+        Self::LocalOnly
+    }
+}
+
 /// Identifier for a node in the tree.
 ///
 /// This is a small, copyable handle that stays stable across updates but becomes
@@ -74,6 +91,8 @@ pub struct LocalNode {
     pub local_transform: Affine,
     /// Optional local clip (rounded-rect). AABB is used for spatial indexing; precise hit test is best-effort.
     pub local_clip: Option<RoundedRect>,
+    /// How to compose local and ancestor clips for this node (defaults to [`ClipBehavior::LocalOnly`]).
+    pub clip_behavior: ClipBehavior,
     /// Z-order within parent stacking context. Higher is drawn on top.
     pub z_index: i32,
     /// Visibility and picking flags.
@@ -86,6 +105,7 @@ impl Default for LocalNode {
             local_bounds: Rect::ZERO,
             local_transform: Affine::IDENTITY,
             local_clip: None,
+            clip_behavior: ClipBehavior::default(),
             z_index: 0,
             flags: NodeFlags::default(),
         }
