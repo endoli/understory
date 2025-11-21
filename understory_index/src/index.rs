@@ -74,6 +74,25 @@ where
     P: Copy + Debug,
     B: Backend<T>,
 {
+    /// Create an empty index using an explicit backend instance.
+    ///
+    /// This is useful when higher layers want to choose a backend type or
+    /// configure it before wiring it into the index.
+    pub fn with_backend(backend: B) -> Self {
+        Self {
+            entries: Vec::new(),
+            free_list: Vec::new(),
+            backend,
+        }
+    }
+}
+
+impl<T, P, B> IndexGeneric<T, P, B>
+where
+    T: Copy + PartialOrd + Debug,
+    P: Copy + Debug,
+    B: Backend<T>,
+{
     /// Reserve space for at least `n` entries.
     pub fn reserve(&mut self, n: usize) {
         self.entries.reserve(n);

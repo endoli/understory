@@ -5,28 +5,27 @@
 
 use alloc::vec::Vec;
 use kurbo::{Affine, Point, Rect, RoundedRect};
-use understory_index::{Aabb2D, Index as AabbIndex, Key as AabbKey};
+use understory_index::{Aabb2D, Backend, FlatVec, IndexGeneric, Key as AabbKey};
 
 use crate::damage::Damage;
 use crate::types::{LocalNode, NodeFlags, NodeId};
 use crate::util::{rect_to_aabb, transform_rect_bbox};
 
-impl Default for Tree {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Top-level region tree.
-pub struct Tree {
+///
+/// The type parameter `B` controls which spatial index backend is used. It
+/// defaults to a flat-vector backend (`FlatVec<f64>`), so most callers can
+/// simply use [`Tree`] without specifying `B`. Advanced callers can override
+/// `B` to use an R-tree or BVH backend from `understory_index`.
+pub struct Tree<B: Backend<f64> = FlatVec<f64>> {
     nodes: Vec<Option<Node>>, // slots
     generations: Vec<u32>,    // last generation per slot (persists across frees)
     pub(crate) free_list: Vec<usize>,
     pub(crate) epoch: u64,
-    pub(crate) index: AabbIndex<f64, NodeId>,
+    pub(crate) index: IndexGeneric<f64, NodeId, B>,
 }
 
-impl core::fmt::Debug for Tree {
+impl<B: Backend<f64> + core::fmt::Debug> core::fmt::Debug for Tree<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let total = self.nodes.len();
         let alive = self.nodes.iter().filter(|n| n.is_some()).count();
@@ -38,6 +37,15 @@ impl core::fmt::Debug for Tree {
             .field("epoch", &self.epoch)
             .field("index", &self.index)
             .finish_non_exhaustive()
+    }
+}
+
+impl<B> Default for Tree<B>
+where
+    B: Backend<f64> + Default,
+{
+    fn default() -> Self {
+        Self::with_backend(B::default())
     }
 }
 
@@ -145,20 +153,28 @@ impl Node {
 }
 
 impl Tree {
-    /// Create a new empty tree.
+    /// Create a new empty tree using the default backend (`FlatVec<f64>`).
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
             generations: Vec::new(),
             free_list: Vec::new(),
             epoch: 0,
-            index: AabbIndex::default(),
+            index: IndexGeneric::new(),
         }
     }
+}
 
-    /// Default creates an empty tree.
-    pub fn default_tree() -> Self {
-        Self::new()
+impl<B: Backend<f64>> Tree<B> {
+    /// Create a new tree with a specific backend.
+    pub fn with_backend(backend: B) -> Self {
+        Self {
+            nodes: Vec::new(),
+            generations: Vec::new(),
+            free_list: Vec::new(),
+            epoch: 0,
+            index: IndexGeneric::with_backend(backend),
+        }
     }
 
     fn mark_subtree_dirty(&mut self, id: NodeId, flags: Dirty) {
@@ -397,7 +413,7 @@ impl Tree {
                     if z > z_best
                         || (z == z_best
                             && (depth > depth_best
-                                || (depth == depth_best && Self::id_is_newer(id, best_id))))
+                                || (depth == depth_best && id_is_newer(id, best_id))))
                     {
                         best = Some((id, z, depth));
                     }
@@ -425,7 +441,14 @@ impl Tree {
             filter.matches(node.local.flags)
         })
     }
+}
 
+#[inline]
+fn id_is_newer(a: NodeId, b: NodeId) -> bool {
+    (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
+}
+
+impl<B: Backend<f64>> Tree<B> {
     // --- internals ---
 
     /// Returns true if `id` refers to a live node.
@@ -563,11 +586,6 @@ impl Tree {
             return Some(node);
         }
         None
-    }
-
-    #[inline]
-    fn id_is_newer(a: NodeId, b: NodeId) -> bool {
-        (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
     }
 
     /// Return the depth of a node in the tree (1-based), or 0 if the id is stale.
@@ -800,7 +818,7 @@ mod tests {
         tree.remove(a);
         assert!(!tree.is_alive(a));
 
-        // Reuse slot by inserting a new node; old id must remain stale; new id is live.
+        // Insert new child; might reuse slot but generation bumps.
         let b = tree.insert(
             Some(root),
             LocalNode {
@@ -817,6 +835,42 @@ mod tests {
     }
 
     #[test]
+    fn test_rtree_backend() {
+        use understory_index::RTreeF64;
+
+        // Use an R-tree backend and verify basic hit-testing still works.
+        let mut tree: Tree<RTreeF64<NodeId>> = Tree::with_backend(RTreeF64::<NodeId>::default());
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+        let hit = tree.hit_test_point(Point::new(50.0, 50.0), QueryFilter::new());
+        assert_eq!(hit.map(|h| h.node), Some(root));
+    }
+
+    #[test]
+    fn test_bvh_backend() {
+        use understory_index::BvhF64;
+
+        // Use a BVH backend and verify basic hit-testing still works.
+        let mut tree: Tree<BvhF64> = Tree::with_backend(BvhF64::default());
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+        let hit = tree.hit_test_point(Point::new(50.0, 50.0), QueryFilter::new());
+        assert_eq!(hit.map(|h| h.node), Some(root));
+    }
+
+    #[test]
     fn newer_than_semantics() {
         // Construct synthetic NodeId pairs and verify newer ordering.
         let old = NodeId::new(10, 1);
@@ -825,9 +879,9 @@ mod tests {
         let same_gen_lower_slot = NodeId::new(9, 2);
 
         // Private helper is in scope within the module.
-        assert!(Tree::id_is_newer(newer_same_slot, old));
-        assert!(Tree::id_is_newer(same_gen_higher_slot, newer_same_slot));
-        assert!(!Tree::id_is_newer(same_gen_lower_slot, newer_same_slot));
+        assert!(id_is_newer(newer_same_slot, old));
+        assert!(id_is_newer(same_gen_higher_slot, newer_same_slot));
+        assert!(!id_is_newer(same_gen_lower_slot, newer_same_slot));
     }
 
     #[test]
@@ -867,7 +921,7 @@ mod tests {
                 QueryFilter::new().visible().pickable(),
             )
             .unwrap();
-        let expected1 = if Tree::id_is_newer(b, a) { b } else { a };
+        let expected1 = if id_is_newer(b, a) { b } else { a };
         assert_eq!(hit1.node, expected1);
 
         // Make a stale by removing it, then insert c reusing a's slot (generation++),
@@ -882,7 +936,7 @@ mod tests {
             },
         );
         let _ = tree.commit();
-        assert!(Tree::id_is_newer(c, b));
+        assert!(id_is_newer(c, b));
 
         let hit2 = tree
             .hit_test_point(
@@ -916,7 +970,7 @@ mod tests {
             },
         );
         assert_eq!(tree.z_index(new_node), Some(3));
-        assert!(Tree::id_is_newer(new_node, node));
+        assert!(id_is_newer(new_node, node));
     }
 
     #[test]
@@ -997,7 +1051,7 @@ mod tests {
                 QueryFilter::new().visible().pickable(),
             )
             .unwrap();
-        let expected = if Tree::id_is_newer(b, a) { b } else { a };
+        let expected = if id_is_newer(b, a) { b } else { a };
         assert_eq!(hit.node, expected);
         // Path still includes root then the chosen child.
         assert_eq!(hit.path.first().copied(), Some(root));
