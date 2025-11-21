@@ -15,6 +15,37 @@
 //! assert_eq!(f.update_path(&[1, 2]), vec![FocusEvent::Enter(1), FocusEvent::Enter(2)]);
 //! assert_eq!(f.update_path(&[1, 3]), vec![FocusEvent::Leave(2), FocusEvent::Enter(3)]);
 //! ```
+//!
+//! ## With a spatial focus policy (conceptual)
+//!
+//! The focus state pairs naturally with a spatial policy (for example from the
+//! `understory_focus` crate):
+//!
+//! ```ignore
+//! use understory_focus::{DefaultPolicy, FocusEntry, FocusPolicy, FocusSpace, Navigation, WrapMode};
+//! use understory_responder::focus::{FocusEvent, FocusState};
+//!
+//! # type NodeId = u32;
+//! # let root: NodeId = 1;
+//! # let current: NodeId = 2;
+//! # let next: NodeId = 3;
+//! # let entries: Vec<FocusEntry<NodeId>> = Vec::new();
+//! // 1. Build a FocusSpace from your geometry layer (e.g., box tree).
+//! let space = FocusSpace { nodes: &entries };
+//! let policy = DefaultPolicy { wrap: WrapMode::Scope };
+//!
+//! // 2. Choose the next focused node based on navigation intent.
+//! let next = policy.next(current, Navigation::Right, &space).unwrap_or(current);
+//!
+//! // 3. Resolve the node id to a root→target path and feed it into FocusState.
+//! let mut focus_state: FocusState<NodeId> = FocusState::new();
+//! let new_path: Vec<NodeId> = vec![root, next];
+//! let events: Vec<FocusEvent<NodeId>> = focus_state.update_path(&new_path);
+//! # let _ = events;
+//! ```
+//!
+//! In a real application, this path would typically come from a parent lookup
+//! or a precomputed path table rather than a hard-coded vector.
 
 use alloc::vec::Vec;
 

@@ -1,0 +1,32 @@
+[package]
+name = "understory_focus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Focus navigation primitives for Understory: ordering, directional policies, and scopes."
+keywords = ["ui", "focus", "navigation", "no_std", "understory"]
+categories = ["gui", "data-structures"]
+
+[dependencies]
+kurbo.workspace = true
+understory_box_tree = { path = "../understory_box_tree", default-features = false, optional = true }
+understory_index = { path = "../understory_index", optional = true }
+
+[lints]
+workspace = true
+
+[features]
+# Default to std builds for examples/tests/docs.
+default = ["std"]
+# Forward our `std`/`libm` features to Kurbo. With workspace `kurbo` having
+# default-features = false, this fully controls Kurbo's std/no_std mode.
+std = ["kurbo/std"]
+libm = ["kurbo/libm"]
+# Adapter for `understory_box_tree::Tree` → `FocusSpace`.
+box_tree_adapter = ["dep:understory_box_tree", "dep:understory_index"]
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = []

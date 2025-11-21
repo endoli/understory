@@ -510,8 +510,18 @@ version = "0.1.0"
 dependencies = [
  "kurbo",
  "understory_box_tree",
+ "understory_focus",
  "understory_index",
  "understory_responder",
+]
+
+[[package]]
+name = "understory_focus"
+version = "0.1.0"
+dependencies = [
+ "kurbo",
+ "understory_box_tree",
+ "understory_index",
 ]
 
 [[package]]
