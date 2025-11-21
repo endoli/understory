@@ -657,11 +657,16 @@ impl<B: Backend<f64>> Tree<B> {
             node.world.world_transform = parent_tf * node.local.local_transform;
             let mut world_bounds =
                 transform_rect_bbox(node.world.world_transform, node.local.local_bounds);
-            let world_clip = node
+            let local_clip = node
                 .local
                 .local_clip
-                .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()))
-                .or(parent_clip);
+                .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()));
+            let world_clip = match (local_clip, parent_clip) {
+                (Some(local), Some(parent)) => Some(local.intersect(parent)),
+                (Some(local), None) => Some(local),
+                (None, Some(parent)) => Some(parent),
+                (None, None) => None,
+            };
             if let Some(c) = world_clip {
                 world_bounds = world_bounds.intersect(c);
             }
@@ -767,6 +772,42 @@ mod tests {
         tree.set_local_transform(n, Affine::translate(Vec2::new(50.0, 0.0)));
         let dmg = tree.commit();
         assert!(dmg.union_rect().is_some());
+    }
+
+    #[test]
+    fn parent_child_clips_intersect() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(80.0, 80.0, 180.0, 180.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(60.0, 60.0, 160.0, 160.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Effective clip should be the intersection of parent and child clips: (80..100, 80..100).
+        let bounds = tree.world_bounds(child).unwrap();
+        assert_eq!(bounds, Rect::new(80.0, 80.0, 100.0, 100.0));
+
+        // A point inside the child's local clip but outside the parent's clip must not hit.
+        let miss = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
+        assert!(miss.is_none());
     }
 
     #[test]
