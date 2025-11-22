@@ -47,6 +47,11 @@
 //! 3) Hover — derive the path from the dispatch via [`path_from_dispatch`](crate::hover::path_from_dispatch)
 //!    and feed it to [`HoverState`](crate::hover::HoverState). `HoverState` emits leave (inner→outer)
 //!    and enter (outer→inner) events for the minimal transition between old and new paths.
+//! 4) Click — use [`ClickState`](crate::click::ClickState) (requires `box_tree_adapter` feature) to track
+//!    press-release pairs and recognize clicks based on distance and time constraints. Use `on_move`
+//!    during pointer movement to filter out nodes that exceed movement thresholds, and `on_up` to
+//!    determine final click recognition. This handles scenarios where targets move between pointer
+//!    down and up events.
 //!
 //! ## Focus
 //!
@@ -87,8 +92,11 @@
 //!
 //! The [`adapters`] module provides integration with other Understory crates:
 //!
-//! - **Box Tree Adapter** (`box_tree_adapter` feature): Converts [`understory_box_tree`] spatial queries
-//!   into [`ResolvedHit`](types::ResolvedHit) items. Includes filtered tree traversal for keyboard navigation.
+//! - **Box Tree Adapter** (`box_tree_adapter` feature): Converts `understory_box_tree` spatial queries
+//!   into [`ResolvedHit`](types::ResolvedHit) items. Key components:
+//!   - Spatial query helpers: [`adapters::box_tree::top_hit_for_point`] and [`adapters::box_tree::hits_for_rect`]
+//!   - Navigation support: [`adapters::box_tree::navigation`] for filtered tree traversal and keyboard focus cycling
+//!   - Click integration: [`adapters::box_tree::ClickAdapter`] for automatic node bounds lookup with [`ClickState`](crate::click::ClickState)
 //!
 //! This crate is `no_std` and uses `alloc`.
 
@@ -97,6 +105,8 @@
 extern crate alloc;
 
 pub mod adapters;
+#[cfg(feature = "box_tree_adapter")]
+pub mod click;
 pub mod dispatcher;
 pub mod focus;
 pub mod hover;

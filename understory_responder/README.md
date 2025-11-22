@@ -64,6 +64,11 @@ The router only computes the traversal order. A higher‑level dispatcher can ex
 3) Hover — derive the path from the dispatch via [`path_from_dispatch`](https://docs.rs/understory_responder/latest/understory_responder/hover/fn.path_from_dispatch.html)
    and feed it to [`HoverState`](https://docs.rs/understory_responder/latest/understory_responder/hover/struct.HoverState.html). `HoverState` emits leave (inner→outer)
    and enter (outer→inner) events for the minimal transition between old and new paths.
+4) Click — use [`ClickState`](https://docs.rs/understory_responder/latest/understory_responder/click/struct.ClickState.html) (requires `box_tree_adapter` feature) to track
+   press-release pairs and recognize clicks based on distance and time constraints. Use `on_move`
+   during pointer movement to filter out nodes that exceed movement thresholds, and `on_up` to
+   determine final click recognition. This handles scenarios where targets move between pointer
+   down and up events.
 
 ## Focus
 
@@ -98,8 +103,11 @@ See the `dispatcher` module docs for additional patterns and helpers.
 
 The [`adapters`] module provides integration with other Understory crates:
 
-- **Box Tree Adapter** (`box_tree_adapter` feature): Converts [`understory_box_tree`] spatial queries
-  into [`ResolvedHit`](types::ResolvedHit) items. Includes filtered tree traversal for keyboard navigation.
+- **Box Tree Adapter** (`box_tree_adapter` feature): Converts `understory_box_tree` spatial queries
+  into [`ResolvedHit`](types::ResolvedHit) items. Key components:
+  - Spatial query helpers: [`adapters::box_tree::top_hit_for_point`] and [`adapters::box_tree::hits_for_rect`]
+  - Navigation support: [`adapters::box_tree::navigation`] for filtered tree traversal and keyboard focus cycling
+  - Click integration: [`adapters::box_tree::ClickAdapter`] for automatic node bounds lookup with [`ClickState`](https://docs.rs/understory_responder/latest/understory_responder/click/struct.ClickState.html)
 
 This crate is `no_std` and uses `alloc`.
 

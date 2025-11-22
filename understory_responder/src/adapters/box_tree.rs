@@ -19,6 +19,12 @@
 //! suitable for keyboard navigation, focus cycling, and similar UI interactions.
 //! These functions extend the basic box tree traversal with [`QueryFilter`] support and
 //! circular navigation within subtrees.
+//!
+//! ## Click State Integration
+//!
+//! The [`ClickAdapter`] provides seamless integration between [`crate::click::ClickState`] and
+//! box tree spatial queries. It automatically provides node bounds lookup for click recognition
+//! and movement filtering, eliminating the need to manually implement bounds lookup closures.
 
 use alloc::vec::Vec;
 
@@ -474,5 +480,156 @@ pub mod navigation {
             let next = next_depth_first_filtered(&tree, root1, filter).unwrap();
             assert_eq!(next, child1_visible);
         }
+    }
+}
+
+/// Click state adapter for box tree integration.
+///
+/// Wraps [`crate::click::ClickState`] to provide convenient integration with box tree
+/// by automatically looking up node world bounds. Implements [`core::ops::Deref`] and [`core::ops::DerefMut`]
+/// to [`crate::click::ClickState`], so all underlying methods are directly accessible.
+///
+/// The key methods provided are:
+/// - `on_move` and `on_up`: Accept a `&Tree` parameter for automatic bounds lookup
+/// - All other methods are accessible through deref to the underlying [`ClickState`](crate::click::ClickState)
+///
+/// # Example
+/// ```
+/// use understory_responder::adapters::box_tree::ClickAdapter;
+/// use understory_box_tree::{Tree, LocalNode};
+/// use kurbo::{Point, Rect};
+///
+/// let mut tree = Tree::new();
+/// let local_node = LocalNode {
+///     local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+///     ..LocalNode::default()
+/// };
+/// let node_id = tree.insert(None, local_node);
+/// tree.commit();
+///
+/// let mut click_adapter = ClickAdapter::new();
+/// let current_path = vec![node_id];
+///
+/// // Use ClickState methods directly via Deref
+/// click_adapter.on_down(None, vec![node_id], Point::new(10.0, 20.0), None, 1000);
+///
+/// // Use adapter-specific methods that provide tree bounds
+/// let filtered_count = click_adapter.on_move(None, Some(&current_path), Point::new(15.0, 25.0), 1050, &tree);
+/// let click_result = click_adapter.on_up(None, Some(&current_path), Point::new(15.0, 25.0), None, 1100, &tree);
+/// ```
+#[derive(Debug)]
+pub struct ClickAdapter {
+    click_state: crate::click::ClickState<understory_box_tree::NodeId>,
+}
+
+impl ClickAdapter {
+    /// Create a new click adapter with default thresholds.
+    pub fn new() -> Self {
+        Self {
+            click_state: crate::click::ClickState::new(),
+        }
+    }
+
+    /// Create a new click adapter with custom thresholds.
+    pub fn with_thresholds(
+        distance_threshold: crate::click::Threshold<f64>,
+        time_threshold: crate::click::Threshold<u64>,
+        outside_distance_threshold: crate::click::Threshold<crate::click::PxPct>,
+    ) -> Self {
+        Self {
+            click_state: crate::click::ClickState::with_thresholds(
+                distance_threshold,
+                time_threshold,
+                outside_distance_threshold,
+            ),
+        }
+    }
+
+    /// Process a pointer move event with automatic box tree bounds lookup.
+    ///
+    /// This is a convenience wrapper around [`crate::click::ClickState::on_move`] that automatically
+    /// provides node bounds from the box tree. See the underlying method for detailed documentation
+    /// on filtering logic and threshold behavior.
+    ///
+    /// # Key difference from `ClickState::on_move`
+    /// This method automatically calls `tree.world_bounds(node_id)` to provide the required
+    /// bounds lookup function, eliminating the need to manually implement the closure.
+    ///
+    /// # Arguments
+    /// * `tree` - Box tree reference for automatic bounds lookup
+    /// * All other arguments match [`crate::click::ClickState::on_move`]
+    ///
+    /// # Returns
+    /// Number of nodes that were newly filtered out (same as underlying method)
+    pub fn on_move(
+        &mut self,
+        pointer_id: Option<crate::click::PointerId>,
+        current_path: Option<&[understory_box_tree::NodeId]>,
+        world_pos: Point,
+        timestamp_ms: u64,
+        tree: &Tree,
+    ) -> usize {
+        self.click_state.on_move(
+            pointer_id,
+            current_path,
+            world_pos,
+            timestamp_ms,
+            |&node_id| tree.world_bounds(node_id),
+        )
+    }
+
+    /// Process a pointer up event and determine if a click should be recognized.
+    ///
+    /// This is a convenience wrapper around [`crate::click::ClickState::on_up`] that automatically
+    /// provides node bounds from the box tree. See the underlying method for detailed documentation
+    /// on click recognition logic and threshold behavior.
+    ///
+    /// # Key difference from `ClickState::on_up`
+    /// This method automatically calls `tree.world_bounds(node_id)` to provide the required
+    /// bounds lookup function, eliminating the need to manually implement the closure.
+    ///
+    /// # Arguments
+    /// * `tree` - Box tree reference for automatic bounds lookup
+    /// * All other arguments match [`crate::click::ClickState::on_up`]
+    ///
+    /// # Returns
+    /// [`crate::click::ClickResult`] indicating whether a click was recognized (same as underlying method)
+    pub fn on_up(
+        &mut self,
+        pointer_id: Option<crate::click::PointerId>,
+        current_path: Option<&[understory_box_tree::NodeId]>,
+        world_pos: Point,
+        button: Option<crate::click::Button>,
+        timestamp_ms: u64,
+        tree: &Tree,
+    ) -> crate::click::ClickResult<understory_box_tree::NodeId> {
+        self.click_state.on_up(
+            pointer_id,
+            current_path,
+            world_pos,
+            button,
+            timestamp_ms,
+            |&node_id| tree.world_bounds(node_id),
+        )
+    }
+}
+
+impl Default for ClickAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl core::ops::Deref for ClickAdapter {
+    type Target = crate::click::ClickState<understory_box_tree::NodeId>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.click_state
+    }
+}
+
+impl core::ops::DerefMut for ClickAdapter {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.click_state
     }
 }
