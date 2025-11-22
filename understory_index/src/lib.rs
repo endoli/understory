@@ -80,6 +80,7 @@ pub mod backends;
 pub mod damage;
 pub mod index;
 pub mod types;
+pub(crate) mod util;
 
 pub use backend::Backend;
 pub use backends::bvh::{BvhF32, BvhF64, BvhI64};
