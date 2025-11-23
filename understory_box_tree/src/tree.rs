@@ -672,7 +672,7 @@ impl<B: Backend<f64>> Tree<B> {
                 .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()));
             let world_clip = match node.local.clip_behavior {
                 ClipBehavior::None => None,
-                ClipBehavior::LocalOnly => local_clip,
+                ClipBehavior::PreferLocal => local_clip.or(parent_clip),
                 ClipBehavior::Inherit => match (local_clip, parent_clip) {
                     (Some(local), Some(parent)) => Some(local.intersect(parent)),
                     (Some(local), None) => Some(local),
@@ -825,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_behavior_local_only_allows_overflow() {
+    fn prefer_local_without_local_clip_inherits_parent_clip() {
         let mut tree = Tree::new();
         let root = tree.insert(
             None,
@@ -842,7 +842,44 @@ mod tests {
             Some(root),
             LocalNode {
                 local_bounds: Rect::new(80.0, 80.0, 180.0, 180.0),
-                clip_behavior: ClipBehavior::LocalOnly, // ignore parent clip
+                clip_behavior: ClipBehavior::PreferLocal,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Child should inherit parent's clip when it has no local clip of its own.
+        let bounds = tree.world_bounds(child).unwrap();
+        assert_eq!(bounds, Rect::new(80.0, 80.0, 100.0, 100.0));
+
+        // A point outside the parent's clip must not hit the child.
+        let miss = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
+        assert!(miss.is_none());
+    }
+
+    #[test]
+    fn clip_behavior_prefer_local_allows_overflow() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(80.0, 80.0, 180.0, 180.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(80.0, 80.0, 180.0, 180.0),
+                    0.0,
+                )),
+                clip_behavior: ClipBehavior::PreferLocal, // ignore parent clip when local clip is present
                 ..Default::default()
             },
         );
