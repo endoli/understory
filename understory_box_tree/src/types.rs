@@ -10,9 +10,9 @@ use kurbo::{Affine, Rect, RoundedRect};
 pub enum ClipBehavior {
     /// Do not apply any clip (ignore local clip and ancestor clip).
     None,
-    /// Apply only the local clip for this node; ignore any ancestor clip.
+    /// Use the local clip if present; otherwise inherit any ancestor clip.
     #[default]
-    LocalOnly,
+    PreferLocal,
     /// Apply parent clip if present; if both local and parent clips exist, intersect them.
     Inherit,
 }
@@ -86,7 +86,8 @@ pub struct LocalNode {
     pub local_transform: Affine,
     /// Optional local clip (rounded-rect). AABB is used for spatial indexing; precise hit test is best-effort.
     pub local_clip: Option<RoundedRect>,
-    /// How to compose local and ancestor clips for this node (defaults to [`ClipBehavior::LocalOnly`]).
+    /// How to compose local and ancestor clips for this node (defaults to [`ClipBehavior::PreferLocal`],
+    /// which falls back to the parent clip when no local clip is set).
     pub clip_behavior: ClipBehavior,
     /// Z-order within parent stacking context. Higher is drawn on top.
     pub z_index: i32,
