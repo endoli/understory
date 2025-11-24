@@ -31,10 +31,10 @@
 //! let mut state: ClickState<u32> = ClickState::new();
 //!
 //! // Press down on element 42
-//! state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
+//! state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
 //!
 //! // Same target generates click regardless of movement
-//! let result = state.on_up(None, 42, Point::new(100.0, 200.0), 1, 2000);
+//! let result = state.on_up(None, None, &42, Point::new(100.0, 200.0), 2000);
 //! assert!(matches!(result, ClickResult::Click(42)));
 //! ```
 //!
@@ -46,19 +46,19 @@
 //! let mut state: ClickState<u32> = ClickState::with_thresholds(Some(10.0), Some(500));
 //!
 //! // Press down on element 42
-//! state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
+//! state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
 //!
 //! // Track movement during interaction (optional - helps detect dragging vs clicking)
 //! let exceeded = state.on_move(None, Point::new(15.0, 25.0)); // 7px moved
-//! assert!(!exceeded); // Still within 10px threshold
+//! assert!(exceeded.is_none()); // Still within 10px threshold
 //!
 //! // Element transforms, up occurs on different element but within tolerance
-//! let result = state.on_up(None, 99, Point::new(18.0, 26.0), 1, 1200); // 10px total, 200ms elapsed
+//! let result = state.on_up(None, None, &99, Point::new(18.0, 26.0), 1200); // 10px total, 200ms elapsed
 //! match result {
 //!     ClickResult::Click(target) => {
 //!         assert_eq!(target, 42); // Click on original target despite transform
 //!     }
-//!     ClickResult::None => {}
+//!     ClickResult::None(_) => {}
 //! }
 //! ```
 //!
@@ -95,12 +95,12 @@
 //! let pointer1 = NonZeroU64::new(1).unwrap();
 //! let pointer2 = NonZeroU64::new(2).unwrap();
 //!
-//! state.on_down(Some(pointer1), 42, Point::new(10.0, 20.0), 1, 1000);
-//! state.on_down(Some(pointer2), 99, Point::new(50.0, 60.0), 1, 1010);
+//! state.on_down(Some(pointer1), None, 42, Point::new(10.0, 20.0), 1000);
+//! state.on_down(Some(pointer2), None, 99, Point::new(50.0, 60.0), 1010);
 //!
 //! // Each pointer can generate clicks independently
-//! let result1 = state.on_up(Some(pointer1), 42, Point::new(12.0, 22.0), 1, 1050);
-//! let result2 = state.on_up(Some(pointer2), 99, Point::new(52.0, 62.0), 1, 1080);
+//! let result1 = state.on_up(Some(pointer1), None, &42, Point::new(12.0, 22.0), 1050);
+//! let result2 = state.on_up(Some(pointer2), None, &99, Point::new(52.0, 62.0), 1080);
 //! ```
 
 use alloc::collections::BTreeMap;
@@ -131,21 +131,23 @@ pub struct ClickState<K> {
     pub total_pointer_moved_threshold: Option<f64>,
     /// Time threshold before rejecting user intent as a click when targets differ (milliseconds)
     pub time_threshold: Option<u64>,
+    /// The last press that was registered
+    last_press: Option<Press<K>>,
 }
 
 /// State for an active pointer press.
 #[derive(Clone, Debug)]
-struct Press<K> {
+pub struct Press<K> {
     /// Target element where press occurred
-    target: K,
+    pub target: K,
     /// Pointer position at press time
-    down_position: Point,
+    pub down_position: Point,
     /// Timestamp when press occurred
-    down_time: u64,
+    pub down_time: u64,
     /// Button that was pressed
-    button: Button,
+    pub button: Button,
     /// True if distance threshold was exceeded during movement
-    distance_exceeded: bool,
+    pub distance_exceeded: bool,
 }
 
 /// Result of click event processing.
@@ -153,8 +155,8 @@ struct Press<K> {
 pub enum ClickResult<K> {
     /// Click event should be generated on the specified target
     Click(K),
-    /// No click event should be generated
-    None,
+    /// No click event should be generated, contains the originally hit target if there is one associated with the pointer
+    None(Option<K>),
 }
 
 impl<K: PartialEq + Clone> ClickState<K> {
@@ -168,6 +170,7 @@ impl<K: PartialEq + Clone> ClickState<K> {
             presses: BTreeMap::new(),
             total_pointer_moved_threshold: Some(5.0), // 5-pixel tolerance before rejecting click intent
             time_threshold: Some(100), // 100ms tolerance before rejecting click intent
+            last_press: None,
         }
     }
 
@@ -184,6 +187,7 @@ impl<K: PartialEq + Clone> ClickState<K> {
             presses: BTreeMap::new(),
             total_pointer_moved_threshold,
             time_threshold,
+            last_press: None,
         }
     }
 
@@ -191,19 +195,20 @@ impl<K: PartialEq + Clone> ClickState<K> {
     ///
     /// # Arguments
     /// * `pointer_id` - Unique pointer identifier, defaults to 1 if None
+    /// * `button` - Button that was pressed
     /// * `target` - Target element where press occurred
     /// * `position` - Pointer position at press time
-    /// * `button` - Button that was pressed
     /// * `timestamp` - Event timestamp in milliseconds
     pub fn on_down(
         &mut self,
         pointer_id: Option<PointerId>,
+        button: Option<Button>,
         target: K,
         position: Point,
-        button: Button,
         timestamp: u64,
     ) {
         let pointer_id = pointer_id.unwrap_or(NonZeroU64::new(1).expect("1 is valid non-zero"));
+        let button = button.unwrap_or(1);
         let press = Press {
             target,
             down_position: position,
@@ -224,48 +229,49 @@ impl<K: PartialEq + Clone> ClickState<K> {
     ///
     /// # Arguments
     /// * `pointer_id` - Pointer identifier, defaults to 1 if None
+    /// * `button` - Button that was released, defaults to 1 if None
     /// * `current_target` - Target element where release occurred
     /// * `position` - Pointer position at release time
-    /// * `button` - Button that was released
     /// * `timestamp` - Event timestamp in milliseconds
     ///
     /// # Returns
     /// `ClickResult::Click(original_target)` if click should be generated on the original
-    /// press target, `ClickResult::None` otherwise
+    /// press target, `ClickResult::None(None)` otherwise
     pub fn on_up(
         &mut self,
         pointer_id: Option<PointerId>,
-        current_target: K,
+        button: Option<Button>,
+        current_target: &K,
         position: Point,
-        button: Button,
         timestamp: u64,
     ) -> ClickResult<K> {
         let pointer_id = pointer_id.unwrap_or(NonZeroU64::new(1).expect("1 is valid non-zero"));
+        let button = button.unwrap_or(1);
 
         let press = match self.presses.remove(&pointer_id) {
             Some(press) => press,
-            None => return ClickResult::None, // No active press
+            None => return ClickResult::None(None), // No active press
         };
 
         // Button must match
         if press.button != button {
-            return ClickResult::None;
+            return ClickResult::None(Some(press.target));
         }
 
         // Fast path: same target
-        if press.target == current_target {
+        if press.target == *current_target {
             return ClickResult::Click(press.target);
         }
 
         // Different targets - check if any thresholds are configured
         if self.total_pointer_moved_threshold.is_none() && self.time_threshold.is_none() {
             // No thresholds configured - only same targets generate clicks
-            return ClickResult::None;
+            return ClickResult::None(Some(press.target));
         }
 
         // If distance was exceeded during movement, no click for different targets
         if press.distance_exceeded {
-            return ClickResult::None;
+            return ClickResult::None(Some(press.target));
         }
 
         // Check thresholds at release time
@@ -283,7 +289,7 @@ impl<K: PartialEq + Clone> ClickState<K> {
         if distance_ok && time_ok {
             ClickResult::Click(press.target)
         } else {
-            ClickResult::None
+            ClickResult::None(Some(press.target))
         }
     }
 
@@ -298,29 +304,32 @@ impl<K: PartialEq + Clone> ClickState<K> {
     /// * `position` - Current pointer position
     ///
     /// # Returns
-    /// `true` if rejection threshold was exceeded and newly recorded, `false` otherwise
-    pub fn on_move(&mut self, pointer_id: Option<PointerId>, position: Point) -> bool {
+    /// `Some(target)` if rejection threshold was exceeded and newly recorded, `None` otherwise
+    pub fn on_move(&mut self, pointer_id: Option<PointerId>, position: Point) -> Option<K> {
         let pointer_id = pointer_id.unwrap_or(NonZeroU64::new(1).expect("1 is valid non-zero"));
 
         let Some(press) = self.presses.get_mut(&pointer_id) else {
-            return false; // No active press
+            return None; // No active press
         };
 
-        // Only check if we haven't already recorded a distance violation
-        if press.distance_exceeded {
-            return false;
-        }
-
-        // Check if spatial threshold is configured and exceeded
-        if let Some(threshold) = self.total_pointer_moved_threshold {
-            let distance_moved = press.down_position.distance(position);
-            if distance_moved > threshold {
-                press.distance_exceeded = true;
-                return true;
+        // Only check distance threshold if we haven't already recorded a violation
+        let mut newly_exceeded = false;
+        if !press.distance_exceeded {
+            // Check if spatial threshold is configured and exceeded
+            if let Some(threshold) = self.total_pointer_moved_threshold {
+                let distance_moved = press.down_position.distance(position);
+                if distance_moved > threshold {
+                    press.distance_exceeded = true;
+                    newly_exceeded = true;
+                }
             }
         }
 
-        false
+        if newly_exceeded {
+            Some(press.target.clone())
+        } else {
+            None
+        }
     }
 
     /// Cancel all active presses for a pointer.
@@ -341,22 +350,41 @@ impl<K: PartialEq + Clone> ClickState<K> {
         self.presses.contains_key(&pointer_id)
     }
 
+    /// Check if there is an active press on the specified target.
+    ///
+    /// # Arguments
+    /// * `query_target` - Target element to check for active press
+    ///
+    /// # Returns
+    /// `true` if there is an active press on the query target, `false` otherwise
+    pub fn has_active_press(&self, query_target: &K) -> bool {
+        self.presses
+            .values()
+            .any(|press| press.target == *query_target)
+    }
+
     /// Clear all active presses.
     pub fn clear(&mut self) {
         self.presses.clear();
     }
 
-    /// Check if a specific target is currently being clicked.
+    /// Get the active press for a specific pointer ID.
     ///
-    /// Returns `true` if any active press has the specified target.
+    /// Returns `None` if there is no active press for the given pointer.
+    pub fn get_press(&self, pointer_id: PointerId) -> Option<&Press<K>> {
+        self.presses.get(&pointer_id)
+    }
+
+    /// Get an iterator over all active presses.
     ///
-    /// # Arguments
-    /// * `target` - Target element to check
-    ///
-    /// # Returns
-    /// `true` if target has an active press, `false` otherwise
-    pub fn is_clicking(&self, target: &K) -> bool {
-        self.presses.values().any(|press| press.target == *target)
+    /// Returns an iterator that yields references to all currently active press states.
+    pub fn presses(&self) -> impl Iterator<Item = &Press<K>> {
+        self.presses.values()
+    }
+
+    /// Get the last press that was registered
+    pub fn last_press(&self) -> Option<Press<K>> {
+        self.last_press.clone()
     }
 }
 
@@ -375,8 +403,8 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::new();
 
         // Press and release on same target
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 42, Point::new(12.0, 22.0), 1, 1050);
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &42, Point::new(12.0, 22.0), 1050);
 
         assert_eq!(result, ClickResult::Click(42));
         assert!(!state.is_pressed(None));
@@ -387,10 +415,10 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(None, None);
 
         // Press on 42, release on 99
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(10.0, 20.0), 1, 1050);
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(10.0, 20.0), 1050);
 
-        assert_eq!(result, ClickResult::None);
+        assert_eq!(result, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -398,10 +426,10 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::new();
 
         // Press with button 1, release with button 2
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 42, Point::new(10.0, 20.0), 2, 1050);
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, Some(2), &42, Point::new(10.0, 20.0), 1050);
 
-        assert_eq!(result, ClickResult::None);
+        assert_eq!(result, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -409,9 +437,9 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::new();
 
         // Release without press
-        let result = state.on_up(None, 42, Point::new(10.0, 20.0), 1, 1000);
+        let result = state.on_up(None, None, &42, Point::new(10.0, 20.0), 1000);
 
-        assert_eq!(result, ClickResult::None);
+        assert_eq!(result, ClickResult::None(None));
     }
 
     #[test]
@@ -419,8 +447,8 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), None);
 
         // Press on 42, release on 99 but within 5.0 distance
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(13.0, 23.0), 1, 1050); // ~4.24 distance
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(13.0, 23.0), 1050); // ~4.24 distance
 
         assert_eq!(result, ClickResult::Click(42));
     }
@@ -430,10 +458,10 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), None);
 
         // Press on 42, release on 99 beyond 5.0 distance
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(20.0, 30.0), 1, 1050); // ~14.14 distance
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(20.0, 30.0), 1050); // ~14.14 distance
 
-        assert_eq!(result, ClickResult::None);
+        assert_eq!(result, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -441,8 +469,8 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), None);
 
         // Press on 42, release on 99 exactly at 5.0 distance
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(15.0, 20.0), 1, 1050); // exactly 5.0 distance
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(15.0, 20.0), 1050); // exactly 5.0 distance
 
         assert_eq!(result, ClickResult::Click(42));
     }
@@ -452,8 +480,8 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(None, Some(100));
 
         // Press on 42, release on 99 within 100ms
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(100.0, 200.0), 1, 1050); // 50ms elapsed
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(100.0, 200.0), 1050); // 50ms elapsed
 
         assert_eq!(result, ClickResult::Click(42));
     }
@@ -463,10 +491,10 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(None, Some(100));
 
         // Press on 42, release on 99 beyond 100ms
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(100.0, 200.0), 1, 1200); // 200ms elapsed
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(100.0, 200.0), 1200); // 200ms elapsed
 
-        assert_eq!(result, ClickResult::None);
+        assert_eq!(result, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -474,8 +502,8 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(None, Some(100));
 
         // Press on 42, release on 99 exactly at 100ms
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(100.0, 200.0), 1, 1100); // exactly 100ms elapsed
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(100.0, 200.0), 1100); // exactly 100ms elapsed
 
         assert_eq!(result, ClickResult::Click(42));
     }
@@ -485,8 +513,8 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), Some(100));
 
         // Press on 42, release on 99 within both thresholds
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(13.0, 23.0), 1, 1050); // ~4.24 distance, 50ms
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(13.0, 23.0), 1050); // ~4.24 distance, 50ms
 
         assert_eq!(result, ClickResult::Click(42));
     }
@@ -496,10 +524,10 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), Some(100));
 
         // Press on 42, release on 99 - time ok, distance too far
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(20.0, 30.0), 1, 1050); // ~14.14 distance, 50ms
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(20.0, 30.0), 1050); // ~14.14 distance, 50ms
 
-        assert_eq!(result, ClickResult::None);
+        assert_eq!(result, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -507,10 +535,10 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), Some(100));
 
         // Press on 42, release on 99 - distance ok, time too long
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(13.0, 23.0), 1, 1200); // ~4.24 distance, 200ms
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(13.0, 23.0), 1200); // ~4.24 distance, 200ms
 
-        assert_eq!(result, ClickResult::None);
+        assert_eq!(result, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -518,10 +546,10 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), Some(100));
 
         // Press on 42, release on 99 - both thresholds exceeded
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        let result = state.on_up(None, 99, Point::new(20.0, 30.0), 1, 1200); // ~14.14 distance, 200ms
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &99, Point::new(20.0, 30.0), 1200); // ~14.14 distance, 200ms
 
-        assert_eq!(result, ClickResult::None);
+        assert_eq!(result, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -532,20 +560,20 @@ mod tests {
         let pointer2 = NonZeroU64::new(2).unwrap();
 
         // Press on different targets with different pointers
-        state.on_down(Some(pointer1), 42, Point::new(10.0, 20.0), 1, 1000);
-        state.on_down(Some(pointer2), 99, Point::new(50.0, 60.0), 1, 1010);
+        state.on_down(Some(pointer1), None, 42, Point::new(10.0, 20.0), 1000);
+        state.on_down(Some(pointer2), None, 99, Point::new(50.0, 60.0), 1010);
 
         assert!(state.is_pressed(Some(pointer1)));
         assert!(state.is_pressed(Some(pointer2)));
 
         // Release pointer1
-        let result1 = state.on_up(Some(pointer1), 42, Point::new(12.0, 22.0), 1, 1050);
+        let result1 = state.on_up(Some(pointer1), None, &42, Point::new(12.0, 22.0), 1050);
         assert_eq!(result1, ClickResult::Click(42));
         assert!(!state.is_pressed(Some(pointer1)));
         assert!(state.is_pressed(Some(pointer2)));
 
         // Release pointer2
-        let result2 = state.on_up(Some(pointer2), 99, Point::new(52.0, 62.0), 1, 1080);
+        let result2 = state.on_up(Some(pointer2), None, &99, Point::new(52.0, 62.0), 1080);
         assert_eq!(result2, ClickResult::Click(99));
         assert!(!state.is_pressed(Some(pointer2)));
     }
@@ -558,16 +586,16 @@ mod tests {
         let pointer2 = NonZeroU64::new(2).unwrap();
 
         // Press on same target with different pointers at different positions
-        state.on_down(Some(pointer1), 42, Point::new(10.0, 20.0), 1, 1000);
-        state.on_down(Some(pointer2), 42, Point::new(100.0, 200.0), 1, 1010);
+        state.on_down(Some(pointer1), None, 42, Point::new(10.0, 20.0), 1000);
+        state.on_down(Some(pointer2), None, 42, Point::new(100.0, 200.0), 1010);
 
         // Release pointer1 within its threshold
-        let result1 = state.on_up(Some(pointer1), 99, Point::new(13.0, 23.0), 1, 1050); // ~4.24 from pointer1 down
+        let result1 = state.on_up(Some(pointer1), None, &99, Point::new(13.0, 23.0), 1050); // ~4.24 from pointer1 down
         assert_eq!(result1, ClickResult::Click(42));
 
         // Release pointer2 far from its down position (should fail threshold)
-        let result2 = state.on_up(Some(pointer2), 99, Point::new(13.0, 23.0), 1, 1080); // ~247 from pointer2 down
-        assert_eq!(result2, ClickResult::None);
+        let result2 = state.on_up(Some(pointer2), None, &99, Point::new(13.0, 23.0), 1080); // ~247 from pointer2 down
+        assert_eq!(result2, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -578,8 +606,8 @@ mod tests {
         let pointer2 = NonZeroU64::new(2).unwrap();
 
         // Press with both pointers
-        state.on_down(Some(pointer1), 42, Point::new(10.0, 20.0), 1, 1000);
-        state.on_down(Some(pointer2), 99, Point::new(50.0, 60.0), 1, 1010);
+        state.on_down(Some(pointer1), None, 42, Point::new(10.0, 20.0), 1000);
+        state.on_down(Some(pointer2), None, 99, Point::new(50.0, 60.0), 1010);
 
         assert!(state.is_pressed(Some(pointer1)));
         assert!(state.is_pressed(Some(pointer2)));
@@ -595,7 +623,7 @@ mod tests {
         assert!(!canceled_again);
 
         // pointer2 should still work normally
-        let result = state.on_up(Some(pointer2), 99, Point::new(52.0, 62.0), 1, 1080);
+        let result = state.on_up(Some(pointer2), None, &99, Point::new(52.0, 62.0), 1080);
         assert_eq!(result, ClickResult::Click(99));
     }
 
@@ -607,8 +635,8 @@ mod tests {
         let pointer2 = NonZeroU64::new(2).unwrap();
 
         // Press with both pointers
-        state.on_down(Some(pointer1), 42, Point::new(10.0, 20.0), 1, 1000);
-        state.on_down(Some(pointer2), 99, Point::new(50.0, 60.0), 1, 1010);
+        state.on_down(Some(pointer1), None, 42, Point::new(10.0, 20.0), 1000);
+        state.on_down(Some(pointer2), None, 99, Point::new(50.0, 60.0), 1010);
 
         assert!(state.is_pressed(Some(pointer1)));
         assert!(state.is_pressed(Some(pointer2)));
@@ -620,8 +648,8 @@ mod tests {
         assert!(!state.is_pressed(Some(pointer2)));
 
         // No clicks should be generated after clear
-        let result = state.on_up(Some(pointer1), 42, Point::new(12.0, 22.0), 1, 1080);
-        assert_eq!(result, ClickResult::None);
+        let result = state.on_up(Some(pointer1), None, &42, Point::new(12.0, 22.0), 1080);
+        assert_eq!(result, ClickResult::None(None));
     }
 
     #[test]
@@ -629,19 +657,19 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), None);
 
         // Press down
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
 
         // Move within threshold - should not mark as exceeded
         let exceeded1 = state.on_move(None, Point::new(13.0, 23.0)); // ~4.24 distance
-        assert!(!exceeded1);
+        assert!(exceeded1.is_none());
 
         // Move beyond threshold - should mark as exceeded
         let exceeded2 = state.on_move(None, Point::new(20.0, 30.0)); // ~14.14 distance
-        assert!(exceeded2);
+        assert_eq!(exceeded2, Some(42));
 
         // Subsequent moves should not report exceeded again
         let exceeded3 = state.on_move(None, Point::new(30.0, 40.0));
-        assert!(!exceeded3);
+        assert!(exceeded3.is_none());
     }
 
     #[test]
@@ -649,14 +677,14 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), None);
 
         // Press down
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
 
         // Move beyond threshold
         state.on_move(None, Point::new(20.0, 30.0)); // ~14.14 distance, exceeds 5.0
 
         // Try to release on different target, even within threshold of final position
-        let result = state.on_up(None, 99, Point::new(22.0, 32.0), 1, 1050); // only 2.83 from final position
-        assert_eq!(result, ClickResult::None);
+        let result = state.on_up(None, None, &99, Point::new(22.0, 32.0), 1050); // only 2.83 from final position
+        assert_eq!(result, ClickResult::None(Some(42)));
     }
 
     #[test]
@@ -664,13 +692,13 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::new();
 
         // Press down
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
 
         // Move far beyond threshold
         state.on_move(None, Point::new(100.0, 200.0));
 
         // Same target should still generate click regardless of movement
-        let result = state.on_up(None, 42, Point::new(200.0, 400.0), 1, 1050);
+        let result = state.on_up(None, None, &42, Point::new(200.0, 400.0), 1050);
         assert_eq!(result, ClickResult::Click(42));
     }
 
@@ -679,14 +707,14 @@ mod tests {
         let mut state: ClickState<u32> = ClickState::with_thresholds(None, Some(100));
 
         // Press down
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
 
         // Move any distance - should not be recorded as exceeded since no spatial threshold
         let exceeded = state.on_move(None, Point::new(1000.0, 2000.0));
-        assert!(!exceeded);
+        assert!(exceeded.is_none());
 
         // Different target click should still work if time is within threshold
-        let result = state.on_up(None, 99, Point::new(1000.0, 2000.0), 1, 1050);
+        let result = state.on_up(None, None, &99, Point::new(1000.0, 2000.0), 1050);
         assert_eq!(result, ClickResult::Click(42));
     }
 
@@ -696,37 +724,7 @@ mod tests {
 
         // Move without any press
         let exceeded = state.on_move(None, Point::new(100.0, 200.0));
-        assert!(!exceeded);
-    }
-
-    #[test]
-    fn is_clicking_detects_active_targets() {
-        let mut state: ClickState<u32> = ClickState::new();
-
-        // Initially nothing is being clicked
-        assert!(!state.is_clicking(&42));
-        assert!(!state.is_clicking(&99));
-
-        // Press down on 42
-        state.on_down(None, 42, Point::new(10.0, 20.0), 1, 1000);
-        assert!(state.is_clicking(&42));
-        assert!(!state.is_clicking(&99));
-
-        // Press down on 99 with different pointer
-        let pointer2 = NonZeroU64::new(2).unwrap();
-        state.on_down(Some(pointer2), 99, Point::new(50.0, 60.0), 1, 1010);
-        assert!(state.is_clicking(&42));
-        assert!(state.is_clicking(&99));
-
-        // Release 42
-        state.on_up(None, 42, Point::new(12.0, 22.0), 1, 1050);
-        assert!(!state.is_clicking(&42));
-        assert!(state.is_clicking(&99));
-
-        // Release 99
-        state.on_up(Some(pointer2), 99, Point::new(52.0, 62.0), 1, 1080);
-        assert!(!state.is_clicking(&42));
-        assert!(!state.is_clicking(&99));
+        assert!(exceeded.is_none());
     }
 
     #[test]
@@ -737,23 +735,23 @@ mod tests {
         let pointer2 = NonZeroU64::new(2).unwrap();
 
         // Press down on same target with different pointers
-        state.on_down(Some(pointer1), 42, Point::new(10.0, 20.0), 1, 1000);
-        state.on_down(Some(pointer2), 42, Point::new(100.0, 200.0), 1, 1010);
+        state.on_down(Some(pointer1), None, 42, Point::new(10.0, 20.0), 1000);
+        state.on_down(Some(pointer2), None, 42, Point::new(100.0, 200.0), 1010);
 
         // Move pointer1 beyond threshold
         let exceeded1 = state.on_move(Some(pointer1), Point::new(20.0, 30.0)); // ~14.14 distance
-        assert!(exceeded1);
+        assert_eq!(exceeded1, Some(42));
 
         // Move pointer2 within threshold
         let exceeded2 = state.on_move(Some(pointer2), Point::new(103.0, 203.0)); // ~4.24 distance
-        assert!(!exceeded2);
+        assert!(exceeded2.is_none());
 
         // pointer1 should not generate click for different target
-        let result1 = state.on_up(Some(pointer1), 99, Point::new(22.0, 32.0), 1, 1050);
-        assert_eq!(result1, ClickResult::None);
+        let result1 = state.on_up(Some(pointer1), None, &99, Point::new(22.0, 32.0), 1050);
+        assert_eq!(result1, ClickResult::None(Some(42)));
 
         // pointer2 should generate click for different target (release close to move position)
-        let result2 = state.on_up(Some(pointer2), 99, Point::new(103.0, 203.0), 1, 1080); // ~4.24 from down
+        let result2 = state.on_up(Some(pointer2), None, &99, Point::new(103.0, 203.0), 1080); // ~4.24 from down
         assert_eq!(result2, ClickResult::Click(42));
     }
 }
