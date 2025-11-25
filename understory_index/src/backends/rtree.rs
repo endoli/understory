@@ -91,7 +91,11 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         Scalar::mid(a.min_y, a.max_y)
     }
 
-    /// STR-like bulk builder: creates a packed tree from items in one pass into `arena`.
+    /// Sort-Tile-Recursive (STR)-like bulk builder: creates a packed tree from items in one pass
+    /// into `arena`.
+    ///
+    /// See "STR: A Simple and Efficient Algorithm for R-Tree Packing" (1997) by Scott T.
+    /// Leutenegger et al.
     fn bulk_build_nodes(
         arena: &mut Vec<RNode<T, P>>,
         items: &mut [(usize, Aabb2D<T>)],
