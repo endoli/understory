@@ -1,0 +1,20 @@
+[package]
+name = "understory_precise_hit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Geometry-level precise hit testing helpers for Understory (kurbo-based)."
+keywords = ["hit-test", "geometry", "ui", "graphics"]
+categories = ["graphics", "no-std"]
+
+[features]
+default = ["std"]
+std = ["kurbo/std"]
+libm = ["kurbo/libm"]
+
+[dependencies]
+kurbo.workspace = true
+
+[lints]
+workspace = true

@@ -11,15 +11,22 @@ categories = ["gui", "data-structures"]
 [features]
 default = []
 # Enable std mode for deps that support it.
-std = ["kurbo/std", "understory_box_tree/std"]
+std = ["kurbo/std", "understory_box_tree/std", "understory_precise_hit?/std"]
 # Enable no_std numeric support via libm for deps that support it.
-libm = ["kurbo/libm", "understory_box_tree/libm"]
+libm = [
+  "kurbo/libm",
+  "understory_box_tree/libm",
+  "understory_precise_hit?/libm",
+]
 # Adapter depends on box tree + kurbo; default to libm for no_std builds.
 box_tree_adapter = ["dep:understory_box_tree", "dep:kurbo", "libm"]
+# Adapter for precise 2D hit testing using `understory_precise_hit`.
+hit2d_adapter = ["dep:understory_precise_hit", "dep:kurbo"]
 
 [dependencies]
 understory_box_tree = { path = "../understory_box_tree", default-features = false, optional = true }
 kurbo = { workspace = true, default-features = false, optional = true }
+understory_precise_hit = { path = "../understory_precise_hit", default-features = false, optional = true }
 
 [lints]
 workspace = true

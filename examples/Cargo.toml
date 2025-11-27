@@ -7,9 +7,11 @@ publish = false
 [dependencies]
 understory_responder = { path = "../understory_responder", features = [
   "box_tree_adapter",
+  "hit2d_adapter",
   "std",
 ] }
 kurbo = { workspace = true, default-features = true }
 understory_box_tree = { path = "../understory_box_tree" }
 understory_focus = { path = "../understory_focus" }
 understory_index = { path = "../understory_index" }
+understory_precise_hit = { path = "../understory_precise_hit" }

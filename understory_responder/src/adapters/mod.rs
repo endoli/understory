@@ -11,6 +11,10 @@
 //! - [`box_tree`] (`box_tree_adapter` feature): Integration with [`understory_box_tree`] for 2D spatial queries
 //!   and UI navigation. Converts spatial query results into responder hits and provides filtered
 //!   tree traversal for keyboard navigation and focus cycling.
+//! - [`hit2d`] (`hit2d_adapter` feature): Helpers for feeding precise 2D geometry hits into the responder.
 
 #[cfg(feature = "box_tree_adapter")]
 pub mod box_tree;
+
+#[cfg(feature = "hit2d_adapter")]
+pub mod hit2d;

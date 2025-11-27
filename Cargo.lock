@@ -512,6 +512,7 @@ dependencies = [
  "understory_box_tree",
  "understory_focus",
  "understory_index",
+ "understory_precise_hit",
  "understory_responder",
 ]
 
@@ -529,11 +530,19 @@ name = "understory_index"
 version = "0.0.1"
 
 [[package]]
+name = "understory_precise_hit"
+version = "0.1.0"
+dependencies = [
+ "kurbo",
+]
+
+[[package]]
 name = "understory_responder"
 version = "0.1.0"
 dependencies = [
  "kurbo",
  "understory_box_tree",
+ "understory_precise_hit",
 ]
 
 [[package]]

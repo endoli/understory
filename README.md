@@ -19,6 +19,11 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Not a layout engine.
   - Upstream code (your layout system) decides sizes and positions and then updates this tree.
 
+- `understory_precise_hit`
+  - Geometry‑level, narrow‑phase hit testing for shapes in local 2D coordinates, built on `kurbo`.
+  - Provides a small `PreciseHitTest` trait with `HitParams`/`HitScore` helpers and default impls for `Rect`, `Circle`, `RoundedRect`, and fill‑only `BezPath`.
+  - Designed to be paired with a broad‑phase index (e.g. `understory_index` + `understory_box_tree`) and event routing (`understory_responder`), with rich metadata carried in responder `meta` types.
+
 - `understory_responder`
   - A deterministic event router that builds the responder chain sequence: capture → target → bubble.
   - Consumes pre‑resolved hits (from a picker or the box tree) and emits an ordered dispatch sequence.

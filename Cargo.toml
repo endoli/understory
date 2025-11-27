@@ -4,6 +4,7 @@ members = [
   "understory_index",
   "understory_box_tree",
   "understory_focus",
+  "understory_precise_hit",
   "understory_responder",
   "benches",
   "examples",
