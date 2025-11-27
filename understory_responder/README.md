@@ -64,6 +64,9 @@ The router only computes the traversal order. A higher‑level dispatcher can ex
 3) Hover — derive the path from the dispatch via [`path_from_dispatch`](https://docs.rs/understory_responder/latest/understory_responder/hover/fn.path_from_dispatch.html)
    and feed it to [`HoverState`](https://docs.rs/understory_responder/latest/understory_responder/hover/struct.HoverState.html). `HoverState` emits leave (inner→outer)
    and enter (outer→inner) events for the minimal transition between old and new paths.
+4) Click — use [`ClickState`](https://docs.rs/understory_responder/latest/understory_responder/click/struct.ClickState.html) to determine when pointer up events
+   should generate click events. Handles cases where elements transform between down and up,
+   applying configurable spatial and temporal tolerance to preserve user intent.
 
 ## Focus
 
