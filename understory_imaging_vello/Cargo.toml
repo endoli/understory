@@ -1,0 +1,26 @@
+[package]
+name = "understory_imaging_vello"
+version = "0.0.1"
+edition = "2024"
+license = "Apache-2.0"
+description = "Vello backend implementation of the understory_imaging IR."
+repository = "https://github.com/endoli/understory"
+
+[dependencies]
+kurbo.workspace = true
+understory_imaging = { path = "../understory_imaging" }
+vello.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = ["kurbo/std"]
+libm = ["kurbo/libm"]
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+
