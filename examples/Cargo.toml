@@ -15,3 +15,21 @@ understory_box_tree = { path = "../understory_box_tree" }
 understory_focus = { path = "../understory_focus" }
 understory_index = { path = "../understory_index" }
 understory_precise_hit = { path = "../understory_precise_hit" }
+understory_display = { path = "../understory_display" }
+understory_display_vello = { path = "../understory_display_vello" }
+understory_imaging = { path = "../understory_imaging" }
+understory_display_imaging = { path = "../understory_display_imaging" }
+understory_imaging_vello = { path = "../understory_imaging_vello" }
+understory_imaging_skia = { path = "../understory_imaging_skia" }
+understory_imaging_vello_cpu = { path = "../understory_imaging_vello_cpu" }
+vello_cpu = { workspace = true }
+png = "0.17"
+understory_text_imaging = { path = "../understory_text_imaging" }
+skrifa = "0.39"
+ui-events = { version = "0.2.0" }
+ui-events-winit = { version = "0.2.0" }
+vello = { workspace = true, features = ["wgpu_default"] }
+winit = { version = "0.30" }
+pollster = "0.3"
+
+skia-safe = "0.90.0"

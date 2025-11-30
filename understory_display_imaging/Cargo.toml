@@ -1,0 +1,28 @@
+[package]
+name = "understory_display_imaging"
+version = "0.0.1"
+edition = "2024"
+license = "Apache-2.0"
+description = "Lowering helpers from understory_display to understory_imaging IR."
+repository = "https://github.com/endoli/understory"
+
+[dependencies]
+understory_display = { path = "../understory_display" }
+understory_imaging = { path = "../understory_imaging" }
+kurbo.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = ["kurbo/std"]
+libm = ["kurbo/libm"]
+
+[dev-dependencies]
+understory_imaging_ref = { path = "../understory_imaging_ref" }
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
