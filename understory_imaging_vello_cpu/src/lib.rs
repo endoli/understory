@@ -12,6 +12,8 @@
 extern crate alloc;
 
 use alloc::{sync::Arc, vec::Vec};
+use core::any::Any;
+use core::fmt;
 use kurbo::{Affine, Cap, Join};
 use peniko::{BlendMode, Brush, ImageAlphaType, ImageData, ImageFormat, ImageSampler};
 use understory_imaging::{
@@ -48,8 +50,8 @@ pub struct VelloCpuImagingBackend<'ctx> {
     recording_active: bool,
 }
 
-impl core::fmt::Debug for VelloCpuImagingBackend<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for VelloCpuImagingBackend<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("VelloCpuImagingBackend { .. }")
     }
 }
@@ -625,8 +627,7 @@ impl ImagingBackend for VelloCpuImagingBackend<'_> {
         self.ctx.set_transform(saved_transform);
         self.ctx.set_paint(saved_paint);
 
-        let acceleration: Option<Box<dyn core::any::Any>> =
-            Some(Box::new(CpuRecordingAccel { recording }));
+        let acceleration: Option<Box<dyn Any>> = Some(Box::new(CpuRecordingAccel { recording }));
 
         RecordedOps {
             ops: ops_arc,

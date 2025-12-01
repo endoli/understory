@@ -16,6 +16,7 @@
 extern crate alloc;
 
 use alloc::{sync::Arc, vec::Vec};
+use core::any::Any;
 use core::fmt;
 
 use kurbo::{Affine, BezPath, Rect, RoundedRect};
@@ -45,7 +46,7 @@ pub struct VelloImagingBackend<'s> {
     current_paint_transform: Affine,
 
     /// Buffered imaging ops captured between `begin_record`/`end_record`.
-    recording_ops: alloc::vec::Vec<ImagingOp>,
+    recording_ops: Vec<ImagingOp>,
     /// Whether recording is currently active.
     recording_active: bool,
 }
@@ -72,7 +73,7 @@ impl<'s> VelloImagingBackend<'s> {
             current_blend: BlendMode::default(),
             current_opacity: 1.0,
             current_paint_transform: Affine::IDENTITY,
-            recording_ops: alloc::vec::Vec::new(),
+            recording_ops: Vec::new(),
             recording_active: false,
         }
     }
@@ -269,7 +270,7 @@ impl ImagingBackend for VelloImagingBackend<'_> {
                 Brush::Gradient(g) => {
                     let mut g = g.clone();
                     let stops = g.stops.as_ref();
-                    let new_stops: alloc::vec::Vec<_> =
+                    let new_stops: Vec<_> =
                         stops.iter().map(|stop| stop.multiply_alpha(a)).collect();
                     g.stops = vello::peniko::ColorStops::from(new_stops.as_slice());
                     Brush::Gradient(g)
@@ -445,7 +446,7 @@ impl ImagingBackend for VelloImagingBackend<'_> {
                     let saved_opacity = self.current_opacity;
                     let saved_paint_transform = self.current_paint_transform;
 
-                    let ops: alloc::vec::Vec<_> = desc.recording.ops.to_vec();
+                    let ops: Vec<_> = desc.recording.ops.to_vec();
                     for op in ops {
                         match op {
                             ImagingOp::State(StateOp::SetTransform(xf)) => {
@@ -495,11 +496,11 @@ impl ImagingBackend for VelloImagingBackend<'_> {
                 current_blend: BlendMode::default(),
                 current_opacity: 1.0,
                 current_paint_transform: Affine::IDENTITY,
-                recording_ops: alloc::vec::Vec::new(),
+                recording_ops: Vec::new(),
                 recording_active: false,
             };
 
-            let ops_vec: alloc::vec::Vec<_> = self.recording_ops.clone();
+            let ops_vec: Vec<_> = self.recording_ops.clone();
             for op in ops_vec {
                 match op {
                     ImagingOp::State(s) => sub_backend.state(s),
@@ -508,7 +509,7 @@ impl ImagingBackend for VelloImagingBackend<'_> {
             }
         }
 
-        let acceleration: Option<Box<dyn core::any::Any>> = Some(Box::new(picture_scene));
+        let acceleration: Option<Box<dyn Any>> = Some(Box::new(picture_scene));
 
         understory_imaging::RecordedOps {
             ops: ops_arc,
@@ -524,6 +525,7 @@ impl ImagingBackend for VelloImagingBackend<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn basic_fill_path_renders_something() {
@@ -531,7 +533,7 @@ mod tests {
         let mut backend = VelloImagingBackend::new(&mut scene);
 
         let path = backend.create_path(PathDesc {
-            commands: alloc::vec![
+            commands: vec![
                 PathCmd::MoveTo { x: 0.0, y: 0.0 },
                 PathCmd::LineTo { x: 10.0, y: 0.0 },
                 PathCmd::LineTo { x: 10.0, y: 10.0 },
@@ -558,7 +560,7 @@ mod tests {
 
         // Create a simple path.
         let path = backend.create_path(PathDesc {
-            commands: alloc::vec![
+            commands: vec![
                 PathCmd::MoveTo { x: 0.0, y: 0.0 },
                 PathCmd::LineTo { x: 20.0, y: 0.0 },
                 PathCmd::LineTo { x: 20.0, y: 20.0 },
@@ -569,7 +571,7 @@ mod tests {
         });
 
         // Build a tiny picture that fills this path at the origin.
-        let ops = alloc::vec![
+        let ops = vec![
             ImagingOp::State(StateOp::SetTransform(Affine::IDENTITY)),
             ImagingOp::Draw(DrawOp::FillPath(path)),
         ]

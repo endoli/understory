@@ -9,7 +9,9 @@
 
 extern crate alloc;
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::any::Any;
 use core::fmt;
 use kurbo::Affine;
 use peniko::Brush;
@@ -40,7 +42,7 @@ pub struct SkiaImagingBackend<'a> {
     clip_depth: u32,
 
     /// Buffered imaging ops captured between `begin_record`/`end_record`.
-    recording_ops: alloc::vec::Vec<ImagingOp>,
+    recording_ops: Vec<ImagingOp>,
     /// Whether recording is currently active.
     recording_active: bool,
 }
@@ -67,7 +69,7 @@ impl<'a> SkiaImagingBackend<'a> {
             current_blend: understory_imaging::BlendMode::default(),
             current_opacity: 1.0,
             clip_depth: 0,
-            recording_ops: alloc::vec::Vec::new(),
+            recording_ops: Vec::new(),
             recording_active: false,
         }
     }
@@ -135,9 +137,8 @@ fn brush_to_paint(brush: &Brush, opacity: f32, paint_xf: Affine) -> sk::Paint {
                 return paint;
             }
 
-            let mut colors: alloc::vec::Vec<sk::Color> =
-                alloc::vec::Vec::with_capacity(stops.len());
-            let mut pos: alloc::vec::Vec<f32> = alloc::vec::Vec::with_capacity(stops.len());
+            let mut colors: Vec<sk::Color> = Vec::with_capacity(stops.len());
+            let mut pos: Vec<f32> = Vec::with_capacity(stops.len());
 
             for s in stops {
                 let color = s
@@ -563,7 +564,7 @@ impl ImagingBackend for SkiaImagingBackend<'_> {
                     let saved_brush = self.current_brush.clone();
                     let saved_paint_transform = self.current_paint_transform;
 
-                    let ops: alloc::vec::Vec<_> = desc.recording.ops.to_vec();
+                    let ops: Vec<_> = desc.recording.ops.to_vec();
                     for op in ops {
                         match op {
                             ImagingOp::State(StateOp::SetTransform(xf)) => {
@@ -591,7 +592,7 @@ impl ImagingBackend for SkiaImagingBackend<'_> {
     fn end_record(&mut self) -> RecordedOps {
         self.recording_active = false;
         let slice: &[ImagingOp] = &self.recording_ops;
-        let ops_arc: alloc::sync::Arc<[ImagingOp]> = alloc::sync::Arc::from(slice);
+        let ops_arc: Arc<[ImagingOp]> = Arc::from(slice);
 
         // Build a picture-local Skia picture by replaying the captured ops
         // into a PictureRecorder with identity transform.
@@ -608,7 +609,7 @@ impl ImagingBackend for SkiaImagingBackend<'_> {
             sub_backend.paints = self.paints.clone();
             sub_backend.pictures = Vec::new();
 
-            let ops_vec: alloc::vec::Vec<_> = self.recording_ops.clone();
+            let ops_vec: Vec<_> = self.recording_ops.clone();
             for op in ops_vec {
                 match op {
                     ImagingOp::State(s) => sub_backend.state(s),
@@ -617,8 +618,9 @@ impl ImagingBackend for SkiaImagingBackend<'_> {
             }
         }
 
-        let acceleration: Option<Box<dyn core::any::Any>> =
-            recorder.finish_recording_as_picture(None).map(|p| Box::new(p) as Box<dyn core::any::Any>);
+        let acceleration: Option<Box<dyn Any>> = recorder
+            .finish_recording_as_picture(None)
+            .map(|p| Box::new(p) as Box<dyn Any>);
 
         RecordedOps {
             ops: ops_arc,

@@ -471,6 +471,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
     use peniko::Color;
 
     /// Trivial in-memory backend that records operations for testing.
@@ -480,7 +482,7 @@ mod tests {
         next_image: u32,
         next_paint: u32,
         next_picture: u32,
-        ops: alloc::vec::Vec<ImagingOp>,
+        ops: Vec<ImagingOp>,
         recording_start: Option<usize>,
     }
 
@@ -551,7 +553,7 @@ mod tests {
             brush: Brush::Solid(Color::WHITE),
         });
         let path = backend.create_path(PathDesc {
-            commands: alloc::vec![PathCmd::MoveTo { x: 0.0, y: 0.0 }].into_boxed_slice(),
+            commands: vec![PathCmd::MoveTo { x: 0.0, y: 0.0 }].into_boxed_slice(),
         });
 
         backend.state(StateOp::SetPaint(paint));
@@ -568,7 +570,7 @@ mod tests {
             brush: Brush::Solid(Color::WHITE),
         });
         let path = backend.create_path(PathDesc {
-            commands: alloc::vec![PathCmd::MoveTo { x: 0.0, y: 0.0 }].into_boxed_slice(),
+            commands: vec![PathCmd::MoveTo { x: 0.0, y: 0.0 }].into_boxed_slice(),
         });
 
         // First op outside the recording.
@@ -588,7 +590,7 @@ mod tests {
     fn clip_shape_round_trips_through_ops() {
         let mut backend = RecordingBackend::default();
         let path = backend.create_path(PathDesc {
-            commands: alloc::vec![PathCmd::MoveTo { x: 0.0, y: 0.0 }].into_boxed_slice(),
+            commands: vec![PathCmd::MoveTo { x: 0.0, y: 0.0 }].into_boxed_slice(),
         });
 
         backend.state(StateOp::SetClip(ClipShape::Path(path)));
