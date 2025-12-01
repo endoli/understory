@@ -263,20 +263,9 @@ impl ImagingBackend for VelloImagingBackend<'_> {
         fn brush_with_opacity(brush: &Brush, alpha: f32) -> Brush {
             let a = alpha.clamp(0.0, 1.0);
             if (a - 1.0).abs() < f32::EPSILON {
-                return brush.clone();
-            }
-            match brush {
-                Brush::Solid(c) => Brush::Solid(c.multiply_alpha(a)),
-                Brush::Gradient(g) => {
-                    let mut g = g.clone();
-                    let stops = g.stops.as_ref();
-                    let new_stops: Vec<_> =
-                        stops.iter().map(|stop| stop.multiply_alpha(a)).collect();
-                    g.stops = vello::peniko::ColorStops::from(new_stops.as_slice());
-                    Brush::Gradient(g)
-                }
-                // Other brush kinds are passed through unchanged for now.
-                _ => brush.clone(),
+                brush.clone()
+            } else {
+                brush.clone().multiply_alpha(a)
             }
         }
 
