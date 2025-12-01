@@ -17,7 +17,6 @@ use skia_safe as sk;
 use understory_imaging::{
     DrawOp, ImageDesc, ImageId, ImagingBackend, ImagingOp, PaintDesc, PaintId, PathDesc, PathId,
     PictureDesc, PictureId, RecordedOps, ResourceBackend, StateOp, TransformClass,
-    transform_diff_class,
 };
 
 /// Skia-backed implementation of the imaging backend.
@@ -538,89 +537,47 @@ impl ImagingBackend for SkiaImagingBackend<'_> {
             DrawOp::DrawPicture { picture, transform } => {
                 let idx = picture.0 as usize;
                 if let Some(Some(desc)) = self.pictures.get_mut(idx) {
-                    // Lazily build a Skia picture for this nested imaging
-                    // program and store it as backend-specific acceleration.
-                    if desc.recording.acceleration.is_none() {
-                        let mut recorder = sk::PictureRecorder::new();
-                        let cull = sk::Rect::new(-100_000.0, -100_000.0, 100_000.0, 100_000.0);
-                        let rec_canvas = recorder.begin_recording(cull, false);
-
-                        {
-                            let mut sub_backend = SkiaImagingBackend::new(rec_canvas);
-                            // Share resource tables; nested pictures are
-                            // currently ignored for acceleration.
-                            sub_backend.paths = self.paths.clone();
-                            sub_backend.images = self.images.clone();
-                            sub_backend.paints = self.paints.clone();
-                            sub_backend.pictures = Vec::new();
-
-                            let ops: alloc::vec::Vec<_> = desc.recording.ops.to_vec();
-                            for op in ops {
-                                match op {
-                                    ImagingOp::State(s) => sub_backend.state(s),
-                                    ImagingOp::Draw(d) => sub_backend.draw(d),
-                                }
+                    // Preferred path: use a cached picture-local Skia picture
+                    // built at record-time, then apply the outer transform
+                    // when drawing.
+                    if let Some(accel_any) = desc.recording.acceleration.as_ref() {
+                        if desc.recording.can_reuse(transform) {
+                            if let Some(picture) = accel_any.downcast_ref::<sk::Picture>() {
+                                self.canvas.save();
+                                self.canvas.reset_matrix();
+                                let m = affine_to_matrix(transform);
+                                self.canvas.concat(&m);
+                                self.canvas.draw_picture(picture, None, None);
+                                self.canvas.restore();
+                                return;
                             }
-                        }
-
-                        if let Some(picture) = recorder.finish_recording_as_picture(None) {
-                            desc.recording.acceleration = Some(Box::new(picture));
-                            // Cache is keyed on the picture-local transform
-                            // only; the outer current_transform is ignored for
-                            // pictures, matching the IR replay behaviour.
-                            desc.recording.original_ctm = Some(transform);
-                            desc.recording.valid_under = TransformClass::Affine;
                         }
                     }
 
-                    if let Some(accel) = desc.recording.acceleration.as_ref() {
-                        let current_ctm = transform;
-                        if let Some(original) = desc.recording.original_ctm {
-                            let diff = transform_diff_class(original, current_ctm);
-                            if !desc.recording.valid_under.supports(diff) {
-                                // For now, Skia pictures are marked as `Affine`,
-                                // so this branch will not be taken. Backends
-                                // with narrower transform classes may choose to
-                                // drop or regenerate acceleration here.
+                    // Fallback: no usable acceleration (e.g., recording was
+                    // created by another backend). Replay the IR directly into
+                    // this backend, applying the outer transform to any
+                    // SetTransform ops.
+                    let saved_transform = self.current_transform;
+                    let saved_stroke = self.current_stroke.clone();
+                    let saved_brush = self.current_brush.clone();
+                    let saved_paint_transform = self.current_paint_transform;
+
+                    let ops: alloc::vec::Vec<_> = desc.recording.ops.to_vec();
+                    for op in ops {
+                        match op {
+                            ImagingOp::State(StateOp::SetTransform(xf)) => {
+                                self.state(StateOp::SetTransform(transform * xf));
                             }
-                        }
-
-                        if let Some(picture) = accel.downcast_ref::<sk::Picture>() {
-                            // Draw the picture under the picture-local
-                            // transform only, ignoring the outer
-                            // current_transform. This matches the IR replay
-                            // behaviour used in the fallback path.
-                            self.canvas.save();
-                            self.canvas.reset_matrix();
-                            let m = affine_to_matrix(transform);
-                            self.canvas.concat(&m);
-                            self.canvas.draw_picture(picture, None, None);
-                            self.canvas.restore();
-                        } else {
-                            // Fallback: acceleration is present but not a Skia
-                            // picture; replay the IR directly.
-                            let saved_transform = self.current_transform;
-                            let saved_stroke = self.current_stroke.clone();
-                            let saved_brush = self.current_brush.clone();
-                            let saved_paint_transform = self.current_paint_transform;
-
-                            let ops: alloc::vec::Vec<_> = desc.recording.ops.to_vec();
-                            for op in ops {
-                                match op {
-                                    ImagingOp::State(StateOp::SetTransform(xf)) => {
-                                        self.state(StateOp::SetTransform(transform * xf));
-                                    }
-                                    ImagingOp::State(s) => self.state(s),
-                                    ImagingOp::Draw(d) => self.draw(d),
-                                }
-                            }
-
-                            self.current_transform = saved_transform;
-                            self.current_stroke = saved_stroke;
-                            self.current_brush = saved_brush;
-                            self.current_paint_transform = saved_paint_transform;
+                            ImagingOp::State(s) => self.state(s),
+                            ImagingOp::Draw(d) => self.draw(d),
                         }
                     }
+
+                    self.current_transform = saved_transform;
+                    self.current_stroke = saved_stroke;
+                    self.current_brush = saved_brush;
+                    self.current_paint_transform = saved_paint_transform;
                 }
             }
         }
@@ -634,11 +591,42 @@ impl ImagingBackend for SkiaImagingBackend<'_> {
     fn end_record(&mut self) -> RecordedOps {
         self.recording_active = false;
         let slice: &[ImagingOp] = &self.recording_ops;
+        let ops_arc: alloc::sync::Arc<[ImagingOp]> = alloc::sync::Arc::from(slice);
+
+        // Build a picture-local Skia picture by replaying the captured ops
+        // into a PictureRecorder with identity transform.
+        let mut recorder = sk::PictureRecorder::new();
+        let cull = sk::Rect::new(-100_000.0, -100_000.0, 100_000.0, 100_000.0);
+        let rec_canvas = recorder.begin_recording(cull, false);
+
+        {
+            let mut sub_backend = SkiaImagingBackend::new(rec_canvas);
+            // Share resource tables; nested pictures are currently ignored
+            // for acceleration.
+            sub_backend.paths = self.paths.clone();
+            sub_backend.images = self.images.clone();
+            sub_backend.paints = self.paints.clone();
+            sub_backend.pictures = Vec::new();
+
+            let ops_vec: alloc::vec::Vec<_> = self.recording_ops.clone();
+            for op in ops_vec {
+                match op {
+                    ImagingOp::State(s) => sub_backend.state(s),
+                    ImagingOp::Draw(d) => sub_backend.draw(d),
+                }
+            }
+        }
+
+        let acceleration: Option<Box<dyn core::any::Any>> =
+            recorder.finish_recording_as_picture(None).map(|p| Box::new(p) as Box<dyn core::any::Any>);
+
         RecordedOps {
-            ops: alloc::sync::Arc::from(slice),
-            acceleration: None,
-            valid_under: TransformClass::Exact,
-            original_ctm: None,
+            ops: ops_arc,
+            acceleration,
+            // Picture-local Skia pictures are valid under any affine transform;
+            // the outer transform is applied at DrawPicture time.
+            valid_under: TransformClass::Affine,
+            original_ctm: Some(Affine::IDENTITY),
         }
     }
 }
