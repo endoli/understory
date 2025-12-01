@@ -15,6 +15,8 @@ use core::any::Any;
 use core::fmt;
 use kurbo::Affine;
 use peniko::Brush;
+use peniko::InterpolationAlphaSpace;
+use peniko::color::{ColorSpaceTag, HueDirection};
 use skia_safe as sk;
 use understory_imaging::{
     DrawOp, ImageDesc, ImageId, ImagingBackend, ImagingOp, PaintDesc, PaintId, PathDesc, PathId,
@@ -129,66 +131,90 @@ fn brush_to_paint(brush: &Brush, opacity: f32, paint_xf: Affine) -> sk::Paint {
             paint.set_color(skia_safe::Color::from_argb(a_scaled, r, g, b));
         }
         Brush::Gradient(grad) => {
-            // Map peniko gradients to Skia shaders. For now we implement
-            // linear gradients; other kinds fall back to the first stop.
+            // Map peniko gradients to Skia gradient shaders, honoring
+            // interpolation color space and hue direction.
             let stops = grad.stops.as_ref();
             if stops.is_empty() {
                 paint.set_color(skia_safe::Color::TRANSPARENT);
                 return paint;
             }
 
-            let mut colors: Vec<sk::Color> = Vec::with_capacity(stops.len());
+            let mut colors: Vec<sk::Color4f> = Vec::with_capacity(stops.len());
             let mut pos: Vec<f32> = Vec::with_capacity(stops.len());
 
             for s in stops {
-                let color = s
-                    .color
-                    .to_alpha_color::<peniko::color::Srgb>()
-                    .multiply_alpha(alpha_scale);
-                let rgba = color.to_rgba8();
-                let (r, g, b, a) = (rgba.r, rgba.g, rgba.b, rgba.a);
-                colors.push(skia_safe::Color::from_argb(a, r, g, b));
+                // Use the dynamic color components directly and apply additional
+                // opacity as an alpha multiplier.
+                let comps = s.color.components;
+                let a = comps[3] * alpha_scale;
+                colors.push(skia_safe::Color4f::new(comps[0], comps[1], comps[2], a));
                 pos.push(s.offset.clamp(0.0, 1.0));
             }
 
-            let tile_mode = match grad.extend {
-                peniko::Extend::Pad => skia_safe::TileMode::Clamp,
-                peniko::Extend::Repeat => skia_safe::TileMode::Repeat,
-                peniko::Extend::Reflect => skia_safe::TileMode::Mirror,
-            };
+            let tile_mode = tile_mode_from_extend(grad.extend);
 
             let local = affine_to_matrix(paint_xf);
+
+            let interpolation = skia_safe::gradient_shader::Interpolation {
+                color_space: gradient_shader_cs_from_cs_tag(grad.interpolation_cs),
+                in_premul: match grad.interpolation_alpha_space {
+                    InterpolationAlphaSpace::Premultiplied => {
+                        skia_safe::gradient_shader::interpolation::InPremul::Yes
+                    }
+                    InterpolationAlphaSpace::Unpremultiplied => {
+                        skia_safe::gradient_shader::interpolation::InPremul::No
+                    }
+                },
+                hue_method: gradient_shader_hue_method_from_hue_direction(grad.hue_direction),
+            };
 
             match grad.kind {
                 peniko::GradientKind::Linear(line) => {
                     let p0 = sk::Point::new(f64_to_f32(line.start.x), f64_to_f32(line.start.y));
                     let p1 = sk::Point::new(f64_to_f32(line.end.x), f64_to_f32(line.end.y));
-                    if let Some(shader) = sk::Shader::linear_gradient(
+                    if let Some(shader) = sk::Shader::linear_gradient_with_interpolation(
                         (p0, p1),
-                        colors.as_slice(),
-                        Some(pos.as_slice()),
+                        (&colors[..], None),
+                        &pos[..],
                         tile_mode,
-                        None,
-                        Some(&local),
+                        interpolation,
+                        &Some(local),
                     ) {
                         paint.set_shader(shader);
                     }
                 }
                 peniko::GradientKind::Radial(rad) => {
-                    let center = sk::Point::new(
+                    let start_center = sk::Point::new(
                         f64_to_f32(rad.start_center.x),
                         f64_to_f32(rad.start_center.y),
                     );
-                    let radius = rad.end_radius;
-                    if let Some(shader) = sk::Shader::radial_gradient(
-                        center,
-                        radius,
-                        colors.as_slice(),
-                        Some(pos.as_slice()),
-                        tile_mode,
-                        None,
-                        Some(&local),
-                    ) {
+                    let start_radius = rad.start_radius;
+                    let end_center =
+                        sk::Point::new(f64_to_f32(rad.end_center.x), f64_to_f32(rad.end_center.y));
+                    let end_radius = rad.end_radius;
+
+                    let shader = if start_center == end_center && start_radius == end_radius {
+                        sk::Shader::radial_gradient_with_interpolation(
+                            (start_center, start_radius),
+                            (&colors[..], None),
+                            &pos[..],
+                            tile_mode,
+                            interpolation,
+                            &Some(local),
+                        )
+                    } else {
+                        sk::Shader::two_point_conical_gradient_with_interpolation(
+                            (start_center, start_radius),
+                            (end_center, end_radius),
+                            (&colors[..], None),
+                            &pos[..],
+                            tile_mode,
+                            interpolation,
+                            &Some(local),
+                        )
+                    };
+
+                    if let Some(shader) = shader {
                         paint.set_shader(shader);
                     }
                 }
@@ -196,14 +222,14 @@ fn brush_to_paint(brush: &Brush, opacity: f32, paint_xf: Affine) -> sk::Paint {
                     let center =
                         sk::Point::new(f64_to_f32(sweep.center.x), f64_to_f32(sweep.center.y));
                     let angles = (sweep.start_angle.to_degrees(), sweep.end_angle.to_degrees());
-                    if let Some(shader) = sk::Shader::sweep_gradient(
+                    if let Some(shader) = sk::Shader::sweep_gradient_with_interpolation(
                         center,
-                        colors.as_slice(),
-                        Some(pos.as_slice()),
+                        (&colors[..], None),
+                        &pos[..],
                         tile_mode,
-                        Some(angles),
-                        None,
-                        Some(&local),
+                        angles,
+                        interpolation,
+                        &Some(local),
                     ) {
                         paint.set_shader(shader);
                     }
@@ -211,10 +237,15 @@ fn brush_to_paint(brush: &Brush, opacity: f32, paint_xf: Affine) -> sk::Paint {
             }
 
             // If shader creation failed for any reason, fall back to the last stop.
-            if paint.shader().is_none()
-                && let Some(last) = colors.last()
-            {
-                paint.set_color(*last);
+            if paint.shader().is_none() {
+                if let Some(last_stop) = stops.last() {
+                    let color = last_stop
+                        .color
+                        .to_alpha_color::<peniko::color::Srgb>()
+                        .multiply_alpha(alpha_scale);
+                    let rgba = color.to_rgba8();
+                    paint.set_color(skia_safe::Color::from_argb(rgba.a, rgba.r, rgba.g, rgba.b));
+                }
             }
         }
         // Image brushes are not yet mapped; fall back to solid black with opacity.
@@ -229,6 +260,50 @@ fn brush_to_paint(brush: &Brush, opacity: f32, paint_xf: Affine) -> sk::Paint {
     }
 
     paint
+}
+
+fn tile_mode_from_extend(extend: peniko::Extend) -> sk::TileMode {
+    match extend {
+        peniko::Extend::Pad => sk::TileMode::Clamp,
+        peniko::Extend::Repeat => sk::TileMode::Repeat,
+        peniko::Extend::Reflect => sk::TileMode::Mirror,
+    }
+}
+
+fn gradient_shader_cs_from_cs_tag(
+    color_space: ColorSpaceTag,
+) -> skia_safe::gradient_shader::interpolation::ColorSpace {
+    use skia_safe::gradient_shader::interpolation::ColorSpace as SkGradientShaderColorSpace;
+
+    match color_space {
+        ColorSpaceTag::Srgb => SkGradientShaderColorSpace::SRGB,
+        ColorSpaceTag::LinearSrgb => SkGradientShaderColorSpace::SRGBLinear,
+        ColorSpaceTag::Lab => SkGradientShaderColorSpace::Lab,
+        ColorSpaceTag::Lch => SkGradientShaderColorSpace::LCH,
+        ColorSpaceTag::Hsl => SkGradientShaderColorSpace::HSL,
+        ColorSpaceTag::Hwb => SkGradientShaderColorSpace::HWB,
+        ColorSpaceTag::Oklab => SkGradientShaderColorSpace::OKLab,
+        ColorSpaceTag::Oklch => SkGradientShaderColorSpace::OKLCH,
+        ColorSpaceTag::DisplayP3 => SkGradientShaderColorSpace::DisplayP3,
+        ColorSpaceTag::A98Rgb => SkGradientShaderColorSpace::A98RGB,
+        ColorSpaceTag::ProphotoRgb => SkGradientShaderColorSpace::ProphotoRGB,
+        ColorSpaceTag::Rec2020 => SkGradientShaderColorSpace::Rec2020,
+        _ => SkGradientShaderColorSpace::SRGB,
+    }
+}
+
+fn gradient_shader_hue_method_from_hue_direction(
+    direction: HueDirection,
+) -> skia_safe::gradient_shader::interpolation::HueMethod {
+    use skia_safe::gradient_shader::interpolation::HueMethod as SkGradientShaderHueMethod;
+
+    match direction {
+        HueDirection::Shorter => SkGradientShaderHueMethod::Shorter,
+        HueDirection::Longer => SkGradientShaderHueMethod::Longer,
+        HueDirection::Increasing => SkGradientShaderHueMethod::Increasing,
+        HueDirection::Decreasing => SkGradientShaderHueMethod::Decreasing,
+        _ => SkGradientShaderHueMethod::Shorter,
+    }
 }
 
 fn map_blend_mode(mode: &understory_imaging::BlendMode) -> sk::BlendMode {
