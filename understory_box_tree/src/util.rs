@@ -4,8 +4,9 @@
 use kurbo::{Affine, Rect};
 use understory_index::Aabb2D;
 
-/// Transform an axis-aligned `Rect` by an `Affine` and return a conservative
-/// axis-aligned bounding box in world space.
+/// Transform an axis-aligned `Rect` by an `Affine` and return a loose
+/// axis-aligned bounding box in world space (it fully contains the transformed
+/// rect but may not be tight).
 pub(crate) fn transform_rect_bbox(affine: Affine, rect: Rect) -> Rect {
     let [a, b, c, d, e, f] = affine.as_coeffs();
     let min_x = (a * rect.x0).min(a * rect.x1) + (c * rect.y0).min(c * rect.y1);

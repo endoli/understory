@@ -30,11 +30,17 @@
 //! Upstream code is expected to compute positions and sizes using whatever layout system you choose and then update this tree with the resulting world-space boxes, transforms, optional clips, and z-order.
 //! Think of this as a scene and spatial index, not a layout system.
 //!
+//! This crate also does not model stacking contexts, opacity, or blend modes. It provides a single
+//! global z ordering (`z_index`) over boxes plus hit-testing and visibility queries. Higher-level
+//! code is expected to introduce groups, stacking semantics, and paint order if needed.
+//!
 //! ## Integration with Understory Index
 //!
 //! This crate uses [`understory_index`] for spatial queries. You can choose the backend and scalar to
 //! fit your workload (flat vector, R-tree or BVH). Float inputs are
-//! assumed to be finite (no NaNs). AABBs are conservative for non-axis transforms and rounded clips.
+//! assumed to be finite (no NaNs). AABBs are loose for non-axis-aligned transforms and rounded
+//! clips: we store an axis-aligned box that fully contains what is drawn, but it is not
+//! guaranteed to be tight.
 //!
 //! See [`understory_index::Index`], [`understory_index::RTreeF32`]/[`understory_index::RTreeF64`]/[`understory_index::RTreeI64`], and
 //! [`understory_index::BvhF32`]/[`understory_index::BvhF64`]/[`understory_index::BvhI64`] for details.
@@ -67,8 +73,9 @@
 //! ## Damage and debugging notes
 //!
 //! - [`Tree::commit`] batches adds/updates/removals and produces coarse damage (added/removed AABBs and
-//!   old/new pairs for moved nodes). This is enough to bound a paint traversal in most UIs.
-//! - World AABBs are conservative under rotation/shear and rounded-rect clips are approximated by
+//!   old/new pairs for moved nodes). The reported rectangles may overlap and are not a minimal cover,
+//!   but are sufficient to bound a paint traversal in most UIs.
+//! - World AABBs are loose under rotation/shear and rounded-rect clips are approximated by
 //!   their axis-aligned bounds for acceleration; precise hit-filtering is applied where cheap.
 //!
 //! ## Examples

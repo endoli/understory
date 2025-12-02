@@ -17,6 +17,34 @@ use crate::util::{rect_to_aabb, transform_rect_bbox};
 /// defaults to a flat-vector backend (`FlatVec<f64>`), so most callers can
 /// simply use [`Tree`] without specifying `B`. Advanced callers can override
 /// `B` to use an R-tree or BVH backend from `understory_index`.
+///
+/// Changes to local node data (bounds, transform, clip, flags, z) do **not**
+/// take effect immediately. They are batched and applied when [`Tree::commit`]
+/// is called, which recomputes world-space data and synchronizes the spatial
+/// index.
+///
+/// ## Example
+///
+/// ```rust
+/// use kurbo::Rect;
+/// use understory_box_tree::{LocalNode, Tree};
+///
+/// // Create a tree and a single root node.
+/// let mut tree = Tree::new();
+/// let root = tree.insert(
+///     None,
+///     LocalNode {
+///         local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+///         ..LocalNode::default()
+///     },
+/// );
+///
+/// // Changes only take effect after commit.
+/// tree.commit();
+///
+/// let world = tree.world_bounds(root).unwrap();
+/// assert_eq!(world, Rect::new(0.0, 0.0, 100.0, 100.0));
+/// ```
 pub struct Tree<B: Backend<f64> = FlatVec<f64>> {
     nodes: Vec<Option<Node>>, // slots
     generations: Vec<u32>,    // last generation per slot (persists across frees)
@@ -60,7 +88,8 @@ pub struct Hit {
 
 /// Filters applied during hit testing and rectangle intersection.
 ///
-/// Used by [`Tree::hit_test_point`] and [`Tree::intersect_rect`].
+/// Used by [`Tree::hit_test_point`] and [`Tree::intersect_rect`] to restrict
+/// which nodes participate in queries.
 #[derive(Clone, Copy, Debug)]
 pub struct QueryFilter {
     /// Bitfield of required node flags. Only nodes containing all these flags will be included.
@@ -154,6 +183,10 @@ impl Node {
 
 impl Tree {
     /// Create a new empty tree using the default backend (`FlatVec<f64>`).
+    ///
+    /// After inserting nodes or mutating local data, call [`Tree::commit`] to
+    /// update world-space transforms/bounds and the spatial index before
+    /// issuing queries.
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
@@ -196,6 +229,10 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Insert a new node as a child of `parent` (or as a root if `None`).
+    ///
+    /// The returned [`NodeId`] becomes live immediately, but world-space data
+    /// (`world_transform`, `world_bounds`) and the spatial index are only
+    /// updated on the next call to [`Tree::commit`].
     pub fn insert(&mut self, parent: Option<NodeId>, local: LocalNode) -> NodeId {
         let (idx, generation) = if let Some(idx) = self.free_list.pop() {
             let generation = self.generations[idx].saturating_add(1);
@@ -224,6 +261,9 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Remove a node (and its subtree) from the tree.
+    ///
+    /// The node becomes stale immediately, but damage and spatial index updates
+    /// are finalized on the next call to [`Tree::commit`].
     pub fn remove(&mut self, id: NodeId) {
         if !self.is_alive(id) {
             return;
@@ -243,6 +283,9 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Reparent `id` under `new_parent`.
+    ///
+    /// This marks the subtree dirty; world-space transforms/bounds and the
+    /// spatial index are updated on the next call to [`Tree::commit`].
     pub fn reparent(&mut self, id: NodeId, new_parent: Option<NodeId>) {
         if !self.is_alive(id) {
             return;
@@ -333,9 +376,11 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Return the world-space axis-aligned bounding box for a live node.
     ///
-    /// This is the conservative AABB computed during [`Tree::commit`], after
-    /// applying local transforms and any active clips. Returns `None` for stale
-    /// identifiers.
+    /// This is the loose AABB computed during [`Tree::commit`], after applying
+    /// local transforms and any active clips. It fully contains the transformed
+    /// bounds but may not be tight, especially under rotation or rounded clips.
+    /// This is the same AABB used for spatial indexing and rectangle queries.
+    /// Returns `None` for stale identifiers.
     pub fn world_bounds(&self, id: NodeId) -> Option<Rect> {
         if !self.is_alive(id) {
             return None;
@@ -357,6 +402,12 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Run the batched update and return coarse damage.
+    ///
+    /// This recomputes world-space transforms, bounds, and clips for all live
+    /// nodes reachable from roots, synchronizes their AABBs into the spatial
+    /// index, and returns a [`Damage`] summary capturing added/removed/moved
+    /// regions. Call this after mutating any `LocalNode` fields or tree
+    /// structure before issuing queries.
     pub fn commit(&mut self) -> Damage {
         let mut damage = Damage::default();
         let roots: Vec<NodeId> = self
@@ -389,11 +440,17 @@ impl<B: Backend<f64>> Tree<B> {
         damage
     }
 
-    /// Hit test a world-space point. Returns the topmost node.
+    /// Hit test a world-space point and, if any node matches, return the
+    /// topmost node and its path to root as a [`Hit`].
     ///
-    /// If multiple nodes overlap with the same `z_index`, the newer [`NodeId`] wins.
-    /// This tie-break is intentionally deterministic for now.
-    /// In the future this may be made configurable (for example via a `TieBreakPolicy`).
+    /// - The point `pt` is interpreted in world coordinates, after all transforms.
+    /// - Nodes must satisfy the [`QueryFilter`] and contain the point within their
+    ///   world-space bounds and clip to be eligible.
+    /// - Among candidates, higher `z_index` wins; if `z_index` ties, deeper nodes
+    ///   in the tree win; if that also ties, the newer [`NodeId`] wins.
+    ///
+    /// This tie-break is intentionally deterministic for now. In the future this
+    /// may be made configurable (for example via a `TieBreakPolicy`).
     pub fn hit_test_point(&self, pt: Point, filter: QueryFilter) -> Option<Hit> {
         let candidates: Vec<NodeId> = self
             .index
@@ -437,7 +494,12 @@ impl<B: Backend<f64>> Tree<B> {
         })
     }
 
-    /// Iterate nodes intersecting a world-space rect.
+    /// Iterate live nodes whose world-space bounds intersect a world-space rect.
+    ///
+    /// - `rect` is interpreted in world coordinates.
+    /// - Nodes must satisfy the [`QueryFilter`] and have a non-empty intersection
+    ///   between their world-space bounds and the supplied rectangle to be yielded.
+    /// - The returned [`NodeId`]s are in an unspecified order; no z-sorting is applied.
     pub fn intersect_rect<'a>(
         &'a self,
         rect: Rect,
