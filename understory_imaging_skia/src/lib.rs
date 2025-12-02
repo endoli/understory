@@ -237,15 +237,15 @@ fn brush_to_paint(brush: &Brush, opacity: f32, paint_xf: Affine) -> sk::Paint {
             }
 
             // If shader creation failed for any reason, fall back to the last stop.
-            if paint.shader().is_none() {
-                if let Some(last_stop) = stops.last() {
-                    let color = last_stop
-                        .color
-                        .to_alpha_color::<peniko::color::Srgb>()
-                        .multiply_alpha(alpha_scale);
-                    let rgba = color.to_rgba8();
-                    paint.set_color(skia_safe::Color::from_argb(rgba.a, rgba.r, rgba.g, rgba.b));
-                }
+            if paint.shader().is_none()
+                && let Some(last_stop) = stops.last()
+            {
+                let color = last_stop
+                    .color
+                    .to_alpha_color::<peniko::color::Srgb>()
+                    .multiply_alpha(alpha_scale);
+                let rgba = color.to_rgba8();
+                paint.set_color(skia_safe::Color::from_argb(rgba.a, rgba.r, rgba.g, rgba.b));
             }
         }
         // Image brushes are not yet mapped; fall back to solid black with opacity.
@@ -616,18 +616,17 @@ impl ImagingBackend for SkiaImagingBackend<'_> {
                     // Preferred path: use a cached picture-local Skia picture
                     // built at record-time, then apply the outer transform
                     // when drawing.
-                    if let Some(accel_any) = desc.recording.acceleration.as_ref() {
-                        if desc.recording.can_reuse(transform) {
-                            if let Some(picture) = accel_any.downcast_ref::<sk::Picture>() {
-                                self.canvas.save();
-                                self.canvas.reset_matrix();
-                                let m = affine_to_matrix(transform);
-                                self.canvas.concat(&m);
-                                self.canvas.draw_picture(picture, None, None);
-                                self.canvas.restore();
-                                return;
-                            }
-                        }
+                    if let Some(accel_any) = desc.recording.acceleration.as_ref()
+                        && desc.recording.can_reuse(transform)
+                        && let Some(picture) = accel_any.downcast_ref::<sk::Picture>()
+                    {
+                        self.canvas.save();
+                        self.canvas.reset_matrix();
+                        let m = affine_to_matrix(transform);
+                        self.canvas.concat(&m);
+                        self.canvas.draw_picture(picture, None, None);
+                        self.canvas.restore();
+                        return;
                     }
 
                     // Fallback: no usable acceleration (e.g., recording was

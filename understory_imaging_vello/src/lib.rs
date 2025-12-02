@@ -414,13 +414,12 @@ impl ImagingBackend for VelloImagingBackend<'_> {
                     // Preferred path: use a cached picture-local Vello Scene
                     // built at record-time, then apply the outer transform
                     // when appending.
-                    if let Some(accel_any) = desc.recording.acceleration.as_ref() {
-                        if desc.recording.can_reuse(transform) {
-                            if let Some(picture_scene) = accel_any.downcast_ref::<Scene>() {
-                                self.scene.append(picture_scene, Some(transform));
-                                return;
-                            }
-                        }
+                    if let Some(accel_any) = desc.recording.acceleration.as_ref()
+                        && desc.recording.can_reuse(transform)
+                        && let Some(picture_scene) = accel_any.downcast_ref::<Scene>()
+                    {
+                        self.scene.append(picture_scene, Some(transform));
+                        return;
                     }
 
                     // Fallback: no usable acceleration (e.g., recording was
