@@ -21,6 +21,7 @@ pub struct Aabb2D<T> {
 
 impl<T> Aabb2D<T> {
     /// Create a new AABB from min/max corners.
+    #[inline(always)]
     pub const fn new(min_x: T, min_y: T, max_x: T, max_y: T) -> Self {
         Self {
             min_x,
@@ -33,11 +34,13 @@ impl<T> Aabb2D<T> {
 
 impl<T: Copy + PartialOrd> Aabb2D<T> {
     /// Whether this AABB contains the point.
+    #[inline]
     pub fn contains_point(&self, x: T, y: T) -> bool {
         le(self.min_x, x) && le(self.min_y, y) && le(x, self.max_x) && le(y, self.max_y)
     }
 
     /// The intersection of two AABBs.
+    #[inline]
     pub fn intersect(&self, other: &Self) -> Self {
         let min_x = max_t(self.min_x, other.min_x);
         let min_y = max_t(self.min_y, other.min_y);
@@ -52,6 +55,7 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
     }
 
     /// Return true if the AABB is empty or inverted (no area). Assumes no NaN.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         lt(self.max_x, self.min_x) || lt(self.max_y, self.min_y)
     }
@@ -59,6 +63,7 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
 
 impl Aabb2D<f32> {
     /// Create an AABB from origin and size in f32.
+    #[inline]
     pub const fn from_xywh(x: f32, y: f32, w: f32, h: f32) -> Self {
         Self {
             min_x: x,
@@ -71,6 +76,7 @@ impl Aabb2D<f32> {
 
 impl Aabb2D<f64> {
     /// Create an AABB from origin and size in f64.
+    #[inline]
     pub const fn from_xywh(x: f64, y: f64, w: f64, h: f64) -> Self {
         Self {
             min_x: x,
@@ -83,6 +89,7 @@ impl Aabb2D<f64> {
 
 impl Aabb2D<i64> {
     /// Create an AABB from origin and size in i64.
+    #[inline]
     pub const fn from_xywh(x: i64, y: i64, w: i64, h: i64) -> Self {
         Self {
             min_x: x,
@@ -142,7 +149,7 @@ impl Scalar for f32 {
         a - b
     }
 
-    #[inline]
+    #[inline(always)]
     fn zero() -> Self {
         0.0
     }
@@ -181,7 +188,7 @@ impl Scalar for f64 {
         a - b
     }
 
-    #[inline]
+    #[inline(always)]
     fn zero() -> Self {
         0.0
     }
@@ -196,7 +203,7 @@ impl Scalar for f64 {
         0.5 * (a + b)
     }
 
-    #[inline]
+    #[inline(always)]
     fn widen(v: Self) -> Self::Acc {
         v
     }
@@ -220,7 +227,7 @@ impl Scalar for i64 {
         a.saturating_sub(b)
     }
 
-    #[inline]
+    #[inline(always)]
     fn zero() -> Self {
         0
     }
