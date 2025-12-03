@@ -49,14 +49,17 @@ pub enum ClipBehavior {
 pub struct NodeId(u32, u32);
 
 impl NodeId {
+    #[inline(always)]
     pub(crate) const fn new(idx: u32, generation: u32) -> Self {
         Self(idx, generation)
     }
 
+    #[inline(always)]
     pub(crate) const fn idx(self) -> usize {
         self.0 as usize
     }
 
+    #[inline(always)]
     pub(crate) const fn generation(self) -> u32 {
         self.1
     }
