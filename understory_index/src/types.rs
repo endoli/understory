@@ -61,41 +61,15 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
     }
 }
 
-impl Aabb2D<f32> {
+impl<T: Scalar> Aabb2D<T> {
     /// Create an AABB from origin and size in f32.
     #[inline]
-    pub const fn from_xywh(x: f32, y: f32, w: f32, h: f32) -> Self {
+    pub fn from_xywh(x: T, y: T, w: T, h: T) -> Self {
         Self {
             min_x: x,
             min_y: y,
-            max_x: x + w,
-            max_y: y + h,
-        }
-    }
-}
-
-impl Aabb2D<f64> {
-    /// Create an AABB from origin and size in f64.
-    #[inline]
-    pub const fn from_xywh(x: f64, y: f64, w: f64, h: f64) -> Self {
-        Self {
-            min_x: x,
-            min_y: y,
-            max_x: x + w,
-            max_y: y + h,
-        }
-    }
-}
-
-impl Aabb2D<i64> {
-    /// Create an AABB from origin and size in i64.
-    #[inline]
-    pub const fn from_xywh(x: i64, y: i64, w: i64, h: i64) -> Self {
-        Self {
-            min_x: x,
-            min_y: y,
-            max_x: x + w,
-            max_y: y + h,
+            max_x: T::add(x, w),
+            max_y: T::add(y, h),
         }
     }
 }
