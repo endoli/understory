@@ -4,20 +4,43 @@
 //! Understory Imaging: backend-agnostic imaging IR and backend traits.
 //!
 //! This crate defines a small, plain‑old‑data (POD) friendly imaging
-//! intermediate representation and traits for backends that consume it. It sits between higher-level
-//! display / presentation layers and concrete renderers (Vello CPU/Hybrid,
-//! Skia, etc.).
+//! intermediate representation and traits for backends that consume it.
+//! It sits between higher-level presentation / display layers and concrete
+//! renderers (Vello CPU / Hybrid / Classic, Skia, etc.).
 //!
-//! The current API is intentionally minimal and experimental. It covers:
-//! - Opaque resource identifiers (`PathId`, `ImageId`, `PaintId`, `PictureId`).
-//! - Stateless draw ops (`DrawOp`) and state ops (`StateOp`).
-//! - A `ResourceBackend` trait to manage resource lifetimes.
-//! - An `ImagingBackend` trait to accept imaging ops.
+//! # Position in the stack
 //!
-//! Caching, recordings, and advanced backend semantics are expected to evolve
-//! as we integrate real backends; callers should treat this crate as unstable.
+//! Conceptually there are three layers:
 //!
-//! ## Recordings and resource environments
+//! - **Presentation / display**: box trees, layout, styling, timelines,
+//!   and interaction. This lives in other `understory_*` crates.
+//! - **Imaging IR (this crate)**: paths, paints, images, and pictures
+//!   expressed as POD state + draw operations, plus resource and backend
+//!   traits.
+//! - **Backends**: concrete renderers such as Vello CPU/Hybrid/Classic
+//!   or Skia that implement [`ImagingBackend`] on top of wgpu, a CPU
+//!   rasterizer, or other technology.
+//!
+//! # Core concepts
+//!
+//! - **Resources**: small, opaque handles ([`PathId`], [`ImageId`],
+//!   [`PaintId`], [`PictureId`], [`FilterId`]) whose lifetimes are managed
+//!   via [`ResourceBackend`].
+//! - **Imaging operations**: [`StateOp`] (mutate state) and [`DrawOp`]
+//!   (produce pixels), combined into [`ImagingOp`] for recording.
+//! - **Backends**: [`ImagingBackend`] accepts imaging ops; helpers
+//!   [`record_ops`] and [`record_picture`] turn short sequences into
+//!   reusable recordings and picture resources.
+//! - **Transform classes**: [`TransformClass`] and [`transform_diff_class`]
+//!   provide a conservative language for deciding when cached results or
+//!   recordings remain valid under a new transform.
+//!
+//! The current API is intentionally minimal and experimental. Caching,
+//! recordings, and advanced backend semantics are expected to evolve as
+//! we integrate real backends; expect breaking changes while the design
+//! is still being iterated.
+//!
+//! # Recordings and resource environments
 //!
 //! In the v1 model, recordings are conceptually just sequences of [`ImagingOp`]
 //! that reference external resources by handle ([`PathId`], [`ImageId`],
@@ -33,6 +56,38 @@
 //! existing renderer architectures. Future versions may experiment with
 //! inline resource references, recording-local resource tables, or ephemeral
 //! arenas, but those are intentionally out of scope here.
+//!
+//! # Example
+//!
+//! A minimal sketch of how a backend might be used looks like:
+//!
+//! ```ignore
+//! # use understory_imaging::*;
+//! # use peniko::{Brush, Color};
+//! # struct MyBackend { /* implements ResourceBackend + ImagingBackend */ }
+//! # impl ResourceBackend for MyBackend { /* ... */ }
+//! # impl ImagingBackend for MyBackend { /* ... */ }
+//! let mut backend = MyBackend { /* ... */ };
+//!
+//! let paint = backend.create_paint(PaintDesc {
+//!     brush: Brush::Solid(Color::WHITE),
+//! });
+//! let path = backend.create_path(PathDesc {
+//!     commands: Box::new([PathCmd::MoveTo { x: 0.0, y: 0.0 }]),
+//! });
+//!
+//! backend.state(StateOp::SetPaint(paint));
+//! backend.draw(DrawOp::FillPath(path));
+//!
+//! // Optionally capture a reusable recording:
+//! let recording = record_ops(&mut backend, |b| {
+//!     b.draw(DrawOp::StrokePath(path));
+//! });
+//! assert!(recording.ops.len() > 0);
+//! ```
+//!
+//! For full design notes and background, see the `issue_understory_imaging.md`
+//! RFC in the `docs/` directory of the Understory repository.
 
 #![no_std]
 
@@ -44,26 +99,44 @@ pub use peniko::BlendMode;
 use peniko::Brush;
 
 /// Identifier for a path resource.
+///
+/// This is a small, opaque handle that is stable for the lifetime of the
+/// resource. Paths are expected to be reused across frames and inside
+/// recordings while they remain alive.
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PathId(pub u32);
 
 /// Identifier for an image resource.
+///
+/// This is a small, opaque handle that is stable for the lifetime of the
+/// resource. Images are typically created once and reused across frames and
+/// recordings until explicitly destroyed.
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ImageId(pub u32);
 
 /// Identifier for a paint resource.
+///
+/// This is a small, opaque handle that is stable for the lifetime of the
+/// resource. Paints may be shared by many paths, images, and pictures.
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PaintId(pub u32);
 
 /// Identifier for a picture resource (nested imaging program).
+///
+/// Pictures are created from [`RecordedOps`] and behave like reusable
+/// sub-programs in the imaging IR. The ID is stable for the lifetime of the
+/// picture.
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PictureId(pub u32);
 
 /// Identifier for a filter resource.
+///
+/// Filters represent reusable image processing operations. The exact schema
+/// is backend-defined in v1; the ID is stable for the lifetime of the filter.
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FilterId(pub u32);
@@ -73,7 +146,8 @@ pub type Affine = kurbo::Affine;
 
 /// Clip shape used by `StateOp::SetClip`.
 ///
-/// This will likely grow variants for rounded rects and more complex regions.
+/// Currently supports infinite, rectangular, rounded-rectangular, and
+/// path-based clips; this may grow additional region types over time.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClipShape {
     /// Clip to an infinite region (equivalent to no clip).
@@ -141,8 +215,12 @@ pub enum StateOp {
     SetOpacity(f32),
     /// Begin a compositing group with the given blend mode and opacity.
     ///
-    /// Backends may implement this using a layer, offscreen surface, or
-    /// equivalent grouping primitive.
+    /// Backends may implement this using a layer, offscreen surface, or an
+    /// equivalent grouping primitive. Groups must be well-nested: every
+    /// [`BeginGroup`] must eventually be matched by an [`EndGroup`].
+    /// Transform, clip, and paint state inside the group are applied
+    /// normally; the `opacity` is applied when compositing the group back
+    /// into its parent.
     BeginGroup {
         /// Blend mode used when compositing the group back into the scene.
         blend: BlendMode,
@@ -261,6 +339,8 @@ pub struct ImageDesc {
     pub width: u32,
     /// Image height in pixels.
     pub height: u32,
+    // Future versions may add an explicit pixel format. For now, the pixel
+    // encoding is backend-defined and documented by the backend.
 }
 
 /// Description of a paint resource.
@@ -287,6 +367,12 @@ pub struct PictureDesc {
 /// Resource lifetime interface.
 ///
 /// Backends implement this to manage their own resource storage.
+///
+/// Implementations are free to choose how resources are allocated and stored,
+/// but they must ensure that IDs remain valid and refer to the same logical
+/// resource until the corresponding `destroy_*` function is called. Any
+/// [`RecordedOps`] or [`PictureId`] that reference these IDs assume they stay
+/// compatible for as long as they are used.
 pub trait ResourceBackend {
     /// Create a path resource.
     fn create_path(&mut self, desc: PathDesc) -> PathId;
@@ -294,6 +380,11 @@ pub trait ResourceBackend {
     fn destroy_path(&mut self, id: PathId);
 
     /// Create an image resource from raw pixels.
+    ///
+    /// The `pixels` slice is expected to contain tightly packed, row-major
+    /// image data in a backend-defined format (typically premultiplied RGBA8).
+    /// Backends should document their accepted formats and any alignment
+    /// requirements.
     fn create_image(&mut self, desc: ImageDesc, pixels: &[u8]) -> ImageId;
     /// Destroy a previously created image.
     fn destroy_image(&mut self, id: ImageId);
@@ -319,6 +410,11 @@ pub enum ImagingOp {
 }
 
 /// Transform class describing when cached or recorded content remains valid.
+///
+/// These variants form a conservative hierarchy describing increasing
+/// flexibility: `Exact ⊆ TranslateOnly ⊆ Orthonormal ⊆ Affine`. A cache
+/// entry that is valid under a “larger” class may be reused for any
+/// compatible “smaller” transform difference.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum TransformClass {
     /// Valid only when the current transform is exactly equal.
@@ -354,7 +450,8 @@ impl TransformClass {
 ///   is `TranslateOnly`.
 /// - Otherwise the result is `Affine`.
 ///
-/// Future versions may refine this to detect orthonormal transforms.
+/// At the moment this function never returns [`TransformClass::Orthonormal`];
+/// future versions may refine it to detect orthonormal transforms.
 pub fn transform_diff_class(original: Affine, current: Affine) -> TransformClass {
     if current == original {
         return TransformClass::Exact;
@@ -421,6 +518,9 @@ impl RecordedOps {
 /// recording API.
 pub trait ImagingBackend: ResourceBackend {
     /// Apply a state operation.
+    ///
+    /// When called inside an active recording, the operation must both be
+    /// applied to the backend and appended to the recording.
     fn state(&mut self, op: StateOp);
 
     /// Apply a draw operation.
@@ -430,12 +530,15 @@ pub trait ImagingBackend: ResourceBackend {
     ///
     /// Implementations may choose how many nested recordings they support;
     /// callers should assume at most a single active recording for v1.
+    /// Operations issued after this call must continue to affect the backend
+    /// normally while also being appended to the recording.
     fn begin_record(&mut self);
 
     /// End the current recording and return the captured operations.
     ///
     /// The returned [`RecordedOps`] is environment-bound: it assumes that
-    /// the same resource IDs are valid when the recording is replayed.
+    /// the same resource IDs are valid and refer to compatible resources
+    /// when the recording is replayed.
     fn end_record(&mut self) -> RecordedOps;
 }
 
@@ -444,6 +547,10 @@ pub trait ImagingBackend: ResourceBackend {
 /// This helper wraps [`ImagingBackend::begin_record`] / `end_record` and
 /// ensures that any state or draw operations issued by `f` are captured
 /// in a single recording while still being applied to `backend`.
+///
+/// The returned recording is environment-bound: any resource IDs referenced
+/// by the captured operations must remain valid and compatible for as long
+/// as the recording is used.
 pub fn record_ops<B, F>(backend: &mut B, f: F) -> RecordedOps
 where
     B: ImagingBackend,
@@ -459,6 +566,9 @@ where
 /// This helper captures the operations issued by `f` into a [`RecordedOps`]
 /// and then installs them as a [`PictureDesc`] via
 /// [`ResourceBackend::create_picture`], returning the allocated [`PictureId`].
+///
+/// All resource IDs referenced by the captured operations must remain valid
+/// and compatible for as long as the returned [`PictureId`] may be drawn.
 pub fn record_picture<B, F>(backend: &mut B, f: F) -> PictureId
 where
     B: ImagingBackend,
