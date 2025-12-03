@@ -60,6 +60,7 @@ bitflags::bitflags! {
 }
 
 impl Default for NodeFlags {
+    #[inline(always)]
     fn default() -> Self {
         Self::VISIBLE | Self::PICKABLE
     }
@@ -81,6 +82,7 @@ pub struct LocalNode {
 }
 
 impl Default for LocalNode {
+    #[inline(always)]
     fn default() -> Self {
         Self {
             local_bounds: Rect::ZERO,
