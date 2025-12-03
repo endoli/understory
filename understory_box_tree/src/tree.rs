@@ -346,6 +346,26 @@ impl<B: Backend<f64>> Tree<B> {
             .map(|node| node.world.world_bounds)
     }
 
+    /// Return the viewport bounds for a live node.
+    ///
+    /// This returns the unclipped world bounds intersected with the node's
+    /// effective clip (which may include ancestor clips based on [`ClipBehavior`]).
+    /// This represents the actual visible area of the node. Returns `None` for stale
+    /// identifiers.
+    pub fn viewport_bounds(&self, id: NodeId) -> Option<Rect> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        let node = self.nodes.get(id.idx())?.as_ref()?;
+        let unclipped_bounds =
+            transform_rect_bbox(node.world.world_transform, node.local.local_bounds);
+
+        match node.world.world_clip {
+            Some(clip) => Some(unclipped_bounds.intersect(clip)),
+            None => Some(unclipped_bounds),
+        }
+    }
+
     /// Access a node for debugging; panics if `id` is stale.
     pub(crate) fn node(&self, id: NodeId) -> &Node {
         self.nodes[id.idx()].as_ref().expect("dangling NodeId")
@@ -1653,5 +1673,104 @@ mod tests {
 
         let prev = tree.prev_depth_first(a).unwrap();
         assert_eq!(prev, root);
+    }
+
+    #[test]
+    fn viewport_bounds_without_clips() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_transform: Affine::translate(Vec2::new(10.0, 20.0)),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let viewport = tree.viewport_bounds(root).unwrap();
+        let world = tree.world_bounds(root).unwrap();
+
+        // Without clips, viewport bounds should equal world bounds
+        assert_eq!(viewport, world);
+        assert_eq!(viewport, Rect::new(10.0, 20.0, 110.0, 120.0));
+    }
+
+    #[test]
+    fn viewport_bounds_with_local_clip() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(10.0, 10.0, 60.0, 60.0),
+                    0.0,
+                )),
+                local_transform: Affine::translate(Vec2::new(5.0, 5.0)),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let viewport = tree.viewport_bounds(root).unwrap();
+        let world = tree.world_bounds(root).unwrap();
+
+        // world_bounds is already clipped, so they should be equal
+        assert_eq!(viewport, world);
+        // Clip (10,10,60,60) transformed by translate(5,5) becomes (15,15,65,65)
+        assert_eq!(viewport, Rect::new(15.0, 15.0, 65.0, 65.0));
+    }
+
+    #[test]
+    fn viewport_bounds_with_inherited_clips() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(50.0, 50.0, 150.0, 150.0),
+                clip_behavior: ClipBehavior::Inherit,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let child_viewport = tree.viewport_bounds(child).unwrap();
+        let child_world = tree.world_bounds(child).unwrap();
+
+        // With inherited clipping, the child is clipped by the parent's clip
+        assert_eq!(child_viewport, child_world);
+        assert_eq!(child_viewport, Rect::new(50.0, 50.0, 100.0, 100.0));
+    }
+
+    #[test]
+    fn viewport_bounds_respects_liveness() {
+        let mut tree = Tree::new();
+        let node = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        assert!(tree.viewport_bounds(node).is_some());
+
+        tree.remove(node);
+
+        // Stale ids must return None
+        assert!(tree.viewport_bounds(node).is_none());
     }
 }

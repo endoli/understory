@@ -76,8 +76,9 @@ Key operations:
 - [`Tree::z_index`](Tree::z_index) exposes the stacking order of a live [`NodeId`].
 - [`Tree::parent_of`](Tree::parent_of) returns the parent of a live [`NodeId`].
 - [`Tree::flags`](Tree::flags) returns the [`NodeFlags`] of a live [`NodeId`].
-- [`Tree::world_transform`](Tree::world_transform) / [`Tree::world_bounds`](Tree::world_bounds)
-  expose the local→world transform and world-space AABB for a live [`NodeId`].
+- [`Tree::world_transform`](Tree::world_transform) / [`Tree::world_bounds`](Tree::world_bounds) /
+  [`Tree::viewport_bounds`](Tree::viewport_bounds) expose the local→world transform, world-space AABB, and
+  clipped viewport bounds for a live [`NodeId`].
 - [`Tree::children_of`](Tree::children_of) returns the children of a live [`NodeId`].
 - [`Tree::next_depth_first`](Tree::next_depth_first) and [`Tree::prev_depth_first`](Tree::prev_depth_first) provide depth-first tree traversal.
 
