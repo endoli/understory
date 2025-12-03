@@ -255,8 +255,7 @@ pub fn area<T: Scalar>(a: &Aabb2D<T>) -> T::Acc {
     T::widen(w) * T::widen(h)
 }
 
-// Helper type to access Scalar::Acc in type aliases elsewhere.
-/// Helper alias for the widened accumulator type associated with a scalar `T`.
+/// Helper alias for the widened accumulator type `Scalar::Acc` associated with a `T: Scalar`.
 pub type ScalarAcc<T> = <T as Scalar>::Acc;
 
 pub(crate) fn min_t<T: PartialOrd + Copy>(a: T, b: T) -> T {
