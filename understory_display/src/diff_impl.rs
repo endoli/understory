@@ -146,14 +146,14 @@ fn ops_equal_ignoring_id(a: &Op, b: &Op) -> bool {
             Group {
                 header: ha,
                 opacity: oa,
-                blend: ba,
+                blend: b_a,
             },
             Group {
                 header: hb,
                 opacity: ob,
                 blend: bb,
             },
-        ) => headers_equal_ignoring_id(ha, hb) && float_eq(*oa, *ob) && ba == bb,
+        ) => headers_equal_ignoring_id(ha, hb) && float_eq(*oa, *ob) && b_a == bb,
         _ => false,
     }
 }
