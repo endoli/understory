@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn aabb_area_and_empty() {
-        const EPSILON: f64 = 1e-4;
+        const EPSILON: f64 = 1e-10;
 
         let mut aabb = Aabb2D::<f64>::new(5., 7., 10., 9.);
         assert!((aabb.area() - 5. * 2.).abs() < EPSILON);
