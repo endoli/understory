@@ -454,7 +454,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         old: &Aabb2D<T>,
     ) -> bool {
         let node_bbox = arena[node_idx].bbox;
-        if node_bbox.intersect(old).is_empty() {
+        if !node_bbox.overlaps(old) {
             return false;
         }
         if arena[node_idx].leaf {
@@ -519,7 +519,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         new: Aabb2D<T>,
     ) -> bool {
         let interest = old.union(new);
-        if arena[node_idx].bbox.intersect(&interest).is_empty() {
+        if !arena[node_idx].bbox.overlaps(&interest) {
             return false;
         }
         if arena[node_idx].leaf {
@@ -682,13 +682,13 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
         let mut stack = vec![root_idx];
         while let Some(i) = stack.pop() {
             let n = &self.arena[i.get()];
-            if n.bbox.intersect(&rect).is_empty() {
+            if !n.bbox.overlaps(&rect) {
                 continue;
             }
             if n.leaf {
                 for c in &n.children {
                     if let RChild::Item { slot, bbox, .. } = c
-                        && !bbox.intersect(&rect).is_empty()
+                        && bbox.overlaps(&rect)
                     {
                         f(*slot);
                     }

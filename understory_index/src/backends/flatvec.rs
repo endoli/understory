@@ -67,7 +67,7 @@ impl<T: Copy + PartialOrd + Debug> Backend<T> for FlatVec<T> {
     fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<T>, mut f: F) {
         for (i, slot) in self.entries.iter().enumerate() {
             if let Some(a) = slot.as_ref()
-                && !a.intersect(&rect).is_empty()
+                && a.overlaps(&rect)
             {
                 f(i);
             }

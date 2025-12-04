@@ -54,6 +54,41 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
         }
     }
 
+    /// Determines whether this AABB overlaps with another in any way.
+    ///
+    /// Note that the edge of the AABB is considered to be part of itself, meaning
+    /// that two AABBs that share an edge are considered to overlap.
+    ///
+    /// Returns `true` if the AABBs overlap, `false` otherwise.
+    ///
+    /// If you want to compute the *intersection* of two AABBs, use the
+    /// [`intersect`][Self::intersect`] method instead.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use understory_index::Aabb2D;
+    ///
+    /// let aabb1 = Aabb2D::new(0.0, 0.0, 10.0, 10.0);
+    /// let aabb2 = Aabb2D::new(5.0, 5.0, 15.0, 15.0);
+    /// assert!(aabb1.overlaps(&aabb2));
+    ///
+    /// let aabb1 = Aabb2D::new(0.0, 0.0, 10.0, 10.0);
+    /// let aabb2 = Aabb2D::new(10.0, 0.0, 20.0, 10.0);
+    /// assert!(aabb1.overlaps(&aabb2));
+    ///
+    /// let aabb1 = Aabb2D::new(0.0, 0.0, 10.0, 10.0);
+    /// let aabb2 = Aabb2D::new(11.0, 0.0, 20.0, 10.0);
+    /// assert!(!aabb1.overlaps(&aabb2));
+    /// ```
+    #[inline]
+    pub fn overlaps(&self, other: &Self) -> bool {
+        self.min_x <= other.max_x
+            && self.max_x >= other.min_x
+            && self.min_y <= other.max_y
+            && self.max_y >= other.min_y
+    }
+
     /// The smallest AABB enclosing two AABBs.
     #[inline]
     pub(crate) fn union(&self, other: Self) -> Self {

@@ -196,7 +196,7 @@ impl<T: Scalar> Bvh<T> {
         slot: usize,
         old: &Aabb2D<T>,
     ) -> bool {
-        if arena[node_idx].bbox.intersect(old).is_empty() {
+        if !arena[node_idx].bbox.overlaps(old) {
             return false;
         }
         let kind = core::mem::replace(&mut arena[node_idx].kind, Kind::Leaf(Vec::new()));
@@ -321,13 +321,13 @@ impl<T: Scalar> Backend<T> for Bvh<T> {
         let mut stack = vec![root_idx];
         while let Some(i) = stack.pop() {
             let n = &self.arena[i.get()];
-            if n.bbox.intersect(&rect).is_empty() {
+            if !n.bbox.overlaps(&rect) {
                 continue;
             }
             match &n.kind {
                 Kind::Leaf(items) => {
                     for (s, b) in items {
-                        if !b.intersect(&rect).is_empty() {
+                        if b.overlaps(&rect) {
                             f(*s);
                         }
                     }
