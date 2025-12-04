@@ -408,7 +408,9 @@ impl<B: Backend<f64>> Tree<B> {
             if !filter.matches(node.local.flags) {
                 continue;
             }
-            if let Some(clip) = node.local.local_clip {
+            if node.local.clip_behavior != ClipBehavior::None
+                && let Some(clip) = node.local.local_clip
+            {
                 let world_pt = node.world.world_transform.inverse() * pt;
                 if !clip.rect().contains(world_pt) {
                     continue;
@@ -890,6 +892,43 @@ mod tests {
         assert_eq!(bounds, Rect::new(80.0, 80.0, 180.0, 180.0));
 
         // Hit test at a point outside parent's clip but inside child should succeed.
+        let hit = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
+        assert_eq!(hit.map(|h| h.node), Some(child));
+    }
+
+    #[test]
+    fn clip_behavior_none_disables_clipping() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(80.0, 80.0, 180.0, 180.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(80.0, 80.0, 90.0, 90.0),
+                    0.0,
+                )),
+                clip_behavior: ClipBehavior::None,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Bounds should not be clipped by either local or parent clip.
+        let bounds = tree.world_bounds(child).unwrap();
+        assert_eq!(bounds, Rect::new(80.0, 80.0, 180.0, 180.0));
+
+        // Hit test at a point outside both clips but inside local bounds should still hit.
         let hit = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
         assert_eq!(hit.map(|h| h.node), Some(child));
     }
