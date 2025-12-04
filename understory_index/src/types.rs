@@ -54,6 +54,17 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
         }
     }
 
+    /// The smallest AABB enclosing two AABBs.
+    #[inline]
+    pub(crate) fn union(&self, other: Aabb2D<T>) -> Aabb2D<T> {
+        Aabb2D {
+            min_x: min_t(self.min_x, other.min_x),
+            min_y: min_t(self.min_y, other.min_y),
+            max_x: max_t(self.max_x, other.max_x),
+            max_y: max_t(self.max_y, other.max_y),
+        }
+    }
+
     /// Return true if the AABB is empty or inverted (no area). Assumes no NaN.
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -71,6 +82,14 @@ impl<T: Scalar> Aabb2D<T> {
             max_x: T::add(x, w),
             max_y: T::add(y, h),
         }
+    }
+
+    /// Compute the area of an AABB using the scalar's widened accumulator type.
+    #[inline]
+    pub fn area(&self) -> T::Acc {
+        let w = T::max_zero(T::sub(self.max_x, self.min_x));
+        let h = T::max_zero(T::sub(self.max_y, self.min_y));
+        T::widen(w) * T::widen(h)
     }
 }
 
@@ -228,14 +247,6 @@ impl Scalar for i64 {
     }
 }
 
-/// Compute the area of an AABB using the scalar's widened accumulator type.
-#[inline]
-pub fn area<T: Scalar>(a: &Aabb2D<T>) -> T::Acc {
-    let w = T::max_zero(T::sub(a.max_x, a.min_x));
-    let h = T::max_zero(T::sub(a.max_y, a.min_y));
-    T::widen(w) * T::widen(h)
-}
-
 /// Helper alias for the widened accumulator type `Scalar::Acc` associated with a `T: Scalar`.
 pub type ScalarAcc<T> = <T as Scalar>::Acc;
 
@@ -262,13 +273,4 @@ pub(crate) fn lt<T: PartialOrd>(a: T, b: T) -> bool {
     a.partial_cmp(&b)
         .map(|o| o == Ordering::Less)
         .unwrap_or(false)
-}
-
-pub(crate) fn union_aabb<T: PartialOrd + Copy>(a: Aabb2D<T>, b: Aabb2D<T>) -> Aabb2D<T> {
-    Aabb2D {
-        min_x: min_t(a.min_x, b.min_x),
-        min_y: min_t(a.min_y, b.min_y),
-        max_x: max_t(a.max_x, b.max_x),
-        max_y: max_t(a.max_y, b.max_y),
-    }
 }

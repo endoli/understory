@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use crate::backend::Backend;
-use crate::types::{Aabb2D, Scalar, area, union_aabb};
+use crate::types::{Aabb2D, Scalar};
 
 /// A simple BVH backend using SAH-like splits.
 pub struct Bvh<T: Scalar> {
@@ -70,7 +70,7 @@ impl<T: Scalar> Bvh<T> {
         if let Some((_, b)) = it.next() {
             let mut acc = *b;
             for (_, bb) in it {
-                acc = union_aabb(acc, *bb);
+                acc = acc.union(*bb);
             }
             acc
         } else {
@@ -109,7 +109,7 @@ impl<T: Scalar> Bvh<T> {
                     prefix.push(*bb);
                 } else {
                     let prev = *prefix.last().unwrap();
-                    prefix.push(union_aabb(prev, *bb));
+                    prefix.push(prev.union(*bb));
                 }
             }
             let mut suffix: Vec<Aabb2D<T>> = Vec::with_capacity(n);
@@ -118,7 +118,7 @@ impl<T: Scalar> Bvh<T> {
                     suffix.push(*bb);
                 } else {
                     let prev = *suffix.last().unwrap();
-                    suffix.push(union_aabb(*bb, prev));
+                    suffix.push(prev.union(*bb));
                 }
             }
             suffix.reverse();
@@ -126,7 +126,7 @@ impl<T: Scalar> Bvh<T> {
             for k in min_children..=(n - min_children) {
                 let lb = prefix[k - 1];
                 let rb = suffix[k];
-                let cost = area(&lb) * T::acc_from_usize(k) + area(&rb) * T::acc_from_usize(n - k);
+                let cost = lb.area() * T::acc_from_usize(k) + rb.area() * T::acc_from_usize(n - k);
                 if best.as_ref().map(|(bc, _, _)| cost < *bc).unwrap_or(true) {
                     let left = items[..k].to_vec();
                     let right = items[k..].to_vec();
@@ -149,7 +149,7 @@ impl<T: Scalar> Bvh<T> {
         match kind {
             Kind::Leaf(mut items) => {
                 items.push((slot, bbox));
-                let mut node_bbox = union_aabb(arena[node_idx].bbox, bbox);
+                let mut node_bbox = arena[node_idx].bbox.union(bbox);
                 let new_kind = if items.len() > max_leaf {
                     let (l, r) = Self::split_sah(items, max_leaf);
                     let l_idx = arena.len();
@@ -162,7 +162,7 @@ impl<T: Scalar> Bvh<T> {
                         bbox: Self::bbox_items(&r),
                         kind: Kind::Leaf(r),
                     });
-                    node_bbox = union_aabb(arena[l_idx].bbox, arena[r_idx].bbox);
+                    node_bbox = arena[l_idx].bbox.union(arena[r_idx].bbox);
                     Kind::Internal {
                         left: NodeIdx::new(l_idx),
                         right: NodeIdx::new(r_idx),
@@ -176,14 +176,14 @@ impl<T: Scalar> Bvh<T> {
             Kind::Internal { left, right } => {
                 let lb = arena[left.get()].bbox;
                 let rb = arena[right.get()].bbox;
-                let cost_l = area(&union_aabb(lb, bbox)) - area(&lb);
-                let cost_r = area(&union_aabb(rb, bbox)) - area(&rb);
+                let cost_l = lb.union(bbox).area() - lb.area();
+                let cost_r = rb.union(bbox).area() - rb.area();
                 if cost_l <= cost_r {
                     Self::insert_node(arena, left.get(), slot, bbox, max_leaf);
                 } else {
                     Self::insert_node(arena, right.get(), slot, bbox, max_leaf);
                 }
-                let node_bbox = union_aabb(arena[node_idx].bbox, bbox);
+                let node_bbox = arena[node_idx].bbox.union(bbox);
                 arena[node_idx].kind = Kind::Internal { left, right };
                 arena[node_idx].bbox = node_bbox;
             }
@@ -229,11 +229,11 @@ impl<T: Scalar> Bvh<T> {
                         let bbox = arena[left.get()].bbox;
                         (kind, bbox, true)
                     } else {
-                        let bbox = union_aabb(arena[left.get()].bbox, arena[right.get()].bbox);
+                        let bbox = arena[left.get()].bbox.union(arena[right.get()].bbox);
                         (Kind::Internal { left, right }, bbox, true)
                     }
                 } else {
-                    let bbox = union_aabb(arena[left.get()].bbox, arena[right.get()].bbox);
+                    let bbox = arena[left.get()].bbox.union(arena[right.get()].bbox);
                     (Kind::Internal { left, right }, bbox, false)
                 }
             }

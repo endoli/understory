@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use crate::backend::Backend;
-use crate::types::{Aabb2D, Scalar, area, union_aabb};
+use crate::types::{Aabb2D, Scalar};
 use crate::util::isqrt_ceil;
 
 /// R-tree backend using SAH-like splits and widened accumulator metrics.
@@ -243,14 +243,14 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
             None => Aabb2D::new(T::zero(), T::zero(), T::zero(), T::zero()),
         };
         it.fold(first, |acc, c| match c {
-            RChild::Node(i) => union_aabb(acc, arena[i.get()].bbox),
-            RChild::Item { bbox, .. } => union_aabb(acc, *bbox),
+            RChild::Node(i) => acc.union(arena[i.get()].bbox),
+            RChild::Item { bbox, .. } => acc.union(*bbox),
         })
     }
 
     fn enlarge_cost(a: &Aabb2D<T>, b: &Aabb2D<T>) -> T::Acc {
-        let u = union_aabb(*a, *b);
-        area(&u) - area(a)
+        let u = a.union(*b);
+        u.area() - a.area()
     }
 
     fn choose_child(arena: &[RNode<T, P>], children: &[RChild<T, P>], bbox: &Aabb2D<T>) -> usize {
@@ -313,7 +313,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
                     prefix.push(bb);
                 } else {
                     let prev = *prefix.last().unwrap();
-                    prefix.push(union_aabb(prev, bb));
+                    prefix.push(prev.union(bb));
                 }
             }
             let mut suffix: Vec<Aabb2D<T>> = Vec::with_capacity(n);
@@ -323,7 +323,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
                     suffix.push(bb);
                 } else {
                     let prev = *suffix.last().unwrap();
-                    suffix.push(union_aabb(bb, prev));
+                    suffix.push(prev.union(bb));
                 }
             }
             suffix.reverse();
@@ -331,7 +331,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
             for k in min_children..=(n - min_children) {
                 let lb = prefix[k - 1];
                 let rb = suffix[k];
-                let c = area(&lb) * T::acc_from_usize(k) + area(&rb) * T::acc_from_usize(n - k);
+                let c = lb.area() * T::acc_from_usize(k) + rb.area() * T::acc_from_usize(n - k);
                 if best.as_ref().map(|(bc, _, _)| c < *bc).unwrap_or(true) {
                     let left = v[..k].to_vec();
                     let right = v[k..].to_vec();
@@ -360,7 +360,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
                     bbox,
                     _p: core::marker::PhantomData,
                 });
-                node.bbox = union_aabb(node.bbox, bbox);
+                node.bbox = node.bbox.union(bbox);
                 if node.children.len() <= max_children {
                     return None;
                 }
@@ -411,7 +411,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
                 RChild::Item { .. } => None,
             };
             // update node bbox
-            arena[node_idx].bbox = union_aabb(arena[node_idx].bbox, bbox);
+            arena[node_idx].bbox = arena[node_idx].bbox.union(bbox);
             if let Some(new_right_idx) = split {
                 // Insert new right sibling and handle possible overflow
                 arena[node_idx]
@@ -518,7 +518,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         old: Aabb2D<T>,
         new: Aabb2D<T>,
     ) -> bool {
-        let interest = union_aabb(old, new);
+        let interest = old.union(new);
         if arena[node_idx].bbox.intersect(&interest).is_empty() {
             return false;
         }
@@ -598,7 +598,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
                     // Create a new root combining old root and new right child
                     let left_bb = self.arena[root_idx.get()].bbox;
                     let right_bb = self.arena[right_idx].bbox;
-                    let new_bb = union_aabb(left_bb, right_bb);
+                    let new_bb = left_bb.union(right_bb);
                     let children = vec![
                         RChild::Node(root_idx),
                         RChild::Node(NodeIdx::new(right_idx)),

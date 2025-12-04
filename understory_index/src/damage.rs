@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use crate::types::{Aabb2D, union_aabb};
+use crate::types::Aabb2D;
 
 /// Batched damage summary returned by [`Index::commit`](crate::Index::commit).
 #[derive(Clone, Debug)]
@@ -43,6 +43,6 @@ impl<T: Copy + PartialOrd> Damage<T> {
             .chain(self.removed.iter().copied())
             .chain(self.moved.iter().flat_map(|(a, b)| [*a, *b]));
         let first = it.next()?;
-        Some(it.fold(first, |acc, r| union_aabb(acc, r)))
+        Some(it.fold(first, |acc, r| acc.union(r)))
     }
 }
