@@ -103,7 +103,7 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
     /// Return true if the AABB is empty or inverted (no area). Assumes no NaN.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.max_x < self.min_x || self.max_y < self.min_y
+        self.max_x <= self.min_x || self.max_y <= self.min_y
     }
 }
 
@@ -296,5 +296,29 @@ pub(crate) fn max_t<T: PartialOrd + Copy>(a: T, b: T) -> T {
     match a.partial_cmp(&b) {
         Some(Ordering::Less) => b,
         _ => a,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Aabb2D;
+
+    #[test]
+    fn aabb_area_and_empty() {
+        const EPSILON: f64 = 1e-4;
+
+        let mut aabb = Aabb2D::<f64>::new(5., 7., 10., 9.);
+        assert!((aabb.area() - 5. * 2.).abs() < EPSILON);
+        assert!(!aabb.is_empty());
+
+        // "negative" AABBs are considered empty (and get zero area)
+        aabb.max_x = -aabb.max_x;
+        assert!(aabb.area() < EPSILON);
+        assert!(aabb.is_empty());
+
+        // zero-area AABBs are considered empty
+        aabb.max_x = aabb.min_x;
+        assert!(aabb.area() < EPSILON);
+        assert!(aabb.is_empty());
     }
 }
