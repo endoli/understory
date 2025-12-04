@@ -292,17 +292,16 @@ impl<T: Scalar> Backend<T> for Bvh<T> {
         let Some(root_idx) = self.root else {
             return;
         };
-        let p = Aabb2D::new(x, y, x, y);
         let mut stack = vec![root_idx];
         while let Some(i) = stack.pop() {
             let n = &self.arena[i.get()];
-            if n.bbox.intersect(&p).is_empty() {
+            if !n.bbox.contains_point(x, y) {
                 continue;
             }
             match &n.kind {
                 Kind::Leaf(items) => {
                     for (s, b) in items {
-                        if !b.intersect(&p).is_empty() {
+                        if b.contains_point(x, y) {
                             f(*s);
                         }
                     }

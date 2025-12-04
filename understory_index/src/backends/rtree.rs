@@ -651,17 +651,16 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
         let Some(root_idx) = self.root else {
             return;
         };
-        let p = Aabb2D::new(x, y, x, y);
         let mut stack = vec![root_idx];
         while let Some(i) = stack.pop() {
             let n = &self.arena[i.get()];
-            if n.bbox.intersect(&p).is_empty() {
+            if !n.bbox.contains_point(x, y) {
                 continue;
             }
             if n.leaf {
                 for c in &n.children {
                     if let RChild::Item { slot, bbox, .. } = c
-                        && !bbox.intersect(&p).is_empty()
+                        && bbox.contains_point(x, y)
                     {
                         f(*slot);
                     }
