@@ -40,6 +40,11 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
     }
 
     /// The intersection of two AABBs.
+    ///
+    /// If you want to determine whether two rectangles intersect, use the [`Self::overlaps`]
+    /// method instead.
+    ///
+    /// The resulting bounding box has zero area if there is no overlap.
     #[inline]
     pub fn intersect(&self, other: &Self) -> Self {
         let min_x = max_t(self.min_x, other.min_x);
@@ -49,8 +54,8 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
         Self {
             min_x,
             min_y,
-            max_x,
-            max_y,
+            max_x: max_t(min_x, max_x),
+            max_y: max_t(min_y, max_y),
         }
     }
 
