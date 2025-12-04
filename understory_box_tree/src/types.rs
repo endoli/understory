@@ -46,22 +46,25 @@ pub enum ClipBehavior {
 /// - The generation increments on slot reuse and never decreases.
 /// - `u32` is ample for practical lifetimes; behavior on generation overflow is unspecified.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct NodeId(u32, u32);
+pub struct NodeId {
+    idx: u32,
+    generation: u32,
+}
 
 impl NodeId {
     #[inline(always)]
     pub(crate) const fn new(idx: u32, generation: u32) -> Self {
-        Self(idx, generation)
+        Self { idx, generation }
     }
 
     #[inline(always)]
     pub(crate) const fn idx(self) -> usize {
-        self.0 as usize
+        self.idx as usize
     }
 
     #[inline(always)]
     pub(crate) const fn generation(self) -> u32 {
-        self.1
+        self.generation
     }
 }
 
