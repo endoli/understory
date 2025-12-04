@@ -122,8 +122,8 @@ impl<T: Scalar> Aabb2D<T> {
     /// Compute the area of an AABB using the scalar's widened accumulator type.
     #[inline]
     pub fn area(&self) -> T::Acc {
-        let w = T::max_zero(T::sub(self.max_x, self.min_x));
-        let h = T::max_zero(T::sub(self.max_y, self.min_y));
+        let w = T::max(T::sub(self.max_x, self.min_x), T::zero());
+        let h = T::max(T::sub(self.max_y, self.min_y), T::zero());
         T::widen(w) * T::widen(h)
     }
 }
@@ -151,8 +151,11 @@ pub trait Scalar: Copy + PartialOrd + Debug {
     /// Zero value for the scalar type.
     fn zero() -> Self;
 
-    /// Max of the scalar value and zero.
-    fn max_zero(v: Self) -> Self;
+    /// Max of the two scalar values.
+    fn max(a: Self, b: Self) -> Self;
+
+    /// Min of the two scalar values.
+    fn min(a: Self, b: Self) -> Self;
 
     /// Midpoint between a and b (used for centroid ordering).
     fn mid(a: Self, b: Self) -> Self;
@@ -183,8 +186,13 @@ impl Scalar for f32 {
     }
 
     #[inline]
-    fn max_zero(v: Self) -> Self {
-        v.max(0.0)
+    fn max(a: Self, b: Self) -> Self {
+        Self::max(a, b)
+    }
+
+    #[inline]
+    fn min(a: Self, b: Self) -> Self {
+        Self::min(a, b)
     }
 
     #[inline]
@@ -222,8 +230,13 @@ impl Scalar for f64 {
     }
 
     #[inline]
-    fn max_zero(v: Self) -> Self {
-        v.max(0.0)
+    fn max(a: Self, b: Self) -> Self {
+        Self::max(a, b)
+    }
+
+    #[inline]
+    fn min(a: Self, b: Self) -> Self {
+        Self::min(a, b)
     }
 
     #[inline]
@@ -261,8 +274,13 @@ impl Scalar for i64 {
     }
 
     #[inline]
-    fn max_zero(v: Self) -> Self {
-        v.max(0)
+    fn max(a: Self, b: Self) -> Self {
+        core::cmp::max(a, b)
+    }
+
+    #[inline]
+    fn min(a: Self, b: Self) -> Self {
+        core::cmp::min(a, b)
     }
 
     #[inline]
