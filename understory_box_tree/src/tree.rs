@@ -494,7 +494,11 @@ impl<B: Backend<f64>> Tree<B> {
         })
     }
 
-    /// Iterate live nodes whose world-space bounds intersect a world-space rect.
+    /// Iterate live nodes whose world-space bounds intersect a world-space rectangle.
+    ///
+    /// Note that the edges of the rectangle and bounding boxes are included in the intersection,
+    /// meaning that a rectangle and bounding box that share (part of) an edge are considered to
+    /// overlap.
     ///
     /// - `rect` is interpreted in world coordinates.
     /// - Nodes must satisfy the [`QueryFilter`] and have a non-empty intersection
