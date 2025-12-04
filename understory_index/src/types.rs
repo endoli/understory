@@ -36,7 +36,7 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
     /// Whether this AABB contains the point.
     #[inline]
     pub fn contains_point(&self, x: T, y: T) -> bool {
-        le(self.min_x, x) && le(self.min_y, y) && le(x, self.max_x) && le(y, self.max_y)
+        self.min_x <= x && self.min_y <= y && x <= self.max_x && y <= self.max_y
     }
 
     /// The intersection of two AABBs.
@@ -68,7 +68,7 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
     /// Return true if the AABB is empty or inverted (no area). Assumes no NaN.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        lt(self.max_x, self.min_x) || lt(self.max_y, self.min_y)
+        self.max_x < self.min_x || self.max_y < self.min_y
     }
 }
 
@@ -262,15 +262,4 @@ pub(crate) fn max_t<T: PartialOrd + Copy>(a: T, b: T) -> T {
         Some(Ordering::Less) => b,
         _ => a,
     }
-}
-
-pub(crate) fn le<T: PartialOrd>(a: T, b: T) -> bool {
-    a.partial_cmp(&b)
-        .map(|o| o != Ordering::Greater)
-        .unwrap_or(false)
-}
-pub(crate) fn lt<T: PartialOrd>(a: T, b: T) -> bool {
-    a.partial_cmp(&b)
-        .map(|o| o == Ordering::Less)
-        .unwrap_or(false)
 }
