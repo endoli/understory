@@ -9,13 +9,13 @@ use core::fmt::Debug;
 /// Axis-aligned bounding box in 2D.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Aabb2D<T> {
-    /// Minimum x (left)
+    /// Minimum x (left in X-right spaces)
     pub min_x: T,
-    /// Minimum y (top)
+    /// Minimum y (top in Y-down spaces)
     pub min_y: T,
-    /// Maximum x (right)
+    /// Maximum x (right in X-right spaces)
     pub max_x: T,
-    /// Maximum y (bottom)
+    /// Maximum y (bottom in Y-down spaces)
     pub max_y: T,
 }
 
