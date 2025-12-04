@@ -81,18 +81,50 @@ impl Default for NodeFlags {
 /// Local geometry for a node.
 #[derive(Clone, Debug)]
 pub struct LocalNode {
-    /// Local (untransformed) bounds. For non-axis-aligned content, use a conservative AABB.
+    /// Local (untransformed) bounds for this node's own content.
+    ///
+    /// - Expressed in the node's local coordinate space, before `local_transform`.
+    /// - Used to derive the node's world-space AABB for spatial indexing and hit-testing.
+    /// - Children are **not** constrained by their parent's `local_bounds`; their bounds are
+    ///   computed independently from their own `LocalNode`.
+    ///
+    /// For non-axis-aligned content, use a loose AABB that fully contains what is drawn; it may be
+    /// larger than the tight bounding box.
     pub local_bounds: Rect,
-    /// Local transform relative to parent space.
+    /// Local transform from this node's coordinate space into its parent's.
+    ///
+    /// - Combined with ancestor transforms to produce `world_transform`.
+    /// - Applied to both `local_bounds` and `local_clip` when computing world-space data.
+    /// - Order is ancestors * local: the local transform is applied before the ancestor
+    ///   transforms to calculate the world transform (`world_transform = ancestors * local`).
     pub local_transform: Affine,
-    /// Optional local clip (rounded-rect). AABB is used for spatial indexing; precise hit test is best-effort.
+    /// Optional local clip (rounded-rect) applied to this node and its subtree.
+    ///
+    /// - Expressed in the node's local coordinate space and transformed into world space.
+    /// - Combined with any ancestor clip to form an inherited `world_clip`.
+    /// - The node's world-space AABB is intersected with this clip for spatial indexing.
+    ///
+    /// Intuitively:
+    /// - Points outside `local_bounds` may still hit children.
+    /// - Points outside `local_clip` (once transformed) cannot hit this node or any descendant.
+    ///   Backends may still apply more precise clipping during rendering.
     pub local_clip: Option<RoundedRect>,
     /// How to compose local and ancestor clips for this node (defaults to [`ClipBehavior::PreferLocal`],
     /// which falls back to the parent clip when no local clip is set).
     pub clip_behavior: ClipBehavior,
-    /// Z-order within parent stacking context. Higher is drawn on top.
+    /// Z-order within the parent stacking context.
+    ///
+    /// - Higher values are drawn on top of siblings with lower values.
+    /// - Hit testing also compares `z_index` across different parents when nodes overlap;
+    ///   depth in the tree and insertion order are used as secondary tie-breakers.
     pub z_index: i32,
-    /// Visibility and picking flags.
+    /// Visibility and interaction flags.
+    ///
+    /// - [`NodeFlags::VISIBLE`] controls participation in visibility queries and hit testing.
+    /// - [`NodeFlags::PICKABLE`] is consulted by hit testing.
+    /// - [`NodeFlags::FOCUSABLE`] is consulted by focus/navigation layers.
+    ///
+    /// Flags do not affect layout; they only influence queries and higher-level behavior.
     pub flags: NodeFlags,
 }
 
