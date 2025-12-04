@@ -119,6 +119,9 @@ pub trait Scalar: Copy + PartialOrd + Debug {
     /// Max of the two scalar values.
     fn max(a: Self, b: Self) -> Self;
 
+    /// Min of the two scalar values.
+    fn min(a: Self, b: Self) -> Self;
+
     /// Midpoint between a and b (used for centroid ordering).
     fn mid(a: Self, b: Self) -> Self;
 
@@ -150,6 +153,11 @@ impl Scalar for f32 {
     #[inline]
     fn max(a: Self, b: Self) -> Self {
         Self::max(a, b)
+    }
+
+    #[inline]
+    fn min(a: Self, b: Self) -> Self {
+        Self::min(a, b)
     }
 
     #[inline]
@@ -192,6 +200,11 @@ impl Scalar for f64 {
     }
 
     #[inline]
+    fn min(a: Self, b: Self) -> Self {
+        Self::min(a, b)
+    }
+
+    #[inline]
     fn mid(a: Self, b: Self) -> Self {
         0.5 * (a + b)
     }
@@ -228,6 +241,11 @@ impl Scalar for i64 {
     #[inline]
     fn max(a: Self, b: Self) -> Self {
         core::cmp::max(a, b)
+    }
+
+    #[inline]
+    fn min(a: Self, b: Self) -> Self {
+        core::cmp::min(a, b)
     }
 
     #[inline]
