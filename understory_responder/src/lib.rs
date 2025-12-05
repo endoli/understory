@@ -47,6 +47,9 @@
 //! 3) Hover — derive the path from the dispatch via [`path_from_dispatch`](crate::hover::path_from_dispatch)
 //!    and feed it to [`HoverState`](crate::hover::HoverState). `HoverState` emits leave (inner→outer)
 //!    and enter (outer→inner) events for the minimal transition between old and new paths.
+//! 4) Click — use [`ClickState`](crate::click::ClickState) to determine when pointer up events
+//!    should generate click events. Handles cases where elements transform between down and up,
+//!    applying configurable spatial and temporal tolerance to preserve user intent.
 //!
 //! ## Focus
 //!
@@ -97,6 +100,7 @@
 extern crate alloc;
 
 pub mod adapters;
+pub mod click;
 pub mod dispatcher;
 pub mod focus;
 pub mod hover;
