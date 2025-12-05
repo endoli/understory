@@ -60,7 +60,7 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
     /// // These edge semantics also mean a point can be contained in a zero-area
     /// // "point"-AABB (or "line"-AABB).
     /// let aabb = Aabb2D::new(5.0, 12.0, 5.0, 12.0);
-    /// assert!(aabb.is_empty());
+    /// assert!(aabb.is_zero_area());
     /// assert!(aabb.contains_point(5.0, 12.0));
     /// ```
     #[inline]
@@ -134,10 +134,10 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
         }
     }
 
-    /// Return true if the AABB is empty or inverted (no area). Assumes no NaN.
+    /// Return `true` if the AABB has exactly zero area. Assumes no NaN.
     #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.max_x <= self.min_x || self.max_y <= self.min_y
+    pub fn is_zero_area(&self) -> bool {
+        self.max_x == self.min_x || self.max_y == self.min_y
     }
 }
 
@@ -154,10 +154,13 @@ impl<T: Scalar> Aabb2D<T> {
     }
 
     /// Compute the area of an AABB using the scalar's widened accumulator type.
+    ///
+    /// This will be negative for AABBs with one inverted axis (`max_x < min_x` xor
+    /// `max_y < min_y`). It is positive otherwise.
     #[inline]
     pub fn area(&self) -> T::Acc {
-        let w = T::max(T::sub(self.max_x, self.min_x), T::zero());
-        let h = T::max(T::sub(self.max_y, self.min_y), T::zero());
+        let w = T::sub(self.max_x, self.min_x);
+        let h = T::sub(self.max_y, self.min_y);
         T::widen(w) * T::widen(h)
     }
 }
@@ -356,21 +359,21 @@ mod tests {
     use super::Aabb2D;
 
     #[test]
-    fn aabb_area_and_empty() {
+    fn aabb_area() {
         const EPSILON: f64 = 1e-10;
 
         let mut aabb = Aabb2D::<f64>::new(5., 7., 10., 9.);
         assert!((aabb.area() - 5. * 2.).abs() < EPSILON);
-        assert!(!aabb.is_empty());
+        assert!(!aabb.is_zero_area());
 
-        // "negative" AABBs are considered empty (and get zero area)
+        // "negative" AABBs get negative area
         aabb.max_x = -aabb.max_x;
-        assert!(aabb.area() < EPSILON);
-        assert!(aabb.is_empty());
+        assert!((aabb.area() - -15. * 2.).abs() < EPSILON);
+        assert!(!aabb.is_zero_area());
 
         // zero-area AABBs are considered empty
         aabb.max_x = aabb.min_x;
         assert!(aabb.area() < EPSILON);
-        assert!(aabb.is_empty());
+        assert!(aabb.is_zero_area());
     }
 }
