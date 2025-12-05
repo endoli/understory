@@ -225,9 +225,9 @@ jobs:
           save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: install wasmtime runner
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wasmtime
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: "latest"
 
       - name: cargo test (wasip1)
         run: cargo test --workspace --locked --all-features --target wasm32-wasip1 --no-fail-fast
