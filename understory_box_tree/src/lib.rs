@@ -42,8 +42,11 @@
 //! clips: we store an axis-aligned box that fully contains what is drawn, but it is not
 //! guaranteed to be tight.
 //!
-//! See [`understory_index::Index`], [`understory_index::RTreeF32`]/[`understory_index::RTreeF64`]/[`understory_index::RTreeI64`], and
-//! [`understory_index::BvhF32`]/[`understory_index::BvhF64`]/[`understory_index::BvhI64`] for details.
+//! See [`understory_index::Index`],
+//! [`understory_index::backends::RTreeF32`]/[`understory_index::backends::RTreeF64`]/[`understory_index::backends::RTreeI64`],
+//! and
+//! [`understory_index::backends::BvhF32`]/[`understory_index::backends::BvhF64`]/[`understory_index::backends::BvhI64`]
+//! for details.
 //!
 //! ## API overview
 //!

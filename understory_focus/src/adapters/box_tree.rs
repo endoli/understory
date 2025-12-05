@@ -90,7 +90,7 @@ pub fn build_focus_space_for_scope<'a, B, P>(
     out: &'a mut Vec<FocusEntry<NodeId>>,
 ) -> FocusSpace<'a, NodeId>
 where
-    B: understory_index::backend::Backend<f64>,
+    B: understory_index::Backend<f64>,
     P: FocusPropsLookup<NodeId>,
 {
     out.clear();

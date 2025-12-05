@@ -75,20 +75,17 @@
 
 extern crate alloc;
 
-pub mod backend;
+mod backend;
 pub mod backends;
-pub mod damage;
-pub mod index;
-pub mod types;
+mod damage;
+mod index;
+mod types;
 pub(crate) mod util;
 
 pub use backend::Backend;
-pub use backends::bvh::{BvhF32, BvhF64, BvhI64};
-pub use backends::flatvec::FlatVec;
-pub use backends::rtree::{RTreeF32, RTreeF64, RTreeI64};
 pub use damage::Damage;
 pub use index::{Index, IndexGeneric, Key};
-pub use types::Aabb2D;
+pub use types::{Aabb2D, Scalar, ScalarAcc};
 
 #[cfg(test)]
 mod tests {

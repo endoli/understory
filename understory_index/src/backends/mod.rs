@@ -19,6 +19,10 @@
 //! Accumulators are widened (`f32`→`f64`, `f64`→`f64`, `i64`→`i128`) for robust comparisons.
 //! Bulk builders use an STR-like pass to seed packed leaves and parents.
 
-pub mod bvh;
-pub mod flatvec;
-pub mod rtree;
+pub(crate) mod bvh;
+pub(crate) mod flatvec;
+pub(crate) mod rtree;
+
+pub use bvh::{Bvh, BvhF32, BvhF64, BvhI64};
+pub use flatvec::FlatVec;
+pub use rtree::{RTree, RTreeF32, RTreeF64, RTreeI64};

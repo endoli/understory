@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 use kurbo::{Affine, Point, Rect, RoundedRect};
-use understory_index::{Aabb2D, Backend, FlatVec, IndexGeneric, Key as AabbKey};
+use understory_index::{Aabb2D, Backend, IndexGeneric, Key as AabbKey, backends::FlatVec};
 
 use crate::damage::Damage;
 use crate::types::{ClipBehavior, LocalNode, NodeFlags, NodeId};
@@ -1112,7 +1112,7 @@ mod tests {
 
     #[test]
     fn test_rtree_backend() {
-        use understory_index::RTreeF64;
+        use understory_index::backends::RTreeF64;
 
         // Use an R-tree backend and verify basic hit-testing still works.
         let mut tree: Tree<RTreeF64<NodeId>> = Tree::with_backend(RTreeF64::<NodeId>::default());
@@ -1130,7 +1130,7 @@ mod tests {
 
     #[test]
     fn test_bvh_backend() {
-        use understory_index::BvhF64;
+        use understory_index::backends::BvhF64;
 
         // Use a BVH backend and verify basic hit-testing still works.
         let mut tree: Tree<BvhF64> = Tree::with_backend(BvhF64::default());
