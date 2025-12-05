@@ -43,7 +43,7 @@
 
 use hashbrown::HashMap;
 
-use kurbo::Rect;
+use kurbo::{Affine, Rect};
 use taffy::{Layout, NodeId as TaffyNode, TaffyError, TaffyTree};
 use understory_box_tree::{Damage, LocalNode, NodeId, Tree};
 use understory_index::{Backend, FlatVec};
@@ -243,10 +243,14 @@ impl TaffyBoxMap {
     ///
     /// - Assumes the caller has already run `compute_layout` on the Taffy tree for any nodes
     ///   referenced in this mapping.
-    /// - For each attached node, reads its `Layout` from `taffy` and writes
-    ///   the corresponding `local_bounds` into the box tree.
+    /// - For each attached node, reads its `Layout` from `taffy` and writes a size-only
+    ///   `local_bounds` plus a translation `local_transform` into the box tree. Taffy
+    ///   locations are parent-relative; box-tree transforms are cumulative.
     /// - Does *not* call [`Tree::commit`]; callers should commit once after
     ///   all geometry updates are complete.
+    ///
+    /// For more control (for example, to compute additional visual transforms that depend on
+    /// layout), use [`Self::sync_layout_with`] instead.
     pub fn sync_layout<NodeContext, B>(
         &self,
         taffy: &TaffyTree<NodeContext>,
@@ -255,10 +259,42 @@ impl TaffyBoxMap {
     where
         B: Backend<f64>,
     {
+        self.sync_layout_with(taffy, tree, |_, box_node, layout, tree| {
+            // Taffy positions are parent-relative; represent them as a local translation
+            // and keep `local_bounds` anchored at the origin with just the size.
+            let rect = layout_size_rect(layout);
+            tree.set_local_bounds(box_node, rect);
+
+            let dx = f64::from(layout.location.x);
+            let dy = f64::from(layout.location.y);
+            let tf = Affine::translate((dx, dy));
+            tree.set_local_transform(box_node, tf);
+        })
+    }
+
+    /// Advanced: synchronize layout using a custom mapping function.
+    ///
+    /// This variant lets callers compute additional per-node state (for example, visual transforms
+    /// that depend on resolved layout sizes or percentages) while still iterating over the mapping
+    /// once. The closure is invoked for every attached node with:
+    ///
+    /// - The Taffy node ID.
+    /// - The corresponding box-tree node ID.
+    /// - A reference to the node's `Layout` as reported by Taffy.
+    /// - A mutable reference to the box tree.
+    pub fn sync_layout_with<NodeContext, B, F>(
+        &self,
+        taffy: &TaffyTree<NodeContext>,
+        tree: &mut Tree<B>,
+        mut apply: F,
+    ) -> Result<(), TaffyError>
+    where
+        B: Backend<f64>,
+        F: FnMut(TaffyNode, NodeId, &Layout, &mut Tree<B>),
+    {
         for (taffy_node, box_node) in &self.map {
             let layout = taffy.layout(*taffy_node)?;
-            let rect = layout_to_rect(layout);
-            tree.set_local_bounds(*box_node, rect);
+            apply(*taffy_node, *box_node, layout, tree);
         }
         Ok(())
     }
@@ -403,6 +439,16 @@ pub fn layout_to_rect(layout: &Layout) -> Rect {
     let x1 = x0 + layout.size.width;
     let y1 = y0 + layout.size.height;
     Rect::new(f64::from(x0), f64::from(y0), f64::from(x1), f64::from(y1))
+}
+
+/// Convert a Taffy layout into a size-only `Rect` anchored at the origin.
+///
+/// This is useful when representing layout as `local_bounds` plus a separate transform:
+/// the rect carries only width/height, and the layout location becomes a translation.
+fn layout_size_rect(layout: &Layout) -> Rect {
+    let w = f64::from(layout.size.width);
+    let h = f64::from(layout.size.height);
+    Rect::new(0.0, 0.0, w, h)
 }
 
 #[cfg(test)]
