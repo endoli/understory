@@ -34,6 +34,35 @@ impl<T> Aabb2D<T> {
 
 impl<T: Copy + PartialOrd> Aabb2D<T> {
     /// Whether this AABB contains the point.
+    ///
+    /// This is inclusive of all the AABB's edges, meaning if the point is exactly on the edge of
+    /// this AABB, it is considered to be contained.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use understory_index::Aabb2D;
+    ///
+    /// let aabb = Aabb2D::new(0.0, 0.0, 10.0, 10.0);
+    ///
+    /// // A point strictly inside is contained.
+    /// assert!(aabb.contains_point(5.0, 4.0));
+    ///
+    /// // A point exactly on one of the edges is contained.
+    /// assert!(aabb.contains_point(0.0, 4.0));
+    ///
+    /// // A point exactly on a corner is contained.
+    /// assert!(aabb.contains_point(0.0, 1.0));
+    ///
+    /// // A point strictly outside is not contained.
+    /// assert!(!aabb.contains_point(0.0, 11.0));
+    ///
+    /// // These edge semantics also mean a point can be contained in a zero-area
+    /// // "point"-AABB (or "line"-AABB).
+    /// let aabb = Aabb2D::new(5.0, 12.0, 5.0, 12.0);
+    /// assert!(aabb.is_empty());
+    /// assert!(aabb.contains_point(5.0, 12.0));
+    /// ```
     #[inline]
     pub fn contains_point(&self, x: T, y: T) -> bool {
         self.min_x <= x && self.min_y <= y && x <= self.max_x && y <= self.max_y
