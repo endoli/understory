@@ -18,7 +18,9 @@ pub struct RTree<T: Scalar, P: Copy + Debug> {
     min_children: usize,
     root: Option<NodeIdx>,
     arena: Vec<RNode<T, P>>,
-    child_indices_arena: Vec<NodeIdx>,
+    /// Scratch buffer reused by recursive helpers (e.g. update/remove) to hold child node indices;
+    /// only its capacity matters across calls, contents are transient and truncated on each use.
+    child_indices_scratch: Vec<NodeIdx>,
     slots: Vec<Option<Aabb2D<T>>>,
 }
 
@@ -59,7 +61,7 @@ impl<T: Scalar, P: Copy + Debug> Default for RTree<T, P> {
             min_children: 4,
             root: None,
             arena: Vec::new(),
-            child_indices_arena: Vec::new(),
+            child_indices_scratch: Vec::new(),
             slots: Vec::new(),
         }
     }
@@ -220,7 +222,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         let max_children = 8; // default matches Self::default
         let mut items = pairs.to_vec();
         let mut arena: Vec<RNode<T, P>> = Vec::new();
-        let child_indices_arena: Vec<NodeIdx> = Vec::new();
+        let child_indices_scratch: Vec<NodeIdx> = Vec::new();
         let root = Self::bulk_build_nodes(&mut arena, &mut items[..], max_children);
         let mut slots: Vec<Option<Aabb2D<T>>> = Vec::new();
         for (slot, bbox) in pairs.iter().copied() {
@@ -234,7 +236,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
             min_children: 4,
             root,
             arena,
-            child_indices_arena,
+            child_indices_scratch,
             slots,
         }
     }
@@ -453,7 +455,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
 
     fn search_remove(
         arena: &mut Vec<RNode<T, P>>,
-        child_indices_arena: &mut Vec<NodeIdx>,
+        child_indices_scratch: &mut Vec<NodeIdx>,
         node_idx: usize,
         slot: usize,
         old: &Aabb2D<T>,
@@ -476,22 +478,22 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
             false
         } else {
             let mut removed = false;
-            let start = child_indices_arena.len();
+            let start = child_indices_scratch.len();
             // Recurse into child nodes
-            child_indices_arena.extend(arena[node_idx].children.iter().filter_map(|c| {
+            child_indices_scratch.extend(arena[node_idx].children.iter().filter_map(|c| {
                 if let RChild::Node(i) = c {
                     Some(*i)
                 } else {
                     None
                 }
             }));
-            for ci in start..child_indices_arena.len() {
-                let ci = child_indices_arena[ci];
-                if Self::search_remove(arena, child_indices_arena, ci.get(), slot, old) {
+            for ci in start..child_indices_scratch.len() {
+                let ci = child_indices_scratch[ci];
+                if Self::search_remove(arena, child_indices_scratch, ci.get(), slot, old) {
                     removed = true;
                 }
             }
-            child_indices_arena.truncate(start);
+            child_indices_scratch.truncate(start);
             if removed {
                 let new_children = {
                     let old_children = core::mem::take(&mut arena[node_idx].children);
@@ -517,7 +519,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
     /// Returns true if the item was found and updated; recomputes ancestor bboxes on the path.
     fn update_in_place(
         arena: &mut Vec<RNode<T, P>>,
-        child_indices_arena: &mut Vec<NodeIdx>,
+        child_indices_scratch: &mut Vec<NodeIdx>,
         node_idx: usize,
         slot: usize,
         old: Aabb2D<T>,
@@ -544,8 +546,8 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
             }
             found
         } else {
-            let start = child_indices_arena.len();
-            child_indices_arena.extend(arena[node_idx].children.iter().filter_map(|c| {
+            let start = child_indices_scratch.len();
+            child_indices_scratch.extend(arena[node_idx].children.iter().filter_map(|c| {
                 if let RChild::Node(i) = c {
                     Some(*i)
                 } else {
@@ -553,14 +555,14 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
                 }
             }));
             let mut updated = false;
-            for ci in start..child_indices_arena.len() {
-                let ci = child_indices_arena[ci];
-                if Self::update_in_place(arena, child_indices_arena, ci.get(), slot, old, new) {
+            for ci in start..child_indices_scratch.len() {
+                let ci = child_indices_scratch[ci];
+                if Self::update_in_place(arena, child_indices_scratch, ci.get(), slot, old, new) {
                     updated = true;
                     break;
                 }
             }
-            child_indices_arena.truncate(start);
+            child_indices_scratch.truncate(start);
             if updated {
                 let bb = Self::node_bbox(arena, &arena[node_idx].children);
                 arena[node_idx].bbox = bb;
@@ -625,7 +627,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
         {
             if Self::update_in_place(
                 &mut self.arena,
-                &mut self.child_indices_arena,
+                &mut self.child_indices_scratch,
                 root_idx.get(),
                 slot,
                 old,
@@ -638,7 +640,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
             }
             let _ = Self::search_remove(
                 &mut self.arena,
-                &mut self.child_indices_arena,
+                &mut self.child_indices_scratch,
                 root_idx.get(),
                 slot,
                 &old,
@@ -652,7 +654,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
             if let Some(root_idx) = self.root {
                 let _ = Self::search_remove(
                     &mut self.arena,
-                    &mut self.child_indices_arena,
+                    &mut self.child_indices_scratch,
                     root_idx.get(),
                     slot,
                     &old,
@@ -667,6 +669,7 @@ impl<T: Scalar, P: Copy + Debug> Backend<T> for RTree<T, P> {
     fn clear(&mut self) {
         self.root = None;
         self.arena.clear();
+        self.child_indices_scratch.clear();
         self.slots.clear();
     }
 
