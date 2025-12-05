@@ -496,9 +496,8 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Iterate live nodes whose world-space bounds intersect a world-space rectangle.
     ///
-    /// Note that the edges of the rectangle and bounding boxes are included in the intersection,
-    /// meaning that a rectangle and bounding box that share (part of) an edge are considered to
-    /// overlap.
+    /// Edges of the rectangle and bounding boxes are included in the intersection, meaning that a
+    /// rectangle and bounding box that share (part of) an edge are considered to overlap.
     ///
     /// - `rect` is interpreted in world coordinates.
     /// - Nodes must satisfy the [`QueryFilter`] and have a non-empty intersection
@@ -512,6 +511,31 @@ impl<B: Backend<f64>> Tree<B> {
         let q = rect_to_aabb(rect);
         self.index
             .query_rect(q)
+            .map(|(_, id)| id)
+            .filter(move |id| {
+                let Some(node) = self.nodes[id.idx()].as_ref() else {
+                    return false;
+                };
+                filter.matches(node.local.flags)
+            })
+    }
+
+    /// Iterate live nodes whose world-space bounds contain a world-space point.
+    ///
+    /// Edges of the bounding boxes are included in the contains-check, having the same semantics
+    /// as [`Aabb2D::contains_point`], meaning that a point exactly on the edge of a bounding box
+    /// is contained by that bounding box.
+    ///
+    /// - `point` is interpreted in world coordinates.
+    /// - Nodes must satisfy the [`QueryFilter`] and contain the given point to be yielded.
+    /// - The returned [`NodeId`]s are in an unspecified order; no z-sorting is applied.
+    pub fn containing_point<'a>(
+        &'a self,
+        point: Point,
+        filter: QueryFilter,
+    ) -> impl Iterator<Item = NodeId> + 'a {
+        self.index
+            .query_point(point.x, point.y)
             .map(|(_, id)| id)
             .filter(move |id| {
                 let Some(node) = self.nodes[id.idx()].as_ref() else {
@@ -794,6 +818,26 @@ mod tests {
     use alloc::vec;
     use core::f64::consts::FRAC_PI_4;
     use kurbo::Vec2;
+
+    /// Returns whether the two sets of node IDs are equal. The two sets do not need to be ordered.
+    ///
+    /// # Panics
+    ///
+    /// This panics if one of the two sets contains duplicates.
+    #[must_use]
+    fn set_equality(a: &[NodeId], b: &[NodeId]) -> bool {
+        for (idx, node) in a.iter().enumerate() {
+            if a[0..idx].contains(node) || a[idx + 1..].contains(node) {
+                panic!("there are duplicates in set `a`");
+            }
+        }
+        for (idx, node) in b.iter().enumerate() {
+            if b[0..idx].contains(node) || b[idx + 1..].contains(node) {
+                panic!("there are duplicates in set `b`");
+            }
+        }
+        a.len() == b.len() && b.iter().all(|node| a.contains(node))
+    }
 
     #[test]
     fn insert_and_hit_test() {
@@ -1376,7 +1420,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let non_focusable_child = tree.insert(
+        let _non_focusable_child = tree.insert(
             Some(root),
             LocalNode {
                 local_bounds: Rect::new(70.0, 10.0, 120.0, 60.0),
@@ -1406,14 +1450,23 @@ mod tests {
                 QueryFilter::new().visible().pickable().focusable(),
             )
             .collect();
-        assert_eq!(focusable_intersections.len(), 1); // only focusable_child
-        assert!(!focusable_intersections.contains(&root));
-        assert!(focusable_intersections.contains(&focusable_child));
-        assert!(!focusable_intersections.contains(&non_focusable_child));
+        // only `focusable_child`, and not `root` and `non_focusable_child`
+        assert!(set_equality(&focusable_intersections, &[focusable_child]));
+
+        // Test contains_point with focusable_only filter
+        let focusable_containing: Vec<NodeId> = tree
+            .containing_point(
+                Point::new(70., 70.),
+                QueryFilter::new().visible().pickable().focusable(),
+            )
+            .collect();
+        // nothing, as the only focusable child is `focusable_child`, and we're testing a point
+        // outside it
+        assert!(set_equality(&focusable_containing, &[]));
     }
 
     #[test]
-    fn query_filter_pickable_only_intersect_rect() {
+    fn query_filter_pickable_only() {
         let mut tree = Tree::new();
         let root = tree.insert(
             None,
@@ -1448,22 +1501,45 @@ mod tests {
                 QueryFilter::new().visible().pickable(),
             )
             .collect();
-        assert_eq!(pickable_intersections.len(), 2); // root + pickable_child
-        assert!(pickable_intersections.contains(&root));
-        assert!(pickable_intersections.contains(&pickable_child));
-        assert!(!pickable_intersections.contains(&non_pickable_child));
+        // root + pickable_child
+        assert!(set_equality(
+            &pickable_intersections,
+            &[root, pickable_child]
+        ));
 
-        // Test without pickable_only filter - should include all visible nodes
+        // Test contains_point with pickable_only filter
+        let pickable_containing: Vec<NodeId> = tree
+            .containing_point(
+                Point::new(75.0, 10.0),
+                QueryFilter::new().visible().pickable(),
+            )
+            .collect();
+        // root only, because the point is outside `pickable_child`
+        assert!(set_equality(&pickable_containing, &[root]));
+
+        // Test intersect_rect without pickable_only filter - should include all visible nodes
         let all_visible_intersections: Vec<NodeId> = tree
             .intersect_rect(
                 Rect::new(0.0, 0.0, 200.0, 200.0),
                 QueryFilter::new().visible(),
             )
             .collect();
-        assert_eq!(all_visible_intersections.len(), 3); // all nodes
-        assert!(all_visible_intersections.contains(&root));
-        assert!(all_visible_intersections.contains(&pickable_child));
-        assert!(all_visible_intersections.contains(&non_pickable_child));
+        // all nodes
+        assert!(set_equality(
+            &all_visible_intersections,
+            &[root, pickable_child, non_pickable_child]
+        ));
+
+        // Test contains_point without pickable_only filter
+        let all_visible_containing: Vec<NodeId> = tree
+            .containing_point(Point::new(75.0, 10.0), QueryFilter::new().visible())
+            .collect();
+        // `root` and `non_pickable_child` (and note the point is exactly on the top edge of
+        // `non_pickable_child`), the point is outside `pickable_child`
+        assert!(set_equality(
+            &all_visible_containing,
+            &[root, non_pickable_child]
+        ));
     }
 
     #[test]
