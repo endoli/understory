@@ -217,15 +217,22 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_STABLE_VER }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32-wasip1,wasm32-unknown-unknown
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
-      # TODO: Find a way to make tests work. Until then the tests are merely compiled.
-      - name: cargo test compile
+      - name: install wasmtime runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wasmtime
+
+      - name: cargo test (wasip1)
+        run: cargo test --workspace --locked --all-features --target wasm32-wasip1 --no-fail-fast
+
+      - name: cargo test compile (wasm32-unknown-unknown)
         run: cargo test --workspace --locked --target wasm32-unknown-unknown --all-features --no-run
 
   check-msrv:
