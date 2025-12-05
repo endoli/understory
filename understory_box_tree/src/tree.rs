@@ -510,13 +510,15 @@ impl<B: Backend<f64>> Tree<B> {
         filter: QueryFilter,
     ) -> impl Iterator<Item = NodeId> + 'a {
         let q = rect_to_aabb(rect);
-        let ids: Vec<NodeId> = self.index.query_rect(q).map(|(_, id)| id).collect();
-        ids.into_iter().filter(move |id| {
-            let Some(node) = self.nodes[id.idx()].as_ref() else {
-                return false;
-            };
-            filter.matches(node.local.flags)
-        })
+        self.index
+            .query_rect(q)
+            .map(|(_, id)| id)
+            .filter(move |id| {
+                let Some(node) = self.nodes[id.idx()].as_ref() else {
+                    return false;
+                };
+                filter.matches(node.local.flags)
+            })
     }
 }
 
