@@ -74,6 +74,31 @@ impl<T: Copy + PartialOrd> Aabb2D<T> {
     /// method instead.
     ///
     /// The resulting bounding box has zero area if there is no overlap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use understory_index::Aabb2D;
+    ///
+    /// let aabb1 = Aabb2D::new(0., 0., 10., 10.);
+    /// let aabb2 = Aabb2D::new(5., 5., 20., 20.);
+    /// let aabb3 = Aabb2D::new(15., 15., 30., 30.);
+    ///
+    /// // Diagramatically, these bounding boxes encode the following.
+    /// //
+    /// // +---------+                    
+    /// // | 1  +----+---------+          
+    /// // +----+----+         |          
+    /// //      | 2       +----+---------+
+    /// //      +---------+----+         |
+    /// //                | 3            |
+    /// //                +--------------+
+    ///
+    /// let intersection = aabb1.intersect(&aabb2);
+    /// assert_eq!(intersection, Aabb2D::new(5., 5., 10., 10.));
+    /// let intersection = aabb1.intersect(&aabb2).intersect(&aabb3);
+    /// assert!(intersection.is_zero_area());
+    /// ```
     #[inline]
     pub fn intersect(&self, other: &Self) -> Self {
         let min_x = max_t(self.min_x, other.min_x);
