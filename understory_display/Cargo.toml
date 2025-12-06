@@ -1,0 +1,29 @@
+[package]
+name = "understory_display"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Display list (render tree) for Understory: stable ops, diff, and damage integration."
+keywords = ["graphics", "ui", "display-list", "rendering", "understory"]
+categories = ["graphics", "gui", "data-structures"]
+
+[dependencies]
+kurbo.workspace = true
+peniko.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Default to std builds for examples/tests/docs.
+default = ["std"]
+# Forward our `std`/`libm` features to Kurbo/Peniko. With workspace `kurbo`
+# having default-features = false, this fully controls their std/no_std mode.
+std = ["kurbo/std", "peniko/std"]
+libm = ["kurbo/libm", "peniko/libm"]
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = []

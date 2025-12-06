@@ -1,0 +1,17 @@
+[package]
+name = "understory_display_vello"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Vello backend for Understory display lists."
+keywords = ["graphics", "vello", "rendering", "understory"]
+categories = ["graphics", "gui"]
+
+[dependencies]
+kurbo.workspace = true
+understory_display = { path = "../understory_display" }
+vello.workspace = true
+
+[lints]
+workspace = true
