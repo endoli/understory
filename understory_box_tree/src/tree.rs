@@ -94,12 +94,16 @@ pub struct Hit {
 pub struct QueryFilter {
     /// Bitfield of required node flags. Only nodes containing all these flags will be included.
     pub required_flags: NodeFlags,
+    /// If specified, only nodes that are descendants of (or equal to) this root will be included.
+    /// Useful for restricting queries to a specific subtree or container.
+    pub subtree_root: Option<NodeId>,
 }
 
 impl Default for QueryFilter {
     fn default() -> Self {
         Self {
             required_flags: NodeFlags::empty(),
+            subtree_root: None,
         }
     }
 }
@@ -128,9 +132,28 @@ impl QueryFilter {
         self
     }
 
-    /// Check if a node's flags satisfy this filter.
-    pub fn matches(&self, node_flags: NodeFlags) -> bool {
-        node_flags.contains(self.required_flags)
+    /// Filter to only nodes within a specific subtree.
+    pub fn in_subtree(mut self, root: NodeId) -> Self {
+        self.subtree_root = Some(root);
+        self
+    }
+
+    /// Check if a node satisfies this filter.
+    pub fn matches(
+        &self,
+        tree: &Tree<impl Backend<f64>>,
+        node_id: NodeId,
+        node_flags: NodeFlags,
+    ) -> bool {
+        if !node_flags.contains(self.required_flags) {
+            return false;
+        }
+        if let Some(subtree_root) = self.subtree_root
+            && !tree.is_descendant_of(node_id, subtree_root)
+        {
+            return false;
+        }
+        true
     }
 }
 
@@ -462,7 +485,7 @@ impl<B: Backend<f64>> Tree<B> {
             let Some(node) = self.nodes[id.idx()].as_ref() else {
                 continue;
             };
-            if !filter.matches(node.local.flags) {
+            if !filter.matches(self, id, node.local.flags) {
                 continue;
             }
             if node.local.clip_behavior != ClipBehavior::None
@@ -517,7 +540,7 @@ impl<B: Backend<f64>> Tree<B> {
                 let Some(node) = self.nodes[id.idx()].as_ref() else {
                     return false;
                 };
-                filter.matches(node.local.flags)
+                filter.matches(self, *id, node.local.flags)
             })
     }
 }
@@ -574,6 +597,25 @@ impl<B: Backend<f64>> Tree<B> {
             .get(id.idx())
             .and_then(|slot| slot.as_ref())
             .map(|node| node.local.flags)
+    }
+
+    /// Check if a node is a descendant of (or equal to) the specified ancestor.
+    /// Returns false if either node is stale.
+    pub fn is_descendant_of(&self, node: NodeId, ancestor: NodeId) -> bool {
+        if !self.is_alive(node) || !self.is_alive(ancestor) {
+            return false;
+        }
+        if node == ancestor {
+            return true;
+        }
+        let mut current = node;
+        while let Some(parent) = self.parent_of(current) {
+            if parent == ancestor {
+                return true;
+            }
+            current = parent;
+        }
+        false
     }
 
     /// Get the next node in depth-first traversal order.
@@ -1760,5 +1802,86 @@ mod tests {
 
         let prev = tree.prev_depth_first(a).unwrap();
         assert_eq!(prev, root);
+    }
+
+    #[test]
+    fn subtree_filtering_with_query_filter() {
+        let mut tree = Tree::new();
+
+        // Create two separate non-overlapping subtrees
+        let subtree1 = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 40.0, 100.0),
+                flags: NodeFlags::VISIBLE | NodeFlags::PICKABLE,
+                ..Default::default()
+            },
+        );
+        let subtree1_child = tree.insert(
+            Some(subtree1),
+            LocalNode {
+                local_bounds: Rect::new(10.0, 10.0, 30.0, 30.0),
+                flags: NodeFlags::VISIBLE | NodeFlags::PICKABLE,
+                ..Default::default()
+            },
+        );
+
+        let subtree2 = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(60.0, 0.0, 150.0, 100.0),
+                flags: NodeFlags::VISIBLE | NodeFlags::PICKABLE,
+                ..Default::default()
+            },
+        );
+        let subtree2_child = tree.insert(
+            Some(subtree2),
+            LocalNode {
+                local_bounds: Rect::new(70.0, 10.0, 90.0, 30.0),
+                flags: NodeFlags::VISIBLE | NodeFlags::PICKABLE,
+                ..Default::default()
+            },
+        );
+
+        let _ = tree.commit();
+
+        // Test hit testing within first subtree only
+        let hit_subtree1 = tree.hit_test_point(
+            Point::new(20.0, 20.0),
+            QueryFilter::new().visible().pickable().in_subtree(subtree1),
+        );
+        assert_eq!(hit_subtree1.unwrap().node, subtree1_child);
+
+        // Test that hit testing in first subtree doesn't find second subtree nodes
+        let miss_subtree2_from_subtree1 = tree.hit_test_point(
+            Point::new(80.0, 20.0), // Point in second subtree area
+            QueryFilter::new().visible().pickable().in_subtree(subtree1),
+        );
+        assert!(
+            miss_subtree2_from_subtree1.is_none(),
+            "Expected no hit in first subtree at point (80,20), but got: {:?}",
+            miss_subtree2_from_subtree1
+        );
+
+        // Test that global query finds both subtrees
+        let hit_global = tree.hit_test_point(
+            Point::new(80.0, 20.0),
+            QueryFilter::new().visible().pickable(),
+        );
+        assert_eq!(hit_global.unwrap().node, subtree2_child);
+
+        // Test intersect_rect with subtree filtering
+        let subtree1_intersections: Vec<NodeId> = tree
+            .intersect_rect(
+                Rect::new(0.0, 0.0, 200.0, 100.0),
+                QueryFilter::new().visible().pickable().in_subtree(subtree1),
+            )
+            .collect();
+        // Should find both first subtree root and its child
+        assert_eq!(subtree1_intersections.len(), 2);
+        assert!(subtree1_intersections.contains(&subtree1));
+        assert!(subtree1_intersections.contains(&subtree1_child));
+        assert!(!subtree1_intersections.contains(&subtree2));
+        assert!(!subtree1_intersections.contains(&subtree2_child));
     }
 }

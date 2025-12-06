@@ -171,7 +171,7 @@ pub mod navigation {
             return false;
         };
 
-        filter.matches(flags)
+        filter.matches(tree, id, flags)
     }
 
     /// Find the root node of the subtree containing the given node.
@@ -245,9 +245,7 @@ pub mod navigation {
                 },
             );
 
-            let filter = QueryFilter {
-                required_flags: NodeFlags::VISIBLE,
-            };
+            let filter = QueryFilter::new().visible();
 
             // From root, next visible should be b (skipping hidden a)
             let next = next_depth_first_filtered(&tree, root, filter).unwrap();
@@ -300,9 +298,7 @@ pub mod navigation {
                 },
             );
 
-            let filter = QueryFilter {
-                required_flags: NodeFlags::PICKABLE,
-            };
+            let filter = QueryFilter::new().pickable();
 
             // From root, next pickable should be b (skipping non-pickable a)
             let next = next_depth_first_filtered(&tree, root, filter).unwrap();
@@ -335,9 +331,7 @@ pub mod navigation {
                 },
             );
 
-            let filter = QueryFilter {
-                required_flags: NodeFlags::PICKABLE,
-            };
+            let filter = QueryFilter::new().pickable();
 
             // Should return None since no nodes are pickable
             assert!(next_depth_first_filtered(&tree, root, filter).is_none());
@@ -375,9 +369,7 @@ pub mod navigation {
                 },
             );
 
-            let filter = QueryFilter {
-                required_flags: NodeFlags::VISIBLE,
-            };
+            let filter = QueryFilter::new().visible();
 
             // From visible_child (last visible), next should wrap to root
             let next = next_depth_first_filtered(&tree, visible_child, filter).unwrap();
@@ -409,9 +401,7 @@ pub mod navigation {
                 },
             );
 
-            let filter = QueryFilter {
-                required_flags: NodeFlags::VISIBLE,
-            };
+            let filter = QueryFilter::new().visible();
 
             // Should work with live nodes
             assert!(next_depth_first_filtered(&tree, root, filter).is_some());
@@ -462,9 +452,7 @@ pub mod navigation {
                 },
             );
 
-            let filter = QueryFilter {
-                required_flags: NodeFlags::VISIBLE,
-            };
+            let filter = QueryFilter::new().visible();
 
             // From child1_visible (last visible in subtree1), should wrap to root1 (not cross to subtree2)
             let next = next_depth_first_filtered(&tree, child1_visible, filter).unwrap();
