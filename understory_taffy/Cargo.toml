@@ -1,0 +1,26 @@
+[package]
+name = "understory_taffy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Adapter crate for syncing Taffy layout into an Understory box tree."
+keywords = ["layout", "taffy", "understory", "ui"]
+categories = ["gui", "data-structures"]
+
+[dependencies]
+taffy = { workspace = true }
+kurbo = { workspace = true, default-features = false }
+understory_box_tree = { path = "../understory_box_tree", default-features = false }
+hashbrown = { workspace = true }
+understory_index = { path = "../understory_index" }
+
+[dev-dependencies]
+taffy = { workspace = true, features = ["flexbox"] }
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = ["taffy/std", "understory_box_tree/std"]
