@@ -73,7 +73,7 @@ for details.
 - [`NodeFlags`]: visibility, picking, and focusable controls.
 - [`NodeId`]: generational handle of a node.
 - [`QueryFilter`]: restricts hit/intersect results (visible/pickable/focusable).
-  See [`NodeFlags::VISIBLE`], [`NodeFlags::PICKABLE`], and [`NodeFlags::FOCUSABLE`].
+  See [`NodeFlags::VISIBLE`], [`NodeFlags::PICKABLE`], [`NodeFlags::FOCUSABLE`], and [`QueryFilter::in_subtree`] for subtree filtering.
 
 Key operations:
 - [`Tree::insert`](Tree::insert) → [`NodeId`]
