@@ -1,0 +1,26 @@
+[package]
+name = "understory_selection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Selection management primitives for lists, canvases, and infinite-surface UIs."
+keywords = ["ui", "selection", "canvas", "no_std", "understory"]
+categories = ["gui", "data-structures", "no-std"]
+
+[dependencies]
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+
+# This crate is `no_std` + `alloc` by default; `std` is only needed when
+# dependants prefer to compile with the standard library.
+std = []
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
