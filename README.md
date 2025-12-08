@@ -19,6 +19,11 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Not a layout engine.
   - Upstream code (your layout system) decides sizes and positions and then updates this tree.
 
+- `understory_focus`
+  - Focus navigation primitives: navigation intents, per‑node focus properties, and a spatial view of focusable candidates.
+  - Provides pluggable policies for directional and ordered navigation, and an optional adapter for integrating with `understory_box_tree`.
+  - Designed to be independent of any particular widget toolkit or event system.
+
 - `understory_precise_hit`
   - Geometry‑level, narrow‑phase hit testing for shapes in local 2D coordinates, built on `kurbo`.
   - Provides a small `PreciseHitTest` trait with `HitParams`/`HitScore` helpers and default impls for `Rect`, `Circle`, `RoundedRect`, and fill‑only `BezPath`.
@@ -30,7 +35,12 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Includes a tiny dispatcher helper (`dispatcher::run`) for executing handlers and honoring stop/cancelation.
   - Supports pointer capture with path reconstruction via a `ParentLookup` provider and bypasses scope filters.
 
-Both crates are `#![no_std]` and use `alloc`.
+- `understory_selection`
+  - Generic selection container that tracks a set of keys plus an optional primary and anchor, plus a revision counter for change detection.
+  - Generic over the key type `T` (no `Hash`/`Ord` requirement; only `PartialEq`), suitable for list selections, canvases, and other selection UIs.
+  - Intended to pair with `understory_box_tree` / `understory_precise_hit` for hit testing and `understory_responder` for event routing.
+
+All core crates are `#![no_std]` and use `alloc`.
 Examples and tests use `std`.
 
 ## Why this separation?
@@ -76,6 +86,8 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
   - `understory_index/README.md` has the API and a “Choosing a backend” guide.
   - `understory_box_tree/README.md` has usage, hit‑testing, and visible‑set examples.
   - `understory_responder/README.md` explains routing, capture, and how to integrate with a picker.
+  - `understory_focus/README.md` covers focus navigation policies and adapters.
+  - `understory_selection/README.md` documents the selection container, anchor/revision semantics, and click helpers.
 - Run examples.
   - `cargo run -p understory_examples --example index_basics`
   - `cargo run -p understory_examples --example box_tree_basics`
