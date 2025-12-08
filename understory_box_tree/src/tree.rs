@@ -477,7 +477,7 @@ impl<B: Backend<f64>> Tree<B> {
             if !filter.matches(node.local.flags) {
                 continue;
             }
-            if node.local.clip_behavior != ClipBehavior::None
+            if node.local.clip_behavior != ClipBehavior::Ignore
                 && let Some(clip) = node.local.local_clip
             {
                 let world_pt = node.world.world_transform.inverse() * pt;
@@ -777,7 +777,7 @@ impl<B: Backend<f64>> Tree<B> {
                 .local_clip
                 .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()));
             let world_clip = match node.local.clip_behavior {
-                ClipBehavior::None => None,
+                ClipBehavior::Ignore => None,
                 ClipBehavior::PreferLocal => local_clip.or(parent_clip),
                 ClipBehavior::Inherit => match (local_clip, parent_clip) {
                     (Some(local), Some(parent)) => Some(local.intersect(parent)),
@@ -1021,7 +1021,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_behavior_none_disables_clipping() {
+    fn clip_behavior_ignore_disables_clipping() {
         let mut tree = Tree::new();
         let root = tree.insert(
             None,
@@ -1042,7 +1042,7 @@ mod tests {
                     Rect::new(80.0, 80.0, 90.0, 90.0),
                     0.0,
                 )),
-                clip_behavior: ClipBehavior::None,
+                clip_behavior: ClipBehavior::Ignore,
                 ..Default::default()
             },
         );
