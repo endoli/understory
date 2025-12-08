@@ -3,7 +3,7 @@
 
 //! Core tree implementation: structure, updates, queries.
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use kurbo::{Affine, Point, Rect, RoundedRect};
 use understory_index::{Aabb2D, Backend, IndexGeneric, Key as AabbKey, backends::FlatVec};
 
@@ -760,19 +760,24 @@ impl<B: Backend<f64>> Tree<B> {
 
     fn update_world_recursive(
         &mut self,
-        id: NodeId,
-        parent_tf: Affine,
-        parent_clip: Option<Rect>,
+        root_id: NodeId,
+        root_tf: Affine,
+        root_clip: Option<Rect>,
         damage: &mut Damage,
     ) {
         enum IndexOp {
             Update(AabbKey, Aabb2D<f64>),
             Insert(Aabb2D<f64>),
         }
-        let (old_bounds, child_ids, (_local, world), index_op) = {
+
+        // The world is updated by walking the tree depth-first, propagating transforms and clips
+        // toward the leaves.
+        let mut stack = vec![(root_id, root_tf, root_clip)];
+
+        while let Some((id, current_tf, current_clip)) = stack.pop() {
             let node = self.node_mut(id);
-            let old = node.world.world_bounds;
-            node.world.world_transform = parent_tf * node.local.local_transform;
+            let old_world_bounds = node.world.world_bounds;
+            node.world.world_transform = current_tf * node.local.local_transform;
             let mut world_bounds =
                 transform_rect_bbox(node.world.world_transform, node.local.local_bounds);
             let local_clip = node
@@ -781,8 +786,8 @@ impl<B: Backend<f64>> Tree<B> {
                 .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()));
             let world_clip = match node.local.clip_behavior {
                 ClipBehavior::Ignore => None,
-                ClipBehavior::PreferLocal => local_clip.or(parent_clip),
-                ClipBehavior::Inherit => match (local_clip, parent_clip) {
+                ClipBehavior::PreferLocal => local_clip.or(current_clip),
+                ClipBehavior::Inherit => match (local_clip, current_clip) {
                     (Some(local), Some(parent)) => Some(local.intersect(parent)),
                     (Some(local), None) => Some(local),
                     (None, Some(parent)) => Some(parent),
@@ -795,34 +800,34 @@ impl<B: Backend<f64>> Tree<B> {
             node.world.world_bounds = world_bounds;
             node.world.world_clip = world_clip;
             let aabb = rect_to_aabb(world_bounds);
-            let op = if let Some(key) = node.index_key {
+            let index_op = if let Some(key) = node.index_key {
                 IndexOp::Update(key, aabb)
             } else {
                 IndexOp::Insert(aabb)
             };
-            let child_ids = node.children.clone();
-            (old, child_ids, (node.local.clone(), node.world.clone()), op)
-        };
 
-        match index_op {
-            IndexOp::Update(key, aabb) => self.index.update(key, aabb),
-            IndexOp::Insert(aabb) => {
-                let key = self.index.insert(aabb, id);
-                self.node_mut(id).index_key = Some(key);
+            if old_world_bounds != node.world.world_bounds {
+                if old_world_bounds.width() > 0.0 && old_world_bounds.height() > 0.0 {
+                    damage.dirty_rects.push(old_world_bounds);
+                }
+                if node.world.world_bounds.width() > 0.0 && node.world.world_bounds.height() > 0.0 {
+                    damage.dirty_rects.push(node.world.world_bounds);
+                }
             }
-        }
 
-        if old_bounds != world.world_bounds {
-            if old_bounds.width() > 0.0 && old_bounds.height() > 0.0 {
-                damage.dirty_rects.push(old_bounds);
+            // Push all children to the stack. The `.rev()` is not strictly necessary, but means we
+            // visit the children in the order they are given in `node.children`.
+            for &child in node.children.iter().rev() {
+                stack.push((child, node.world.world_transform, world_clip));
             }
-            if world.world_bounds.width() > 0.0 && world.world_bounds.height() > 0.0 {
-                damage.dirty_rects.push(world.world_bounds);
-            }
-        }
 
-        for child in child_ids {
-            self.update_world_recursive(child, world.world_transform, world.world_clip, damage);
+            match index_op {
+                IndexOp::Update(key, aabb) => self.index.update(key, aabb),
+                IndexOp::Insert(aabb) => {
+                    let key = self.index.insert(aabb, id);
+                    self.node_mut(id).index_key = Some(key);
+                }
+            }
         }
     }
 }
