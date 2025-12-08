@@ -167,6 +167,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "dpi"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -245,6 +251,15 @@ name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
+
+[[package]]
+name = "keyboard-types"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fbe853b403ae61a04233030ae8a79d94975281ed9770a1f9e246732b534b28d"
+dependencies = [
+ "bitflags",
+]
 
 [[package]]
 name = "kurbo"
@@ -487,6 +502,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ui-events"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a57da61c5700db75d28822c56068295055ec216996560af57a5d4a457914d34"
+dependencies = [
+ "dpi",
+ "keyboard-types",
+ "kurbo",
+]
+
+[[package]]
 name = "understory_benches"
 version = "0.1.0"
 dependencies = [
@@ -548,6 +574,15 @@ dependencies = [
 [[package]]
 name = "understory_selection"
 version = "0.1.0"
+
+[[package]]
+name = "understory_transform_encoder"
+version = "0.1.0"
+dependencies = [
+ "kurbo",
+ "ui-events",
+ "understory_view2d",
+]
 
 [[package]]
 name = "understory_view2d"

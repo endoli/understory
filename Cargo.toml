@@ -8,6 +8,7 @@ members = [
   "understory_responder",
   "understory_selection",
   "understory_view2d",
+  "understory_transform_encoder",
   "benches",
   "examples",
 ]

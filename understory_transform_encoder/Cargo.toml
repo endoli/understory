@@ -1,15 +1,17 @@
 [package]
-name = "understory_view2d"
+name = "understory_transform_encoder"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "2D view and viewport primitives for Understory: pan/zoom, coordinate conversion, and view fitting."
-keywords = ["ui", "viewport", "camera", "no_std", "understory"]
+description = "An encoder from UI events to transform actions."
+keywords = ["ui", "ui-events", "transform", "no_std", "understory"]
 categories = ["gui", "graphics", "no-std"]
 
 [dependencies]
 kurbo.workspace = true
+understory_view2d = { path = "../understory_view2d", default-features = false, optional = true }
+ui-events = { version = "0.2.0", default-features = false, features = ["kurbo"] }
 
 
 [lints]
@@ -17,11 +19,13 @@ workspace = true
 
 [features]
 # Default to std builds for examples/tests/docs.
-default = ["std"]
+default = ["std", "view2d_adapter"]
 # Forward our `std`/`libm` features to Kurbo. With workspace `kurbo` having
 # default-features = false, this fully controls Kurbo's std/no_std mode.
 std = ["kurbo/std"]
 libm = ["kurbo/libm"]
+# Adapter for `understory_viewport2d::Viewport2D and understory_viewport2D::Viewport1D`.
+view2d_adapter = ["dep:understory_view2d"]
 
 [package.metadata.docs.rs]
 all-features = true

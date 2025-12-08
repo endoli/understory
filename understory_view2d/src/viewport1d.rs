@@ -147,6 +147,15 @@ impl Viewport1D {
         self.clamp_to_bounds();
     }
 
+    /// Sets he pan of the view in view/device space.
+    ///
+    /// This sets the pan offset and then applies clamping relative to world
+    /// bounds if configured.
+    pub fn set_pan_by_view(&mut self, pan: f64) {
+        self.pan = pan;
+        self.clamp_to_bounds();
+    }
+
     /// Zooms around a given anchor point in view/device coordinates.
     ///
     /// The anchor point remains fixed in view space as much as possible under
