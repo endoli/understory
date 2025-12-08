@@ -14,9 +14,10 @@ use crate::util::{rect_to_aabb, transform_rect_bbox};
 /// Top-level region tree.
 ///
 /// The type parameter `B` controls which spatial index backend is used. It
-/// defaults to a flat-vector backend (`FlatVec<f64>`), so most callers can
+/// defaults to a flat-vector backend ([`FlatVec<f64>`]), so most callers can
 /// simply use [`Tree`] without specifying `B`. Advanced callers can override
-/// `B` to use an R-tree or BVH backend from `understory_index`.
+/// `B` to use an [R-tree][understory_index::backends::RTree] or
+/// [BVH][understory_index::backends::Bvh] backend from `understory_index`.
 ///
 /// Changes to local node data (bounds, transform, clip, flags, z) do **not**
 /// take effect immediately. They are batched and applied when [`Tree::commit`]
@@ -46,8 +47,10 @@ use crate::util::{rect_to_aabb, transform_rect_bbox};
 /// assert_eq!(world, Rect::new(0.0, 0.0, 100.0, 100.0));
 /// ```
 pub struct Tree<B: Backend<f64> = FlatVec<f64>> {
-    nodes: Vec<Option<Node>>, // slots
-    generations: Vec<u32>,    // last generation per slot (persists across frees)
+    /// slots
+    nodes: Vec<Option<Node>>,
+    /// last generation per slot (persists across frees)
+    generations: Vec<u32>,
     pub(crate) free_list: Vec<usize>,
     pub(crate) epoch: u64,
     pub(crate) index: IndexGeneric<f64, NodeId, B>,
