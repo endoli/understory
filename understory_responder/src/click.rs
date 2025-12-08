@@ -58,7 +58,7 @@
 //!     ClickResult::Click(target) => {
 //!         assert_eq!(target, 42); // Click on original target despite transform
 //!     }
-//!     ClickResult::None(_) => {}
+//!     ClickResult::Suppressed(_) => {}
 //! }
 //! ```
 //!
@@ -155,8 +155,8 @@ pub struct Press<K> {
 pub enum ClickResult<K> {
     /// Click event should be generated on the specified target
     Click(K),
-    /// No click event should be generated, contains the originally hit target if there is one associated with the pointer
-    None(Option<K>),
+    /// Click event was suppressed, contains the originally hit target if there is one associated with the pointer
+    Suppressed(Option<K>),
 }
 
 impl<K: PartialEq + Clone> ClickState<K> {
@@ -236,7 +236,7 @@ impl<K: PartialEq + Clone> ClickState<K> {
     ///
     /// # Returns
     /// `ClickResult::Click(original_target)` if click should be generated on the original
-    /// press target, `ClickResult::None(None)` otherwise
+    /// press target, `ClickResult::Suppressed(None)` otherwise
     pub fn on_up(
         &mut self,
         pointer_id: Option<PointerId>,
@@ -250,12 +250,12 @@ impl<K: PartialEq + Clone> ClickState<K> {
 
         let press = match self.presses.remove(&pointer_id) {
             Some(press) => press,
-            None => return ClickResult::None(None), // No active press
+            None => return ClickResult::Suppressed(None), // No active press
         };
 
         // Button must match
         if press.button != button {
-            return ClickResult::None(Some(press.target));
+            return ClickResult::Suppressed(Some(press.target));
         }
 
         // Fast path: same target
@@ -266,12 +266,12 @@ impl<K: PartialEq + Clone> ClickState<K> {
         // Different targets - check if any thresholds are configured
         if self.total_pointer_moved_threshold.is_none() && self.time_threshold.is_none() {
             // No thresholds configured - only same targets generate clicks
-            return ClickResult::None(Some(press.target));
+            return ClickResult::Suppressed(Some(press.target));
         }
 
         // If distance was exceeded during movement, no click for different targets
         if press.distance_exceeded {
-            return ClickResult::None(Some(press.target));
+            return ClickResult::Suppressed(Some(press.target));
         }
 
         // Check thresholds at release time
@@ -289,7 +289,7 @@ impl<K: PartialEq + Clone> ClickState<K> {
         if distance_ok && time_ok {
             ClickResult::Click(press.target)
         } else {
-            ClickResult::None(Some(press.target))
+            ClickResult::Suppressed(Some(press.target))
         }
     }
 
@@ -418,7 +418,7 @@ mod tests {
         state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
         let result = state.on_up(None, None, &99, Point::new(10.0, 20.0), 1050);
 
-        assert_eq!(result, ClickResult::None(Some(42)));
+        assert_eq!(result, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -429,7 +429,7 @@ mod tests {
         state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
         let result = state.on_up(None, Some(2), &42, Point::new(10.0, 20.0), 1050);
 
-        assert_eq!(result, ClickResult::None(Some(42)));
+        assert_eq!(result, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -439,7 +439,7 @@ mod tests {
         // Release without press
         let result = state.on_up(None, None, &42, Point::new(10.0, 20.0), 1000);
 
-        assert_eq!(result, ClickResult::None(None));
+        assert_eq!(result, ClickResult::Suppressed(None));
     }
 
     #[test]
@@ -461,7 +461,7 @@ mod tests {
         state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
         let result = state.on_up(None, None, &99, Point::new(20.0, 30.0), 1050); // ~14.14 distance
 
-        assert_eq!(result, ClickResult::None(Some(42)));
+        assert_eq!(result, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -494,7 +494,7 @@ mod tests {
         state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
         let result = state.on_up(None, None, &99, Point::new(100.0, 200.0), 1200); // 200ms elapsed
 
-        assert_eq!(result, ClickResult::None(Some(42)));
+        assert_eq!(result, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -527,7 +527,7 @@ mod tests {
         state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
         let result = state.on_up(None, None, &99, Point::new(20.0, 30.0), 1050); // ~14.14 distance, 50ms
 
-        assert_eq!(result, ClickResult::None(Some(42)));
+        assert_eq!(result, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -538,7 +538,7 @@ mod tests {
         state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
         let result = state.on_up(None, None, &99, Point::new(13.0, 23.0), 1200); // ~4.24 distance, 200ms
 
-        assert_eq!(result, ClickResult::None(Some(42)));
+        assert_eq!(result, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -549,7 +549,7 @@ mod tests {
         state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
         let result = state.on_up(None, None, &99, Point::new(20.0, 30.0), 1200); // ~14.14 distance, 200ms
 
-        assert_eq!(result, ClickResult::None(Some(42)));
+        assert_eq!(result, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -595,7 +595,7 @@ mod tests {
 
         // Release pointer2 far from its down position (should fail threshold)
         let result2 = state.on_up(Some(pointer2), None, &99, Point::new(13.0, 23.0), 1080); // ~247 from pointer2 down
-        assert_eq!(result2, ClickResult::None(Some(42)));
+        assert_eq!(result2, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -649,7 +649,7 @@ mod tests {
 
         // No clicks should be generated after clear
         let result = state.on_up(Some(pointer1), None, &42, Point::new(12.0, 22.0), 1080);
-        assert_eq!(result, ClickResult::None(None));
+        assert_eq!(result, ClickResult::Suppressed(None));
     }
 
     #[test]
@@ -684,7 +684,7 @@ mod tests {
 
         // Try to release on different target, even within threshold of final position
         let result = state.on_up(None, None, &99, Point::new(22.0, 32.0), 1050); // only 2.83 from final position
-        assert_eq!(result, ClickResult::None(Some(42)));
+        assert_eq!(result, ClickResult::Suppressed(Some(42)));
     }
 
     #[test]
@@ -748,7 +748,7 @@ mod tests {
 
         // pointer1 should not generate click for different target
         let result1 = state.on_up(Some(pointer1), None, &99, Point::new(22.0, 32.0), 1050);
-        assert_eq!(result1, ClickResult::None(Some(42)));
+        assert_eq!(result1, ClickResult::Suppressed(Some(42)));
 
         // pointer2 should generate click for different target (release close to move position)
         let result2 = state.on_up(Some(pointer2), None, &99, Point::new(103.0, 203.0), 1080); // ~4.24 from down
