@@ -29,7 +29,7 @@ impl<T> Default for Damage<T> {
 }
 
 impl<T: Copy + PartialOrd> Damage<T> {
-    /// True if no damage entries recorded.
+    /// Returns whether any damage entries have been recorded.
     pub fn is_empty(&self) -> bool {
         self.added.is_empty() && self.removed.is_empty() && self.moved.is_empty()
     }

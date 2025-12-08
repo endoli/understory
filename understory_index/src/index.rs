@@ -58,7 +58,7 @@ where
     P: Copy + Debug,
     B: Backend<T> + Default,
 {
-    /// Create an empty index using the backend's default constructor.
+    /// Create an empty index using the backend's [default constructor](Default::default).
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),

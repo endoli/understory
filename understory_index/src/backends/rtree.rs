@@ -217,7 +217,7 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         }
     }
 
-    /// Build an `RTree` from a set of (slot, bbox) pairs using a packed layout.
+    /// Build an [`RTree`] from a set of (slot, bbox) pairs using a packed layout.
     pub fn bulk_build_default(pairs: &[(usize, Aabb2D<T>)]) -> Self {
         let max_children = 8; // default matches Self::default
         let mut items = pairs.to_vec();

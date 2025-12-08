@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use crate::types::Aabb2D;
 use core::fmt::Debug;
 
-/// Spatial backend abstraction used by `IndexGeneric`.
+/// Spatial backend abstraction used by [`IndexGeneric`][crate::IndexGeneric].
 pub trait Backend<T: Copy + PartialOrd + Debug> {
     /// Insert a new slot into the spatial structure.
     fn insert(&mut self, slot: usize, aabb: Aabb2D<T>);
@@ -29,14 +29,18 @@ pub trait Backend<T: Copy + PartialOrd + Debug> {
     /// Visit slots whose AABB intersects the rectangle.
     fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<T>, f: F);
 
-    /// Query slots whose AABB contains the point. Default: collects `visit_point`.
+    /// Query slots whose AABB contains the point.
+    ///
+    /// The default implementation collects [`visit_point`][Backend::visit_point].
     fn query_point<'a>(&'a self, x: T, y: T) -> Box<dyn Iterator<Item = usize> + 'a> {
         let mut out = Vec::new();
         self.visit_point(x, y, |i| out.push(i));
         Box::new(out.into_iter())
     }
 
-    /// Query slots whose AABB intersects the rectangle. Default: collects `visit_rect`.
+    /// Query slots whose AABB intersects the rectangle.
+    ///
+    /// The default implementation collects [`visit_rect`][Backend::visit_rect].
     fn query_rect<'a>(&'a self, rect: Aabb2D<T>) -> Box<dyn Iterator<Item = usize> + 'a> {
         let mut out = Vec::new();
         self.visit_rect(rect, |i| out.push(i));
