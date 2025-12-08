@@ -5,7 +5,7 @@
 
 use alloc::{vec, vec::Vec};
 use kurbo::{Affine, Point, Rect, RoundedRect};
-use understory_index::{Aabb2D, Backend, IndexGeneric, Key as AabbKey, backends::FlatVec};
+use understory_index::{Backend, IndexGeneric, Key as AabbKey, backends::FlatVec};
 
 use crate::damage::Damage;
 use crate::types::{ClipBehavior, LocalNode, NodeFlags, NodeId};
@@ -765,11 +765,6 @@ impl<B: Backend<f64>> Tree<B> {
         root_clip: Option<Rect>,
         damage: &mut Damage,
     ) {
-        enum IndexOp {
-            Update(AabbKey, Aabb2D<f64>),
-            Insert(Aabb2D<f64>),
-        }
-
         // The world is updated by walking the tree depth-first, propagating transforms and clips
         // toward the leaves.
         let mut stack = vec![(root_id, root_tf, root_clip)];
@@ -800,11 +795,6 @@ impl<B: Backend<f64>> Tree<B> {
             node.world.world_bounds = world_bounds;
             node.world.world_clip = world_clip;
             let aabb = rect_to_aabb(world_bounds);
-            let index_op = if let Some(key) = node.index_key {
-                IndexOp::Update(key, aabb)
-            } else {
-                IndexOp::Insert(aabb)
-            };
 
             if old_world_bounds != node.world.world_bounds {
                 if old_world_bounds.width() > 0.0 && old_world_bounds.height() > 0.0 {
@@ -821,12 +811,11 @@ impl<B: Backend<f64>> Tree<B> {
                 stack.push((child, node.world.world_transform, world_clip));
             }
 
-            match index_op {
-                IndexOp::Update(key, aabb) => self.index.update(key, aabb),
-                IndexOp::Insert(aabb) => {
-                    let key = self.index.insert(aabb, id);
-                    self.node_mut(id).index_key = Some(key);
-                }
+            if let Some(key) = node.index_key {
+                self.index.update(key, aabb)
+            } else {
+                let key = self.index.insert(aabb, id);
+                self.node_mut(id).index_key = Some(key);
             }
         }
     }
