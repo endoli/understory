@@ -550,6 +550,13 @@ name = "understory_selection"
 version = "0.1.0"
 
 [[package]]
+name = "understory_view2d"
+version = "0.1.0"
+dependencies = [
+ "kurbo",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"

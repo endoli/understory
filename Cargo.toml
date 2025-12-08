@@ -5,8 +5,9 @@ members = [
   "understory_box_tree",
   "understory_focus",
   "understory_precise_hit",
-  "understory_selection",
   "understory_responder",
+  "understory_selection",
+  "understory_view2d",
   "benches",
   "examples",
 ]

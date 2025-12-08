@@ -40,6 +40,12 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Generic over the key type `T` (no `Hash`/`Ord` requirement; only `PartialEq`), suitable for list selections, canvases, and other selection UIs.
   - Intended to pair with `understory_box_tree` / `understory_precise_hit` for hit testing and `understory_responder` for event routing.
 
+- `understory_view2d`
+  - 2D and 1D view/viewport primitives:
+    - `Viewport2D` for canvas/CAD‑style views: camera state (pan + zoom), coordinate conversion between world and device space, view fitting (center vs align‑min), and simple clamping against optional world bounds.
+    - `Viewport1D` for timeline/axis‑style views: X‑only zoom/pan with range fitting and clamping, plus helpers for suggesting grid spacing.
+  - Headless and renderer‑agnostic; intended to be driven by `ui-events` at higher layers and paired with `understory_box_tree` / imaging crates for canvas and timeline applications.
+
 All core crates are `#![no_std]` and use `alloc`.
 Examples and tests use `std`.
 
@@ -88,6 +94,7 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
   - `understory_responder/README.md` explains routing, capture, and how to integrate with a picker.
   - `understory_focus/README.md` covers focus navigation policies and adapters.
   - `understory_selection/README.md` documents the selection container, anchor/revision semantics, and click helpers.
+  - `understory_view2d/README.md` documents the 2D and 1D viewport types, clamping/fit modes, and examples of using visible regions for culling.
 - Run examples.
   - `cargo run -p understory_examples --example index_basics`
   - `cargo run -p understory_examples --example box_tree_basics`
