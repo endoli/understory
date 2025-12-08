@@ -760,7 +760,7 @@ impl<B: Backend<f64>> Tree<B> {
 
     fn update_world_recursive(
         &mut self,
-        id: NodeId,
+        root_id: NodeId,
         root_tf: Affine,
         root_clip: Option<Rect>,
         damage: &mut Damage,
@@ -772,7 +772,7 @@ impl<B: Backend<f64>> Tree<B> {
 
         // The world is updated by walking the tree depth-first, propagating transforms and clips
         // toward the leaves.
-        let mut stack = vec![(id, root_tf, root_clip)];
+        let mut stack = vec![(root_id, root_tf, root_clip)];
 
         while let Some((id, current_tf, current_clip)) = stack.pop() {
             let node = self.node_mut(id);
