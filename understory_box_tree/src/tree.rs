@@ -310,7 +310,9 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update local transform.
     pub fn set_local_transform(&mut self, id: NodeId, tf: Affine) {
-        if let Some(n) = self.node_opt_mut(id) {
+        if let Some(n) = self.node_opt_mut(id)
+            && n.local.local_transform != tf
+        {
             n.local.local_transform = tf;
             n.dirty.transform = true;
             n.dirty.index = true;
@@ -319,7 +321,9 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update local clip. Application is controlled by [`ClipBehavior`].
     pub fn set_local_clip(&mut self, id: NodeId, clip: Option<RoundedRect>) {
-        if let Some(n) = self.node_opt_mut(id) {
+        if let Some(n) = self.node_opt_mut(id)
+            && n.local.local_clip != clip
+        {
             n.local.local_clip = clip;
             n.dirty.clip = true;
             n.dirty.index = true;
@@ -328,7 +332,9 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update how local and ancestor clips are composed for this node.
     pub fn set_clip_behavior(&mut self, id: NodeId, behavior: ClipBehavior) {
-        if let Some(n) = self.node_opt_mut(id) {
+        if let Some(n) = self.node_opt_mut(id)
+            && n.local.clip_behavior != behavior
+        {
             n.local.clip_behavior = behavior;
             n.dirty.clip = true;
             n.dirty.index = true;
@@ -337,7 +343,9 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update z index.
     pub fn set_z_index(&mut self, id: NodeId, z: i32) {
-        if let Some(n) = self.node_opt_mut(id) {
+        if let Some(n) = self.node_opt_mut(id)
+            && n.local.z_index != z
+        {
             n.local.z_index = z;
             n.dirty.z = true;
         }
@@ -345,7 +353,9 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update local bounds.
     pub fn set_local_bounds(&mut self, id: NodeId, bounds: Rect) {
-        if let Some(n) = self.node_opt_mut(id) {
+        if let Some(n) = self.node_opt_mut(id)
+            && n.local.local_bounds != bounds
+        {
             n.local.local_bounds = bounds;
             n.dirty.layout = true;
             n.dirty.index = true;
@@ -354,7 +364,9 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update node flags.
     pub fn set_flags(&mut self, id: NodeId, flags: NodeFlags) {
-        if let Some(n) = self.node_opt_mut(id) {
+        if let Some(n) = self.node_opt_mut(id)
+            && n.local.flags != flags
+        {
             n.local.flags = flags;
             n.dirty.index = true;
         }
