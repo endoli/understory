@@ -9,7 +9,7 @@ use kurbo::{Affine, Rect, RoundedRect};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ClipBehavior {
     /// Do not apply any clip (ignore local clip and ancestor clip).
-    None,
+    Ignore,
     /// Use the local clip if present; otherwise inherit any ancestor clip.
     #[default]
     PreferLocal,
