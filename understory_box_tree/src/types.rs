@@ -11,9 +11,9 @@ pub enum ClipBehavior {
     /// Do not apply any clip (ignore local clip and ancestor clip).
     None,
     /// Use the local clip if present; otherwise inherit any ancestor clip.
-    #[default]
     PreferLocal,
     /// Apply parent clip if present; if both local and parent clips exist, intersect them.
+    #[default]
     Inherit,
 }
 
@@ -109,8 +109,8 @@ pub struct LocalNode {
     /// - Points outside `local_clip` (once transformed) cannot hit this node or any descendant.
     ///   Backends may still apply more precise clipping during rendering.
     pub local_clip: Option<RoundedRect>,
-    /// How to compose local and ancestor clips for this node (defaults to [`ClipBehavior::PreferLocal`],
-    /// which falls back to the parent clip when no local clip is set).
+    /// How to compose local and ancestor clips for this node (defaults to
+    /// [`ClipBehavior::Inherit`], which intersects the local clip, if any, with the parent clip).
     pub clip_behavior: ClipBehavior,
     /// Z-order within the parent stacking context.
     ///
