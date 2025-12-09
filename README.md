@@ -46,6 +46,11 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
     - `Viewport1D` for timeline/axis‑style views: X‑only zoom/pan with range fitting and clamping, plus helpers for suggesting grid spacing.
   - Headless and renderer‑agnostic; intended to be driven by `ui-events` at higher layers and paired with `understory_box_tree` / imaging crates for canvas and timeline applications.
 
+- `understory_virtual_list`
+  - Core 1D virtualization primitives over dense index strips, expressed via the `ExtentModel` trait and helper types.
+  - Provides `FixedExtentModel<S>` for uniform extents, `PrefixSumExtentModel<S>` for variable extents with a lazily‑maintained prefix‑sum cache, and `compute_visible_strip` for scroll/viewport → visible‑slice calculations with asymmetric overscan.
+  - Includes a small `VirtualList<M>` controller with `ScrollAlign`, visibility queries, and scroll clamping to make it easy for host frameworks to drive virtualized lists and stacks.
+
 All core crates are `#![no_std]` and use `alloc`.
 Examples and tests use `std`.
 
