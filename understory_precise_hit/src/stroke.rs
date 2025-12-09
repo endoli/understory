@@ -9,7 +9,7 @@
 
 #[cfg(not(feature = "std"))]
 use kurbo::common::FloatFuncs as _;
-use kurbo::{Line, Point};
+use kurbo::{Line, ParamCurveNearest, Point};
 
 use crate::{HitKind, HitParams, HitScore, PreciseHitTest};
 
@@ -29,25 +29,7 @@ pub struct StrokedLine {
 
 impl PreciseHitTest for StrokedLine {
     fn hit_test_local(&self, pt: Point, params: &HitParams) -> Option<HitScore> {
-        let p0 = self.line.p0;
-        let p1 = self.line.p1;
-        let vx = p1.x - p0.x;
-        let vy = p1.y - p0.y;
-        let wx = pt.x - p0.x;
-        let wy = pt.y - p0.y;
-        let len2 = vx * vx + vy * vy;
-        let t = if len2 > 0.0 {
-            (wx * vx + wy * vy) / len2
-        } else {
-            0.0
-        };
-        let t = t.clamp(0.0, 1.0);
-        let proj_x = p0.x + t * vx;
-        let proj_y = p0.y + t * vy;
-        let dx = pt.x - proj_x;
-        let dy = pt.y - proj_y;
-        let dist = (dx * dx + dy * dy).sqrt();
-
+        let dist = self.line.nearest(pt, 0.).distance_sq.sqrt();
         let limit = self.half_width + params.stroke_tolerance;
         if dist <= limit {
             Some(HitScore {
