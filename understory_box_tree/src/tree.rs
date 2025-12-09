@@ -812,7 +812,7 @@ impl<B: Backend<f64>> Tree<B> {
             }
 
             if let Some(key) = node.index_key {
-                self.index.update(key, aabb)
+                self.index.update(key, aabb);
             } else {
                 let key = self.index.insert(aabb, id);
                 self.node_mut(id).index_key = Some(key);
