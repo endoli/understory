@@ -538,8 +538,8 @@ impl<B: Backend<f64>> Tree<B> {
     /// Iterate live nodes whose world-space bounds contain a world-space point.
     ///
     /// Edges of the bounding boxes are included in the contains-check, having the same semantics
-    /// as [`Aabb2D::contains_point`], meaning that a point exactly on the edge of a bounding box
-    /// is contained by that bounding box.
+    /// as [`Aabb2D::contains_point`][understory_index::Aabb2D::contains_point], meaning that a
+    /// point exactly on the edge of a bounding box is contained by that bounding box.
     ///
     /// - `point` is interpreted in world coordinates.
     /// - Nodes must satisfy the [`QueryFilter`] and contain the given point to be yielded.
