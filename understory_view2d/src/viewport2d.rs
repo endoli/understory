@@ -155,7 +155,7 @@ impl Viewport2D {
         self.clamp_to_bounds();
     }
 
-    /// Sets he pan of the view in view/device space.
+    /// Sets the pan of the view in view/device space.
     ///
     /// This sets the pan offset and then applies clamping relative to world
     /// bounds if configured.

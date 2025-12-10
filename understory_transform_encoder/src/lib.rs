@@ -1,3 +1,6 @@
+// Copyright 2025 the Understory Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Transform encoder for mapping user input events to viewport transformations.
 //!
 //! This crate provides a **strongly typed, dimension-aware transform system** that maps user
@@ -147,29 +150,35 @@
 //! }));
 //! # }
 //! ```
+//!
+//! This crate is `no_std`.
+
+#![no_std]
 
 extern crate alloc;
 
 use kurbo::{Affine, Point, Vec2};
 
-use ::ui_events::{
+use alloc::{rc::Rc, vec::Vec};
+use ui_events::{
     keyboard::{Key, KeyState, KeyboardEvent, Modifiers},
     pointer::*,
 };
-use alloc::{rc::Rc, vec::Vec};
 
 /// Intent that describes a transform operation without specifying how to apply it.
 ///
 /// Transform actions represent what the user wants to do (pan, scale, rotate) without
-/// being tied to a specific backend. The structure clearly maps to input types:
+/// being tied to a specific backend. The structure maps to input types:
 ///
 /// ## Input Type Mapping:
+///
 /// - **Fixed inputs (clicks, keyboard)**: Use concrete values (`PanAction::To`, `ScaleAction::To`, etc.)
 /// - **Delta inputs (clicks, keyboard)**: Use additive operations (`PanAction::By`, `ScaleAction::DeltaBy`, `RotateAction::DeltaBy`)
 /// - **Factor inputs (clicks, keyboard)**: Use multiplicative operations (`ScaleAction::By`, `RotateAction::By`)
 /// - **Sensitivity inputs (pointer events)**: All operations use *`Action::By` variants
 ///
 /// ## Valid Input Combinations:
+///
 /// - **Pan**: Fixed ✓, Delta ✓, Sensitivity ✓ | Factor ❌ (no multiplicative translation)
 /// - **Scale**: Fixed ✓, Delta ✓, Factor ✓, Sensitivity ✓
 /// - **Rotate**: Fixed ✓, Delta ✓, Factor ✓, Sensitivity ✓
@@ -177,20 +186,20 @@ use alloc::{rc::Rc, vec::Vec};
 pub enum TransformAction {
     /// Translation operations
     Pan(PanAction),
-    /// Scaling operations  
+    /// Scaling operations
     Scale(ScaleAction),
     /// Rotation operations
     Rotate(RotateAction),
 }
 
-/// Translation operations
+/// Translation operations.
 ///
-/// Note: Factor inputs should NOT be used with Pan operations since multiplicative
+/// Note: Factor inputs should NOT be used with pan operations since multiplicative
 /// translation doesn't make semantic sense.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PanAction {
-    /// Translate by offset (Fixed/Delta/Sensitivity → relative movement)
-    /// - Fixed: Move by exact Vec2 amount
+    /// Translate by offset (Fixed/Delta/Sensitivity → relative movement).
+    /// - Fixed: Move by exact `Vec2` amount
     /// - Delta: Add to current movement
     /// - Sensitivity: Continuous pointer-based movement
     By(Vec2),
@@ -200,6 +209,11 @@ pub enum PanAction {
 }
 
 /// Scaling operations
+///
+/// **Backend Compatibility Note**: Scale operations behave differently across backends:
+/// - **`Viewport2D`**: Only supports uniform scaling; non-uniform scales are averaged
+/// - **`Affine`**: Supports full non-uniform scaling  
+/// - **`Viewport1D`**: Uses dominant axis for 2D scale operations
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScaleAction {
     /// Scale by multiplicative factors around backend's default center (Factor/Sensitivity → relative)
@@ -244,6 +258,11 @@ pub enum ScaleAction {
 }
 
 /// Rotation operations
+///
+/// **Backend Compatibility Note**: Rotation support varies by backend:
+/// - **`Viewport1D`**: No rotation support (operations are ignored)
+/// - **`Viewport2D`**: No rotation support (operations are ignored)  
+/// - **`Affine`**: Full rotation support around arbitrary anchor points
 #[derive(Debug, Clone, PartialEq)]
 pub enum RotateAction {
     /// Rotate by multiplicative factor around backend's default center (Factor/Sensitivity → relative)
@@ -291,29 +310,42 @@ pub enum RotateAction {
 ///
 /// This trait allows different backends (`Viewport1D`, `Viewport2D`, Affine) to handle
 /// the same transform intents in ways appropriate for their coordinate systems and
-/// capabilities. For example, a 1D viewport maps 2D operations to 1D equivalents,
-/// while 2D viewports ignore axis-specific zooms and rotations.
+/// capabilities.
+///
+/// ## Backend-Specific Transform Interpretation
+///
+/// **Important**: The same [`TransformAction`] may behave differently depending on the target:
+///
+/// - **[`Viewport1D`]**: Maps 2D operations to 1D equivalents; uses dominant axis for scale factors
+/// - **[`Viewport2D`]**: Supports uniform scaling only; uses dominant axis for scale factors. No rotation support
+/// - **[`Affine`]**: Supports full non-uniform scaling, rotation, and complex transforms
+///
+/// **Recommendation**: Prefer uniform scaling when using targets that don't support non-uniform scaling.
+///
+/// For example, `ScaleAction::ByAbout { scale: Vec2::new(2.0, 1.0), anchor }`:
+/// - **Viewport1D/2D**: Becomes uniform scale by factor `2.0` (dominant axis)
+/// - **Affine**: Becomes non-uniform scale stretching X by 2x, Y unchanged
 ///
 /// The trait also provides context-specific sizing information for proper scroll
 /// delta resolution, allowing each backend to specify appropriate line and page
 /// sizes for its coordinate system.
 pub trait TransformTarget {
-    /// Apply a transform delta to this target
+    /// Apply a transform delta to this target.
     fn apply(&mut self, delta: TransformAction);
 
-    /// Get the line size for scroll line deltas in view coordinates
+    /// Get the line size for scroll line deltas in view coordinates.
     ///
     /// This is used to convert `ScrollDelta::LineDelta` into pixel amounts.
     /// A typical implementation might return the height of one line of text.
     fn line_size(&self) -> Vec2;
 
-    /// Get the page size for scroll page deltas in view coordinates
+    /// Get the page size for scroll page deltas in view coordinates.
     ///
     /// This is used to convert `ScrollDelta::PageDelta` into pixel amounts.
     /// A typical implementation might return the visible viewport dimensions.
     fn page_size(&self) -> Vec2;
 
-    /// Get the current translation/pan offset in view coordinates
+    /// Get the current translation/pan offset in view coordinates.
     ///
     /// This is used for absolute positioning during drag operations to avoid
     /// floating point error accumulation. Returns the current pan/translation
@@ -323,6 +355,12 @@ pub trait TransformTarget {
 
 #[cfg(feature = "view2d_adapter")]
 impl TransformTarget for understory_view2d::Viewport1D {
+    /// Apply transform action to 1D viewport.
+    ///
+    /// **1D Viewport Transform Behavior**:
+    /// - **Pan**: Uses magnitude of 2D vector or dominant axis component
+    /// - **Scale**: Uses dominant scale factor from Vec2 components
+    /// - **Rotate**: Ignored (1D viewports don't rotate)
     fn apply(&mut self, action: TransformAction) {
         match action {
             TransformAction::Pan(pan_action) => match pan_action {
@@ -459,6 +497,12 @@ impl TransformTarget for understory_view2d::Viewport1D {
 
 #[cfg(feature = "view2d_adapter")]
 impl TransformTarget for understory_view2d::Viewport2D {
+    /// Apply transform action to 2D viewport.
+    ///
+    /// **2D Viewport Transform Behavior**:
+    /// - **Pan**: Full 2D translation support
+    /// - **Scale**: Uniform scaling only - uses dominant axis from Vec2 components
+    /// - **Rotate**: Ignored (2D viewports don't rotate)
     fn apply(&mut self, action: TransformAction) {
         match action {
             TransformAction::Pan(pan_action) => match pan_action {
@@ -471,25 +515,41 @@ impl TransformTarget for understory_view2d::Viewport2D {
             },
             TransformAction::Scale(scale_action) => match scale_action {
                 ScaleAction::By { scale } => {
-                    // For uniform zoom viewport, use average of scale factors
-                    let factor = (scale.x + scale.y) / 2.0;
+                    // For uniform zoom viewport, use dominant scale factor
+                    let factor = if scale.x.abs() >= scale.y.abs() {
+                        scale.x
+                    } else {
+                        scale.y
+                    };
                     let new_zoom = self.zoom() * factor;
                     self.set_zoom(new_zoom);
                 }
                 ScaleAction::ByAbout { scale, anchor } => {
-                    // For uniform zoom viewport, use average of scale factors
-                    let factor = (scale.x + scale.y) / 2.0;
+                    // For uniform zoom viewport, use dominant scale factor
+                    let factor = if scale.x.abs() >= scale.y.abs() {
+                        scale.x
+                    } else {
+                        scale.y
+                    };
                     self.zoom_about_view_point(anchor, factor);
                 }
                 ScaleAction::DeltaBy { scale } => {
-                    // For uniform zoom viewport, use average of scale deltas
-                    let delta = (scale.x + scale.y) / 2.0;
+                    // For uniform zoom viewport, use dominant scale delta
+                    let delta = if scale.x.abs() >= scale.y.abs() {
+                        scale.x
+                    } else {
+                        scale.y
+                    };
                     let new_zoom = self.zoom() + delta;
                     self.set_zoom(new_zoom);
                 }
                 ScaleAction::DeltaByAbout { scale, anchor: _ } => {
-                    // For uniform zoom viewport, use average of scale deltas about anchor
-                    let delta = (scale.x + scale.y) / 2.0;
+                    // For uniform zoom viewport, use dominant scale delta about anchor
+                    let delta = if scale.x.abs() >= scale.y.abs() {
+                        scale.x
+                    } else {
+                        scale.y
+                    };
                     let _old_zoom = self.zoom();
                     let new_zoom = _old_zoom + delta;
                     self.set_zoom(new_zoom);
@@ -542,6 +602,12 @@ impl TransformTarget for understory_view2d::Viewport2D {
 }
 
 impl TransformTarget for Affine {
+    /// Apply transform action to an `Affine`.
+    ///
+    /// **Affine Transform Behavior**:
+    /// - **Pan**: Full 2D translation support
+    /// - **Scale**: Full non-uniform scaling support - preserves separate X/Y scale factors
+    /// - **Rotate**: Full rotation support around arbitrary anchor points
     fn apply(&mut self, action: TransformAction) {
         match action {
             TransformAction::Pan(pan_action) => match pan_action {
@@ -718,7 +784,7 @@ impl<T: core::fmt::Debug, I> core::fmt::Debug for SensitivityOrFn<T, I> {
 }
 
 impl<T, I> SensitivityOrFn<T, I> {
-    /// Get the value, either directly or by calling the function with input
+    /// Get the value, either directly or by calling the function with input.
     pub fn get(&self, input: I) -> T
     where
         T: Clone,
@@ -755,7 +821,7 @@ impl<T: core::fmt::Debug> core::fmt::Debug for ValueOrFn<T> {
 }
 
 impl<T> ValueOrFn<T> {
-    /// Get the value, either directly or by calling the function
+    /// Get the value, either directly or by calling the function.
     pub fn get(&self) -> T
     where
         T: Clone,
@@ -936,7 +1002,7 @@ pub enum InputValue2DToTransform {
 }
 
 impl Extract1D {
-    /// Extract a 1D value from a 2D input according to the extraction method
+    /// Extract a 1D value from a 2D input according to the extraction method.
     pub fn extract(self, input: Vec2) -> Option<f64> {
         let v = input;
         match self {
@@ -977,7 +1043,7 @@ impl Extract1D {
 }
 
 impl Remap2D {
-    /// Remap a 2D input according to the remapping method
+    /// Remap a 2D input according to the remapping method.
     pub fn remap(self, input: Vec2) -> Vec2 {
         match self {
             Self::XY => input,
@@ -987,7 +1053,7 @@ impl Remap2D {
 }
 
 impl Emit1Dto2D {
-    /// Emit a 1D value to 2D output according to the emission method
+    /// Emit a 1D value to 2D output according to the emission method.
     pub fn emit(self, input: f64) -> Vec2 {
         let v = input;
         match self {
@@ -1000,7 +1066,7 @@ impl Emit1Dto2D {
 
 // Sensitivity-based (pointer) actions take input and multiply by sensitivity
 impl TransformAction1D<Sensitivity> {
-    /// Convert action with 1D input to `TransformDelta`
+    /// Convert action with 1D input to `TransformAction`.
     pub fn resolve(&self, input: f64, pointer_anchor: Point) -> TransformAction {
         match self {
             Self::Rotate { value } => TransformAction::Rotate(RotateAction::By {
@@ -1020,7 +1086,7 @@ impl TransformAction1D<Sensitivity> {
 
 // Fixed-value (keyboard) actions use the fixed value directly, no input needed
 impl TransformAction1D<Fixed> {
-    /// Convert action to `TransformDelta` using fixed value
+    /// Convert action to `TransformAction` using fixed value.
     pub fn resolve(&self, anchor_point: Point) -> TransformAction {
         match self {
             Self::Rotate { value } => TransformAction::Rotate(RotateAction::By {
@@ -1040,7 +1106,7 @@ impl TransformAction1D<Fixed> {
 
 // Factor-based (keyboard) actions use the factor value directly, no input needed
 impl TransformAction1D<Factor> {
-    /// Convert action to `TransformDelta` using factor value
+    /// Convert action to `TransformAction` using factor value.
     pub fn resolve(&self, anchor_point: Point) -> TransformAction {
         match self {
             Self::Rotate { value } => TransformAction::Rotate(RotateAction::By {
@@ -1060,7 +1126,7 @@ impl TransformAction1D<Factor> {
 
 // Delta-based (keyboard) actions use the delta value directly, no input needed
 impl TransformAction1D<Delta> {
-    /// Convert action to `TransformDelta` using delta value
+    /// Convert action to `TransformAction` using delta value.
     pub fn resolve(&self, anchor_point: Point) -> TransformAction {
         match self {
             Self::Rotate { value } => TransformAction::Rotate(RotateAction::DeltaBy {
@@ -1084,7 +1150,7 @@ impl TransformAction1D<Delta> {
 
 // Sensitivity-based (pointer) actions take input and multiply by sensitivity
 impl TransformAction2D<Sensitivity2D> {
-    /// Convert action with 2D input to `TransformDelta`
+    /// Convert action with 2D input to `TransformAction`.
     pub fn resolve(&self, input: Vec2, pointer_anchor: Point) -> TransformAction {
         match self {
             Self::Pan { value } => {
@@ -1123,7 +1189,7 @@ impl TransformAction2D<Sensitivity2D> {
 
 // Fixed-value (keyboard) actions use the fixed value directly, no input needed
 impl TransformAction2D<Fixed2D> {
-    /// Convert action to `TransformDelta` using fixed value
+    /// Convert action to `TransformAction` using fixed value.
     pub fn resolve(&self, anchor_point: Point) -> TransformAction {
         match self {
             Self::Pan { value } => TransformAction::Pan(PanAction::By(value.0.get())),
@@ -1144,7 +1210,7 @@ impl TransformAction2D<Fixed2D> {
 
 // Factor-based (keyboard) actions use the factor value directly, no input needed
 impl TransformAction2D<Factor2D> {
-    /// Convert action to `TransformDelta` using factor value
+    /// Convert action to `TransformAction` using factor value.
     pub fn resolve(&self, anchor_point: Point) -> TransformAction {
         match self {
             Self::Pan { value } => {
@@ -1167,7 +1233,7 @@ impl TransformAction2D<Factor2D> {
 }
 
 impl TransformAction2D<Delta2D> {
-    /// Convert action to `TransformDelta` using delta value
+    /// Convert action to `TransformAction` using delta value.
     pub fn resolve(&self, anchor_point: Point) -> TransformAction {
         match self {
             Self::Pan { value } => {
@@ -1194,7 +1260,7 @@ impl TransformAction2D<Delta2D> {
 }
 
 impl InputValue1DToTransform {
-    /// Convert 1D action to `TransformDelta`
+    /// Convert 1D action to `TransformAction`.
     pub fn resolve(&self, input: f64, pointer_anchor: Point) -> TransformAction {
         match self {
             Self::Action1D(action) => action.resolve(input, pointer_anchor),
@@ -1207,7 +1273,7 @@ impl InputValue1DToTransform {
 }
 
 impl InputValue2DToTransform {
-    /// Convert 2D action to `TransformDelta`
+    /// Convert 2D action to `TransformAction`.
     pub fn resolve(&self, input: Vec2, pointer_anchor: Point) -> Option<TransformAction> {
         match self {
             Self::To1D(map) => {
@@ -1246,7 +1312,7 @@ pub enum NoInputAction {
 }
 
 impl NoInputAction {
-    /// Convert no-input action to transform delta
+    /// Convert no-input action to transform delta.
     pub fn resolve(&self, anchor_point: Point) -> TransformAction {
         match self {
             Self::Fixed2D(action) => action.resolve(anchor_point),
@@ -1284,21 +1350,15 @@ impl core::fmt::Debug for KeyAction {
 }
 
 impl KeyAction {
-    /// Try to match this action against a keyboard event, returning a transform delta if matched
+    /// Try to match this action against a keyboard event, returning a transform delta if matched.
     pub fn try_match(&self, event: &KeyboardEvent, anchor_point: Point) -> Option<TransformAction> {
         // Check if the key matches
         if event.key != self.key {
             return None;
         }
 
-        // Map ui_events::KeyState to our KeyState
-        let key_state = match event.state {
-            ::ui_events::keyboard::KeyState::Down => KeyState::Down,
-            ::ui_events::keyboard::KeyState::Up => KeyState::Up,
-        };
-
         // Check if the filter matches
-        if !(self.filter)(event.modifiers, key_state) {
+        if !(self.filter)(event.modifiers, event.state) {
             return None;
         }
 
@@ -1439,7 +1499,7 @@ impl core::fmt::Debug for PointerInputAction {
 }
 
 impl PointerInputAction {
-    /// Try to match this action against a pointer event, returning a transform delta if matched
+    /// Try to match this action against a pointer event, returning a transform delta if matched.
     pub fn try_match<T: TransformTarget>(
         &self,
         event: &PointerEvent,
@@ -1605,46 +1665,46 @@ impl PointerInputAction {
 pub struct InputValue2DBuilder;
 
 impl InputValue2DBuilder {
-    /// 2D → 2D mappings
+    /// 2D → 2D mappings.
     pub fn xy(self) -> Remap2DBuilder {
         Remap2DBuilder { remap: Remap2D::XY }
     }
-    /// Swap X and Y axes before applying transform
+    /// Swap X and Y axes before applying transform.
     pub fn yx(self) -> Remap2DBuilder {
         Remap2DBuilder { remap: Remap2D::YX }
     }
 
-    /// 2D → 1D extractions
+    /// 2D → 1D extractions.
     pub fn x(self) -> Extract1DBuilder {
         Extract1DBuilder {
             extract: Extract1D::X,
         }
     }
-    /// Extract Y component from 2D input
+    /// Extract Y component from 2D input.
     pub fn y(self) -> Extract1DBuilder {
         Extract1DBuilder {
             extract: Extract1D::Y,
         }
     }
-    /// Extract magnitude (length) of 2D vector, signed by dominant axis
+    /// Extract magnitude (length) of 2D vector, signed by dominant axis.
     pub fn magnitude(self) -> Extract1DBuilder {
         Extract1DBuilder {
             extract: Extract1D::Magnitude,
         }
     }
-    /// Extract the dominant (larget magnitude) axis
+    /// Extract the dominant (larget magnitude) axis.
     pub fn dominant(self) -> Extract1DBuilder {
         Extract1DBuilder {
             extract: Extract1D::Dominant,
         }
     }
-    /// Extract X component only if X is the dominant (larger magnitude) axis, otherwise no action
+    /// Extract X component only if X is the dominant (larger magnitude) axis, otherwise no action.
     pub fn x_if_dominant(self) -> Extract1DBuilder {
         Extract1DBuilder {
             extract: Extract1D::XIfDominant,
         }
     }
-    /// Extract Y component only if Y is the dominant (larger magnitude) axis, otherwise no action
+    /// Extract Y component only if Y is the dominant (larger magnitude) axis, otherwise no action.
     pub fn y_if_dominant(self) -> Extract1DBuilder {
         Extract1DBuilder {
             extract: Extract1D::YIfDominant,
@@ -1659,7 +1719,7 @@ pub struct Remap2DBuilder {
 }
 
 impl Remap2DBuilder {
-    /// Create a pan action with X and Y sensitivities
+    /// Create a pan action with X and Y sensitivities.
     pub fn pan(
         self,
         sensitivities: impl Into<SensitivityOrFn<Vec2, Vec2>>,
@@ -1672,7 +1732,7 @@ impl Remap2DBuilder {
         })
     }
 
-    /// Create a uniform scale action with single sensitivity
+    /// Create a uniform scale action with single sensitivity.
     pub fn scale(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1694,7 +1754,7 @@ impl Remap2DBuilder {
         })
     }
 
-    /// Create a scale action with X and Y sensitivities
+    /// Create a scale action with X and Y sensitivities.
     pub fn scale_non_uniform(
         self,
         sensitivities: impl Into<SensitivityOrFn<Vec2, Vec2>>,
@@ -1707,7 +1767,7 @@ impl Remap2DBuilder {
         })
     }
 
-    /// Create a uniform scale action with single sensitivity around a custom anchor point
+    /// Create a uniform scale action with single sensitivity around a custom anchor point.
     pub fn scale_about(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1731,7 +1791,7 @@ impl Remap2DBuilder {
         })
     }
 
-    /// Create a scale action with X and Y sensitivities around a custom anchor point
+    /// Create a scale action with X and Y sensitivities around a custom anchor point.
     pub fn scale_non_uniform_about(
         self,
         sensitivities: impl Into<SensitivityOrFn<Vec2, Vec2>>,
@@ -1746,7 +1806,7 @@ impl Remap2DBuilder {
         })
     }
 
-    /// Create a uniform scale action with single sensitivity around the current pointer location
+    /// Create a uniform scale action with single sensitivity around the current pointer location.
     pub fn scale_about_pointer(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1768,7 +1828,7 @@ impl Remap2DBuilder {
         })
     }
 
-    /// Create a scale action with X and Y sensitivities around the current pointer location
+    /// Create a scale action with X and Y sensitivities around the current pointer location.
     pub fn scale_non_uniform_about_pointer(
         self,
         sensitivities: impl Into<SensitivityOrFn<Vec2, Vec2>>,
@@ -1789,7 +1849,9 @@ pub struct Extract1DBuilder {
 }
 
 impl Extract1DBuilder {
-    /// Create a rotate action from extracted 1D value
+    /// Create a rotate action from extracted 1D value.
+    ///
+    /// **Backend Compatibility**: Rotation is only supported by Affine; ignored by viewports.
     pub fn rotate(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1802,7 +1864,7 @@ impl Extract1DBuilder {
         })
     }
 
-    /// Create a rotate action from extracted 1D value around a custom anchor point
+    /// Create a rotate action from extracted 1D value around a custom anchor point.
     pub fn rotate_about(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1817,7 +1879,7 @@ impl Extract1DBuilder {
         })
     }
 
-    /// Create a rotate action from extracted 1D value around the current pointer location
+    /// Create a rotate action from extracted 1D value around the current pointer location.
     pub fn rotate_about_pointer(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1836,26 +1898,26 @@ impl Extract1DBuilder {
 pub struct InputValue1DBuilder;
 
 impl InputValue1DBuilder {
-    /// 1D → 2D emissions
+    /// 1D → 2D emissions.
     pub fn to_x(self) -> Emit1DBuilder {
         Emit1DBuilder {
             emit: Emit1Dto2D::X,
         }
     }
-    /// Emit 1D value to Y axis only (0, value)
+    /// Emit 1D value to Y axis only (0, value).
     pub fn to_y(self) -> Emit1DBuilder {
         Emit1DBuilder {
             emit: Emit1Dto2D::Y,
         }
     }
-    /// Emit 1D value to both axes uniformly (value, value)
+    /// Emit 1D value to both axes uniformly (value, value).
     pub fn uniform(self) -> Emit1DBuilder {
         Emit1DBuilder {
             emit: Emit1Dto2D::Uniform,
         }
     }
 
-    /// 1D → 1D (direct to rotate)
+    /// 1D → 1D (direct to rotate).
     pub fn rotate(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1865,7 +1927,7 @@ impl InputValue1DBuilder {
         })
     }
 
-    /// 1D → 1D (direct to rotate around a custom anchor point)
+    /// 1D → 1D (direct to rotate around a custom anchor point).
     pub fn rotate_about(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1877,7 +1939,7 @@ impl InputValue1DBuilder {
         })
     }
 
-    /// 1D → 1D (direct to rotate around the current pointer location)
+    /// 1D → 1D (direct to rotate around the current pointer location).
     pub fn rotate_about_pointer(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1895,7 +1957,7 @@ pub struct Emit1DBuilder {
 }
 
 impl Emit1DBuilder {
-    /// Create a pan action from 1D input with X and Y sensitivities
+    /// Create a pan action from 1D input with X and Y sensitivities.
     pub fn pan(
         self,
         sensitivities: impl Into<SensitivityOrFn<Vec2, Vec2>>,
@@ -1908,7 +1970,7 @@ impl Emit1DBuilder {
         })
     }
 
-    /// Create a uniform scale action from 1D input with single sensitivity
+    /// Create a uniform scale action from 1D input with single sensitivity.
     pub fn scale(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1930,7 +1992,7 @@ impl Emit1DBuilder {
         })
     }
 
-    /// Create a scale action from 1D input with X and Y sensitivities  
+    /// Create a scale action from 1D input with X and Y sensitivities.
     pub fn scale_non_uniform(
         self,
         sensitivities: impl Into<SensitivityOrFn<Vec2, Vec2>>,
@@ -1943,7 +2005,7 @@ impl Emit1DBuilder {
         })
     }
 
-    /// Create a uniform scale action from 1D input with single sensitivity around a custom anchor point
+    /// Create a uniform scale action from 1D input with single sensitivity around a custom anchor point.
     pub fn scale_about(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -1967,7 +2029,7 @@ impl Emit1DBuilder {
         })
     }
 
-    /// Create a scale action from 1D input with X and Y sensitivities around a custom anchor point
+    /// Create a scale action from 1D input with X and Y sensitivities around a custom anchor point.
     pub fn scale_non_uniform_about(
         self,
         sensitivities: impl Into<SensitivityOrFn<Vec2, Vec2>>,
@@ -1982,7 +2044,7 @@ impl Emit1DBuilder {
         })
     }
 
-    /// Create a uniform scale action from 1D input with single sensitivity around the current pointer location
+    /// Create a uniform scale action from 1D input with single sensitivity around the current pointer location.
     pub fn scale_about_pointer(
         self,
         sensitivity: impl Into<SensitivityOrFn<f64, f64>>,
@@ -2004,7 +2066,7 @@ impl Emit1DBuilder {
         })
     }
 
-    /// Create a scale action from 1D input with X and Y sensitivities around the current pointer location
+    /// Create a scale action from 1D input with X and Y sensitivities around the current pointer location.
     pub fn scale_non_uniform_about_pointer(
         self,
         sensitivities: impl Into<SensitivityOrFn<Vec2, Vec2>>,
@@ -2035,31 +2097,31 @@ pub struct FactorActionBuilder;
 pub struct DeltaActionBuilder;
 
 impl NoInputActionBuilder {
-    /// Switch to fixed-value builder for absolute positioning/movement
+    /// Switch to fixed-value builder for absolute positioning/movement.
     pub fn fixed(self) -> FixedBuilder {
         FixedBuilder
     }
 
-    /// Switch to factor-value builder for multiplicative operations
+    /// Switch to factor-value builder for multiplicative operations.
     pub fn factor(self) -> FactorActionBuilder {
         FactorActionBuilder
     }
 
-    /// Switch to delta-value builder for additive operations
+    /// Switch to delta-value builder for additive operations.
     pub fn delta(self) -> DeltaActionBuilder {
         DeltaActionBuilder
     }
 }
 
 impl FixedBuilder {
-    /// Create a pan action with fixed X and Y deltas
+    /// Create a pan action with fixed X and Y deltas.
     pub fn pan(self, deltas: impl Into<ValueOrFn<Vec2>>) -> NoInputAction {
         NoInputAction::Fixed2D(FixedAction2D::Pan {
             value: Fixed2D(deltas.into()),
         })
     }
 
-    /// Create a uniform scale action with fixed scale factor (uses backend's default center)
+    /// Create a uniform scale action with fixed scale factor (uses backend's default center).
     pub fn scale(self, factor: impl Into<ValueOrFn<f64>>) -> NoInputAction {
         let f = factor.into();
         NoInputAction::Fixed2D(FixedAction2D::Scale {
@@ -2073,14 +2135,16 @@ impl FixedBuilder {
         })
     }
 
-    /// Create a scale action with fixed scale factors (uses backend's default center)
+    /// Create a scale action with fixed scale factors (uses backend's default center).
+    ///
+    /// **Backend Compatibility**: Non-uniform scaling is averaged by `Viewport2D` but fully supported by Affine.
     pub fn scale_non_uniform(self, factors: impl Into<ValueOrFn<Vec2>>) -> NoInputAction {
         NoInputAction::Fixed2D(FixedAction2D::Scale {
             value: Fixed2D(factors.into()),
         })
     }
 
-    /// Create a uniform scale action with fixed scale factor around a custom anchor point
+    /// Create a uniform scale action with fixed scale factor around a custom anchor point.
     pub fn scale_about(
         self,
         factor: impl Into<ValueOrFn<f64>>,
@@ -2096,7 +2160,7 @@ impl FixedBuilder {
         })
     }
 
-    /// Create a scale action with fixed scale factors around a custom anchor point
+    /// Create a scale action with fixed scale factors around a custom anchor point.
     pub fn scale_non_uniform_about(
         self,
         factors: impl Into<ValueOrFn<Vec2>>,
@@ -2108,7 +2172,7 @@ impl FixedBuilder {
         })
     }
 
-    /// Create a uniform scale action with fixed scale factor around the last known pointer location
+    /// Create a uniform scale action with fixed scale factor around the last known pointer location.
     pub fn scale_about_pointer(self, factor: impl Into<ValueOrFn<f64>>) -> NoInputAction {
         let f = factor.into();
         NoInputAction::Fixed2D(FixedAction2D::ScaleAboutPointer {
@@ -2119,7 +2183,7 @@ impl FixedBuilder {
         })
     }
 
-    /// Create a scale action with fixed scale factors around the last known pointer location
+    /// Create a scale action with fixed scale factors around the last known pointer location.
     pub fn scale_non_uniform_about_pointer(
         self,
         factors: impl Into<ValueOrFn<Vec2>>,
@@ -2131,7 +2195,7 @@ impl FixedBuilder {
 }
 
 impl FactorActionBuilder {
-    /// Create a uniform scale action with factor scale multiplier around the last known pointer location
+    /// Create a uniform scale action with factor scale multiplier around the last known pointer location.
     pub fn scale_about_pointer(self, factor: impl Into<ValueOrFn<f64>>) -> NoInputAction {
         let f = factor.into();
         NoInputAction::Factor2D(FactorAction2D::ScaleAboutPointer {
@@ -2142,7 +2206,7 @@ impl FactorActionBuilder {
         })
     }
 
-    /// Create a uniform scale action with factor scale multiplier (uses backend's default center)
+    /// Create a uniform scale action with factor scale multiplier (uses backend's default center).
     pub fn scale(self, factor: impl Into<ValueOrFn<f64>>) -> NoInputAction {
         let f = factor.into();
         NoInputAction::Factor2D(FactorAction2D::Scale {
@@ -2153,7 +2217,7 @@ impl FactorActionBuilder {
         })
     }
 
-    /// Create a uniform scale action with factor scale multiplier around a custom anchor point
+    /// Create a uniform scale action with factor scale multiplier around a custom anchor point.
     pub fn scale_about(
         self,
         factor: impl Into<ValueOrFn<f64>>,
@@ -2169,7 +2233,7 @@ impl FactorActionBuilder {
         })
     }
 
-    /// Create a scale action with factor scale multipliers around the last known pointer location
+    /// Create a scale action with factor scale multipliers around the last known pointer location.
     pub fn scale_non_uniform_about_pointer(
         self,
         factors: impl Into<ValueOrFn<Vec2>>,
@@ -2179,14 +2243,16 @@ impl FactorActionBuilder {
         })
     }
 
-    /// Create a scale action with factor X and Y scale multipliers (uses backend's default center)
+    /// Create a scale action with factor X and Y scale multipliers (uses backend's default center).
+    ///
+    /// **Backend Compatibility**: Non-uniform scaling is averaged by `Viewport2D` but fully supported by Affine.
     pub fn scale_non_uniform(self, factors: impl Into<ValueOrFn<Vec2>>) -> NoInputAction {
         NoInputAction::Factor2D(FactorAction2D::Scale {
             value: Factor2D(factors.into()),
         })
     }
 
-    /// Create a scale action with factor scale multipliers around a custom anchor point
+    /// Create a scale action with factor scale multipliers around a custom anchor point.
     pub fn scale_non_uniform_about(
         self,
         factors: impl Into<ValueOrFn<Vec2>>,
@@ -2200,14 +2266,14 @@ impl FactorActionBuilder {
 }
 
 impl DeltaActionBuilder {
-    /// Create a pan action with delta X and Y values
+    /// Create a pan action with delta X and Y values.
     pub fn pan(self, deltas: impl Into<ValueOrFn<Vec2>>) -> NoInputAction {
         NoInputAction::Delta2D(DeltaAction2D::Pan {
             value: Delta2D(deltas.into()),
         })
     }
 
-    /// Create a uniform scale action with delta scale value (uses backend's default center)
+    /// Create a uniform scale action with delta scale value (uses backend's default center).
     pub fn scale(self, delta: impl Into<ValueOrFn<f64>>) -> NoInputAction {
         let d = delta.into();
         NoInputAction::Delta2D(DeltaAction2D::Scale {
@@ -2218,14 +2284,16 @@ impl DeltaActionBuilder {
         })
     }
 
-    /// Create a scale action with delta scale values (uses backend's default center)
+    /// Create a scale action with delta scale values (uses backend's default center).
+    ///
+    /// **Backend Compatibility**: Non-uniform scaling is averaged by `Viewport2D` but fully supported by Affine.
     pub fn scale_non_uniform(self, deltas: impl Into<ValueOrFn<Vec2>>) -> NoInputAction {
         NoInputAction::Delta2D(DeltaAction2D::Scale {
             value: Delta2D(deltas.into()),
         })
     }
 
-    /// Create a uniform scale action with delta scale value around a custom anchor point
+    /// Create a uniform scale action with delta scale value around a custom anchor point.
     pub fn scale_about(
         self,
         delta: impl Into<ValueOrFn<f64>>,
@@ -2241,7 +2309,7 @@ impl DeltaActionBuilder {
         })
     }
 
-    /// Create a scale action with delta scale values around a custom anchor point
+    /// Create a scale action with delta scale values around a custom anchor point.
     pub fn scale_non_uniform_about(
         self,
         deltas: impl Into<ValueOrFn<Vec2>>,
@@ -2253,7 +2321,7 @@ impl DeltaActionBuilder {
         })
     }
 
-    /// Create a uniform scale action with delta scale value around the last known pointer location
+    /// Create a uniform scale action with delta scale value around the last known pointer location.
     pub fn scale_about_pointer(self, delta: impl Into<ValueOrFn<f64>>) -> NoInputAction {
         let d = delta.into();
         NoInputAction::Delta2D(DeltaAction2D::ScaleAboutPointer {
@@ -2264,7 +2332,7 @@ impl DeltaActionBuilder {
         })
     }
 
-    /// Create a scale action with delta scale values around the last known pointer location
+    /// Create a scale action with delta scale values around the last known pointer location.
     pub fn scale_non_uniform_about_pointer(
         self,
         deltas: impl Into<ValueOrFn<Vec2>>,
@@ -2274,14 +2342,16 @@ impl DeltaActionBuilder {
         })
     }
 
-    /// Create a rotate action with delta rotation value (uses backend's default center)
+    /// Create a rotate action with delta rotation value (uses backend's default center).
+    ///
+    /// **Backend Compatibility**: Rotation is only supported by Affine; ignored by viewports.
     pub fn rotate(self, delta: impl Into<ValueOrFn<f64>>) -> NoInputAction {
         NoInputAction::Delta1D(DeltaAction1D::Rotate {
             value: Delta(delta.into()),
         })
     }
 
-    /// Create a rotate action with delta rotation value around a custom anchor point
+    /// Create a rotate action with delta rotation value around a custom anchor point.
     pub fn rotate_about(
         self,
         delta: impl Into<ValueOrFn<f64>>,
@@ -2293,7 +2363,9 @@ impl DeltaActionBuilder {
         })
     }
 
-    /// Create a rotate action with delta rotation value around the last known pointer location
+    /// Create a rotate action with delta rotation value around the last known pointer location.
+    ///
+    /// **Backend Compatibility**: Rotation is only supported by Affine; ignored by viewports.
     pub fn rotate_about_pointer(self, delta: impl Into<ValueOrFn<f64>>) -> NoInputAction {
         NoInputAction::Delta1D(DeltaAction1D::RotateAboutPointer {
             value: Delta(delta.into()),
@@ -2311,12 +2383,12 @@ pub struct Behaviors {
 }
 
 impl Behaviors {
-    /// Creates a new empty behavior configuration
+    /// Creates a new empty behavior configuration.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Add action for drag events with builder pattern
+    /// Add action for drag events with builder pattern.
     #[must_use]
     pub fn drag<F, B>(mut self, filter: F, build: B) -> Self
     where
@@ -2330,7 +2402,7 @@ impl Behaviors {
         self
     }
 
-    /// Add action for exact drag events (absolute positioning, no sensitivity multipliers)
+    /// Add action for exact drag events (absolute positioning, no sensitivity multipliers).
     #[must_use]
     pub fn drag_exact<F>(mut self, filter: F) -> Self
     where
@@ -2342,7 +2414,7 @@ impl Behaviors {
         self
     }
 
-    /// Add action for scroll events with builder pattern
+    /// Add action for scroll events with builder pattern.
     #[must_use]
     pub fn scroll<F, B>(mut self, filter: F, build: B) -> Self
     where
@@ -2356,7 +2428,7 @@ impl Behaviors {
         self
     }
 
-    /// Add action for pinch gestures with builder pattern
+    /// Add action for pinch gestures with builder pattern.
     #[must_use]
     pub fn pinch<F, B>(mut self, filter: F, build: B) -> Self
     where
@@ -2370,7 +2442,7 @@ impl Behaviors {
         self
     }
 
-    /// Add action for rotate gestures with builder pattern
+    /// Add action for rotate gestures with builder pattern.
     #[must_use]
     pub fn rotate<F, B>(mut self, filter: F, build: B) -> Self
     where
@@ -2384,7 +2456,7 @@ impl Behaviors {
         self
     }
 
-    /// Add action for X-axis scroll events (convenience helper)
+    /// Add action for X-axis scroll events (convenience helper).
     #[must_use]
     pub fn scroll_x<F, B>(mut self, filter: F, build: B) -> Self
     where
@@ -2400,17 +2472,23 @@ impl Behaviors {
         self
     }
 
-    /// Add action for Y-axis scroll events (convenience helper)
+    /// Add action for Y-axis scroll events (convenience helper).
     #[must_use]
-    pub fn scroll_y<F, B>(self, filter: F, build: B) -> Self
+    pub fn scroll_y<F, B>(mut self, filter: F, build: B) -> Self
     where
         F: Fn(Modifiers, PointerType) -> bool + 'static,
-        B: FnOnce(Extract1DBuilder) -> InputValue2DToTransform,
+        B: FnOnce(InputValue1DBuilder) -> InputValue1DToTransform,
     {
-        self.scroll(filter, |s| build(s.y()))
+        self.pointer_actions
+            .push(PointerInputAction::ScrollExtract {
+                filter: Rc::new(filter),
+                extract: Extract1D::Y,
+                action: build(InputValue1DBuilder),
+            });
+        self
     }
 
-    /// Add action for keyboard key events with builder pattern
+    /// Add action for keyboard key events with builder pattern.
     #[must_use]
     pub fn key<F, B>(mut self, key: Key, filter: F, build: B) -> Self
     where
@@ -2425,7 +2503,7 @@ impl Behaviors {
         self
     }
 
-    /// Add action for click events with builder pattern
+    /// Add action for click events with builder pattern.
     #[must_use]
     pub fn click<F, B>(mut self, filter: F, build: B) -> Self
     where
@@ -2439,7 +2517,7 @@ impl Behaviors {
         self
     }
 
-    /// Add action for double-click events with builder pattern
+    /// Add action for double-click events with builder pattern.
     #[must_use]
     pub fn double_click<F, B>(mut self, filter: F, build: B) -> Self
     where
@@ -2453,7 +2531,7 @@ impl Behaviors {
         self
     }
 
-    /// Process a pointer event and produce transform deltas
+    /// Process a pointer event and produce transform deltas.
     pub fn process_pointer<T: TransformTarget>(
         &self,
         event: &PointerEvent,
@@ -2497,7 +2575,7 @@ impl Behaviors {
             .collect()
     }
 
-    /// Process a keyboard event and produce transform deltas
+    /// Process a keyboard event and produce transform deltas.
     pub fn process_keyboard(
         &self,
         event: &KeyboardEvent,
@@ -2528,7 +2606,7 @@ pub struct TransformEncoder {
 }
 
 impl TransformEncoder {
-    /// Create a new encoder with the given behavior configuration
+    /// Create a new encoder with the given behavior configuration.
     pub fn new(behaviors: Behaviors) -> Self {
         Self {
             behaviors,
@@ -2538,7 +2616,7 @@ impl TransformEncoder {
         }
     }
 
-    /// Process a pointer event and apply any resulting transform deltas to the target
+    /// Process a pointer event and apply any resulting transform deltas to the target.
     ///
     /// Returns true if the event was handled and the target was modified.
     pub fn encode<T: TransformTarget>(&mut self, event: &PointerEvent, target: &mut T) -> bool {
@@ -2577,7 +2655,7 @@ impl TransformEncoder {
         handled
     }
 
-    /// Process a keyboard event and apply any resulting transform deltas to the target
+    /// Process a keyboard event and apply any resulting transform deltas to the target.
     ///
     /// Returns true if the event was handled and the target was modified.
     pub fn encode_keyboard<T: TransformTarget>(
@@ -2595,7 +2673,7 @@ impl TransformEncoder {
         handled
     }
 
-    /// Apply deltas directly to a target (useful for testing or manual control)
+    /// Apply deltas directly to a target (useful for testing or manual control).
     pub fn apply_deltas<T: TransformTarget>(
         &mut self,
         target: &mut T,
@@ -2619,14 +2697,14 @@ pub struct DragState {
 }
 
 impl DragState {
-    /// Start tracking a new drag operation from the given position
+    /// Start tracking a new drag operation from the given position.
     pub fn start(&mut self, pos: Point) {
         self.is_dragging = true;
         self.start_pos = Some(pos);
         self.last_pos = Some(pos);
     }
 
-    /// Update the drag state with a new position, returning the movement delta since last update
+    /// Update the drag state with a new position, returning the movement delta since last update.
     pub fn update(&mut self, pos: Point) -> Option<Vec2> {
         if self.is_dragging {
             if let Some(last_pos) = self.last_pos {
@@ -2642,7 +2720,7 @@ impl DragState {
         }
     }
 
-    /// Get total offset from drag start position
+    /// Get total offset from drag start position.
     pub fn total_offset(&self, current_pos: Point) -> Option<Vec2> {
         if self.is_dragging {
             self.start_pos.map(|start_pos| current_pos - start_pos)
@@ -2651,7 +2729,7 @@ impl DragState {
         }
     }
 
-    /// End the current drag operation and reset state
+    /// End the current drag operation and reset state.
     pub fn end(&mut self) {
         self.is_dragging = false;
         self.start_pos = None;
@@ -2660,7 +2738,7 @@ impl DragState {
 }
 
 fn resolve_scroll_delta<T: TransformTarget>(event: &PointerScrollEvent, target: &T) -> Vec2 {
-    use ::ui_events::ScrollDelta;
+    use ui_events::ScrollDelta;
     match &event.delta {
         ScrollDelta::PixelDelta(pos) => {
             let logical = pos.to_logical(event.state.scale_factor);
@@ -2682,8 +2760,8 @@ fn resolve_scroll_delta<T: TransformTarget>(event: &PointerScrollEvent, target: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::ui_events::pointer::PointerType;
     use kurbo::{Affine, Point, Rect, Vec2};
+    use ui_events::pointer::PointerType;
     use understory_view2d::{Viewport1D, Viewport2D};
 
     #[test]
@@ -2850,7 +2928,7 @@ mod tests {
 
     #[test]
     fn test_keyboard_builder_api() {
-        use ::ui_events::keyboard::{Key, NamedKey};
+        use ui_events::keyboard::{Key, NamedKey};
 
         let behavior = Behaviors::new()
             .key(
