@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use criterion::{BatchSize, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use understory_index::{Aabb2D, Index};
+use understory_index::{Aabb2D, Backend, Index, IndexGeneric};
 
 fn gen_grid_rects(n: usize, cell: f64) -> Vec<Aabb2D<f64>> {
     let mut out = Vec::with_capacity(n * n);
@@ -107,6 +107,97 @@ fn gen_random_rects_f32(
     out
 }
 
+trait IndexOpsF64U32 {
+    fn insert_box(&mut self, aabb: Aabb2D<f64>, payload: u32);
+    fn commit_box(&mut self);
+    fn query_rect_count_box(&self, rect: Aabb2D<f64>) -> usize;
+}
+
+impl<B> IndexOpsF64U32 for IndexGeneric<f64, u32, B>
+where
+    B: Backend<f64>,
+{
+    fn insert_box(&mut self, aabb: Aabb2D<f64>, payload: u32) {
+        let _ = self.insert(aabb, payload);
+    }
+
+    fn commit_box(&mut self) {
+        let _ = self.commit();
+    }
+
+    fn query_rect_count_box(&self, rect: Aabb2D<f64>) -> usize {
+        self.query_rect(rect).count()
+    }
+}
+
+fn bench_insert_commit_rect_grid_f64_with_backend<F, I>(
+    c: &mut Criterion,
+    group_name: &str,
+    make_index: F,
+) where
+    F: Fn() -> I + Clone + 'static,
+    I: IndexOpsF64U32 + 'static,
+{
+    let mut group = c.benchmark_group(group_name);
+    for &n in &[32usize, 64, 128] {
+        let rects = gen_grid_rects(n, 10.0);
+        group.throughput(Throughput::Elements((n * n) as u64));
+        group.bench_function(format!("insert_commit_rect_n{}", n), |b| {
+            let make_index = make_index.clone();
+            b.iter_batched(
+                || {
+                    let mut idx = make_index();
+                    for (i, r) in rects.iter().copied().enumerate() {
+                        idx.insert_box(r, i as u32);
+                    }
+                    idx.commit_box();
+                    idx
+                },
+                |idx| {
+                    let hits: usize = idx
+                        .query_rect_count_box(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0));
+                    black_box(hits);
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
+    group.finish();
+}
+
+fn bench_query_heavy_f64_with_backend<F, I>(c: &mut Criterion, group_name: &str, make_index: F)
+where
+    F: Fn() -> I + Clone + 'static,
+    I: IndexOpsF64U32 + 'static,
+{
+    let rects = gen_grid_rects(128, 8.0);
+    let mut group = c.benchmark_group(group_name);
+    group.bench_function("build_then_many_queries", |b| {
+        let make_index = make_index.clone();
+        b.iter_batched(
+            || {
+                let mut idx = make_index();
+                for (i, r) in rects.iter().copied().enumerate() {
+                    idx.insert_box(r, i as u32);
+                }
+                idx.commit_box();
+                idx
+            },
+            |idx| {
+                let mut total = 0usize;
+                for q in 0..256 {
+                    let x = (q % 64) as f64 * 8.0;
+                    let y = (q / 64) as f64 * 8.0;
+                    total += idx.query_rect_count_box(Aabb2D::<f64>::from_xywh(x, y, 64.0, 64.0));
+                }
+                black_box(total);
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
 fn bench_flatvec(c: &mut Criterion) {
     let mut group = c.benchmark_group("flatvec");
     for &n in &[32usize, 64, 128] {
@@ -150,28 +241,7 @@ fn bench_flatvec(c: &mut Criterion) {
 }
 
 fn bench_bvh(c: &mut Criterion) {
-    let mut group = c.benchmark_group("bvh_f64");
-    for &n in &[32usize, 64, 128] {
-        let rects = gen_grid_rects(n, 10.0);
-        group.throughput(Throughput::Elements((n * n) as u64));
-        group.bench_function(format!("insert_commit_rect_n{}", n), |b| {
-            b.iter_batched(
-                Index::<f64, u32>::with_bvh,
-                |mut idx| {
-                    for (i, r) in rects.iter().copied().enumerate() {
-                        let _ = idx.insert(r, i as u32);
-                    }
-                    let _ = idx.commit();
-                    let hits: usize = idx
-                        .query_rect(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0))
-                        .count();
-                    black_box(hits);
-                },
-                BatchSize::SmallInput,
-            )
-        });
-    }
-    group.finish();
+    bench_insert_commit_rect_grid_f64_with_backend(c, "bvh_f64", Index::<f64, u32>::with_bvh);
 }
 
 fn bench_rtree(c: &mut Criterion) {
@@ -223,28 +293,10 @@ fn bench_bvh_f32(c: &mut Criterion) {
 }
 
 fn bench_rtree_f64(c: &mut Criterion) {
-    let mut group = c.benchmark_group("rtree_f64");
-    for &n in &[32usize, 64, 128] {
-        let rects = gen_grid_rects(n, 10.0);
-        group.throughput(Throughput::Elements((n * n) as u64));
-        group.bench_function(format!("insert_commit_rect_n{}", n), |b| {
-            b.iter_batched(
-                Index::<f64, u32>::with_rtree,
-                |mut idx| {
-                    for (i, r) in rects.iter().copied().enumerate() {
-                        let _ = idx.insert(r, i as u32);
-                    }
-                    let _ = idx.commit();
-                    let hits: usize = idx
-                        .query_rect(Aabb2D::new(100.0, 100.0, 500.0, 500.0))
-                        .count();
-                    black_box(hits);
-                },
-                BatchSize::SmallInput,
-            )
-        });
-    }
-    group.finish();
+    // Note: this uses the same query rect as the other f64 grids for consistency.
+    bench_insert_commit_rect_grid_f64_with_backend(c, "rtree_f64", || {
+        Index::<f64, u32>::with_rtree()
+    });
 }
 
 fn bench_rtree_f32(c: &mut Criterion) {
@@ -303,33 +355,19 @@ fn bench_update_heavy_rtree_i64(c: &mut Criterion) {
 }
 
 fn bench_query_heavy_rtree_f64(c: &mut Criterion) {
-    let mut group = c.benchmark_group("rtree_f64_query_heavy");
-    let rects = gen_grid_rects(128, 8.0);
-    group.bench_function("build_then_many_queries", |b| {
-        b.iter_batched(
-            || {
-                let mut idx = Index::<f64, u32>::with_rtree();
-                for (i, r) in rects.iter().copied().enumerate() {
-                    let _ = idx.insert(r, i as u32);
-                }
-                let _ = idx.commit();
-                idx
-            },
-            |idx| {
-                let mut total = 0usize;
-                for q in 0..256 {
-                    let x = (q % 64) as f64 * 8.0;
-                    let y = (q / 64) as f64 * 8.0;
-                    total += idx
-                        .query_rect(Aabb2D::<f64>::from_xywh(x, y, 64.0, 64.0))
-                        .count();
-                }
-                black_box(total);
-            },
-            BatchSize::SmallInput,
-        )
+    bench_query_heavy_f64_with_backend(c, "rtree_f64_query_heavy", || {
+        Index::<f64, u32>::with_rtree()
     });
-    group.finish();
+}
+
+fn bench_query_heavy_flatvec_and_grid_f64(c: &mut Criterion) {
+    // Flatvec: build once, then many queries.
+    bench_query_heavy_f64_with_backend(c, "flatvec_query_heavy_f64", Index::<f64, u32>::new);
+
+    // Grid: same workload, grid-backed index.
+    bench_query_heavy_f64_with_backend(c, "grid_f64_query_heavy", || {
+        Index::<f64, u32>::with_grid(8.0)
+    });
 }
 
 fn bench_bvh_clustered_f64(c: &mut Criterion) {
@@ -354,16 +392,43 @@ fn bench_bvh_clustered_f64(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_grid_f64(c: &mut Criterion) {
+    bench_insert_commit_rect_grid_f64_with_backend(c, "grid_f64", || {
+        Index::<f64, u32>::with_grid(10.0)
+    });
+    let mut group = c.benchmark_group("grid_f64");
+    let rects = gen_overlap_grid_rects(64, 10.0, 3.0);
+    group.bench_function("insert_commit_rect_overlap", |b| {
+        b.iter_batched(
+            || Index::<f64, u32>::with_grid(10.0),
+            |mut idx| {
+                for (i, r) in rects.iter().copied().enumerate() {
+                    let _ = idx.insert(r, i as u32);
+                }
+                let _ = idx.commit();
+                let hits: usize = idx
+                    .query_rect(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0))
+                    .count();
+                black_box(hits);
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_flatvec,
     bench_bvh,
     bench_bvh_f32,
+    bench_grid_f64,
     bench_rtree,
     bench_rtree_f64,
     bench_rtree_f32,
     bench_update_heavy_rtree_i64,
     bench_query_heavy_rtree_f64,
     bench_bvh_clustered_f64,
+    bench_query_heavy_flatvec_and_grid_f64,
 );
 criterion_main!(benches);

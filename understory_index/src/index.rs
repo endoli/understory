@@ -261,6 +261,16 @@ impl<P: Copy + Debug> Index<f64, P> {
         }
     }
 
+    /// Create a grid-backed index with the given cell size (`f64` coordinates).
+    #[cfg(feature = "backend_grid")]
+    pub fn with_grid(cell_size: f64) -> IndexGeneric<f64, P, crate::backends::GridF64> {
+        IndexGeneric {
+            entries: Vec::new(),
+            free_list: Vec::new(),
+            backend: crate::backends::GridF64::new(cell_size),
+        }
+    }
+
     /// Create an R-tree-backed index (f64 coordinates).
     pub fn with_rtree() -> IndexGeneric<f64, P, crate::backends::rtree::RTreeF64<P>> {
         IndexGeneric {
@@ -296,6 +306,16 @@ impl<P: Copy + Debug> Index<f64, P> {
 }
 
 impl<P: Copy + Debug> Index<i64, P> {
+    /// Create a grid-backed index with the given cell size (`i64` coordinates).
+    #[cfg(feature = "backend_grid")]
+    pub fn with_grid(cell_size: i64) -> IndexGeneric<i64, P, crate::backends::GridI64> {
+        IndexGeneric {
+            entries: Vec::new(),
+            free_list: Vec::new(),
+            backend: crate::backends::GridI64::new(cell_size),
+        }
+    }
+
     /// Create an i64 R-tree-backed index using integer SAH splits.
     pub fn with_rtree() -> IndexGeneric<i64, P, crate::backends::rtree::RTreeI64<P>> {
         IndexGeneric {
@@ -337,6 +357,16 @@ impl<P: Copy + Debug> Index<f32, P> {
             entries: Vec::new(),
             free_list: Vec::new(),
             backend: crate::backends::bvh::BvhF32::default(),
+        }
+    }
+
+    /// Create a grid-backed index with the given cell size (`f32` coordinates).
+    #[cfg(feature = "backend_grid")]
+    pub fn with_grid(cell_size: f32) -> IndexGeneric<f32, P, crate::backends::GridF32> {
+        IndexGeneric {
+            entries: Vec::new(),
+            free_list: Vec::new(),
+            backend: crate::backends::GridF32::new(cell_size),
         }
     }
 
@@ -444,5 +474,47 @@ mod tests {
         let mut visit_count_r = 0;
         idx.visit_rect(r, |_k, _p| visit_count_r += 1);
         assert_eq!(visit_count_r, it_count_r);
+    }
+
+    #[test]
+    #[cfg(feature = "backend_grid")]
+    fn grid_backend_basic_roundtrip() {
+        let mut idx: IndexGeneric<f32, u32, crate::backends::GridF32> =
+            IndexGeneric::with_backend(crate::backends::GridF32::new(10.0));
+        let k = idx.insert(Aabb2D::new(0.0, 0.0, 10.0, 10.0), 1);
+        let _ = idx.commit();
+
+        let hits: Vec<_> = idx.query_point(5.0, 5.0).collect();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, k);
+        assert_eq!(hits[0].1, 1);
+    }
+
+    #[test]
+    #[cfg(feature = "backend_grid")]
+    fn grid_backend_negative_coords() {
+        let mut idx: IndexGeneric<f32, u32, crate::backends::GridF32> =
+            IndexGeneric::with_backend(crate::backends::GridF32::new(10.0));
+        let k = idx.insert(Aabb2D::new(-25.0, -25.0, -5.0, -5.0), 2);
+        let _ = idx.commit();
+
+        let hits: Vec<_> = idx.query_point(-10.0, -10.0).collect();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, k);
+        assert_eq!(hits[0].1, 2);
+    }
+
+    #[test]
+    #[cfg(feature = "backend_grid")]
+    fn grid_backend_i64_works() {
+        let mut idx: IndexGeneric<i64, u32, crate::backends::GridI64> =
+            IndexGeneric::with_backend(crate::backends::GridI64::new(10));
+        let k = idx.insert(Aabb2D::new(-30, -30, -10, -10), 3);
+        let _ = idx.commit();
+
+        let hits: Vec<_> = idx.query_point(-20, -20).collect();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, k);
+        assert_eq!(hits[0].1, 3);
     }
 }

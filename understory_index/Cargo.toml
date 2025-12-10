@@ -8,7 +8,13 @@ repository = "https://github.com/endoli/understory"
 keywords = ["spatial", "aabb", "index", "rtree", "bvh"]
 categories = ["data-structures", "graphics", "no-std"]
 
+[features]
+default = ["backend_grid"]
+backend_grid = ["dep:hashbrown", "dep:smallvec"]
+
 [dependencies]
+hashbrown = { workspace = true, optional = true }
+smallvec = { workspace = true, optional = true }
 
 [lints]
 workspace = true
