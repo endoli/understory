@@ -6,6 +6,7 @@
 //! - `flatvec`: flat vector with linear scans (small, simple).
 //! - `rtree`: generic R-tree (`T: Scalar`) with SAH-like split (aliases: `RTreeI64`, `RTreeF32`, `RTreeF64`).
 //! - `bvh`: generic BVH (`T: Scalar`) with SAH-like split (aliases: `BvhF32`, `BvhF64`, `BvhI64`).
+//! - `grid` (feature `backend_grid`): uniform grid with configurable cell size.
 //!
 //! SAH note
 //! --------
@@ -21,8 +22,12 @@
 
 pub(crate) mod bvh;
 pub(crate) mod flatvec;
+#[cfg(feature = "backend_grid")]
+pub(crate) mod grid;
 pub(crate) mod rtree;
 
 pub use bvh::{Bvh, BvhF32, BvhF64, BvhI64};
 pub use flatvec::FlatVec;
+#[cfg(feature = "backend_grid")]
+pub use grid::{Grid, GridF32, GridF64, GridI64, GridScalar};
 pub use rtree::{RTree, RTreeF32, RTreeF64, RTreeI64};
