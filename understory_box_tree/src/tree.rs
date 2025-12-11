@@ -467,19 +467,12 @@ impl<B: Backend<f64>> Tree<B> {
     /// This tie-break is intentionally deterministic for now. In the future this
     /// may be made configurable (for example via a `TieBreakPolicy`).
     pub fn hit_test_point(&self, pt: Point, filter: QueryFilter) -> Option<Hit> {
-        let candidates: Vec<NodeId> = self
-            .index
-            .query_point(pt.x, pt.y)
-            .map(|(_, id)| id)
-            .collect();
         let mut best: Option<(NodeId, i32, usize)> = None;
-        for id in candidates {
+        for id in self.containing_point(pt, filter) {
             let Some(node) = self.nodes[id.idx()].as_ref() else {
-                continue;
+                unreachable!("`self.containing_point` only returns live nodes");
             };
-            if !filter.matches(node.local.flags) {
-                continue;
-            }
+
             if node.local.clip_behavior != ClipBehavior::Ignore
                 && let Some(clip) = node.local.local_clip
             {
