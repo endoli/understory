@@ -458,7 +458,7 @@ impl<B: Backend<f64>> Tree<B> {
     /// Hit test a world-space point and, if any node matches, return the
     /// topmost node and its path to root as a [`Hit`].
     ///
-    /// - The point `pt` is interpreted in world coordinates, after all transforms.
+    /// - `point` is interpreted in world coordinates.
     /// - Nodes must satisfy the [`QueryFilter`] and contain the point within their
     ///   world-space bounds and clip to be eligible.
     /// - Among candidates, higher `z_index` wins; if `z_index` ties, deeper nodes
@@ -466,9 +466,9 @@ impl<B: Backend<f64>> Tree<B> {
     ///
     /// This tie-break is intentionally deterministic for now. In the future this
     /// may be made configurable (for example via a `TieBreakPolicy`).
-    pub fn hit_test_point(&self, pt: Point, filter: QueryFilter) -> Option<Hit> {
+    pub fn hit_test_point(&self, point: Point, filter: QueryFilter) -> Option<Hit> {
         let mut best: Option<(NodeId, i32, usize)> = None;
-        for id in self.containing_point(pt, filter) {
+        for id in self.containing_point(point, filter) {
             let Some(node) = self.nodes[id.idx()].as_ref() else {
                 unreachable!("`self.containing_point` only returns live nodes");
             };
@@ -476,8 +476,8 @@ impl<B: Backend<f64>> Tree<B> {
             if node.local.clip_behavior != ClipBehavior::Ignore
                 && let Some(clip) = node.local.local_clip
             {
-                let world_pt = node.world.world_transform.inverse() * pt;
-                if !clip.rect().contains(world_pt) {
+                let local_point = node.world.world_transform.inverse() * point;
+                if !clip.rect().contains(local_point) {
                     continue;
                 }
             }
