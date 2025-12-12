@@ -9,6 +9,7 @@ members = [
   "understory_selection",
   "understory_view2d",
   "understory_virtual_list",
+  "understory_event_state",
   "benches",
   "examples",
 ]

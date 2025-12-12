@@ -9,8 +9,8 @@
 //! Run:
 //! - `cargo run -p understory_examples --example responder_hover`
 
-use understory_responder::hover::{HoverEvent, HoverState, path_from_dispatch};
-use understory_responder::router::Router;
+use understory_event_state::hover::{HoverEvent, HoverState};
+use understory_responder::router::{Router, path_from_dispatch};
 use understory_responder::types::{DepthKey, Localizer, ParentLookup, ResolvedHit, WidgetLookup};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]

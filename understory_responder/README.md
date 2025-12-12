@@ -61,21 +61,21 @@ The router only computes the traversal order. A higher‑level dispatcher can ex
    - Overlapping siblings: only the topmost/nearest candidate is selected; siblings do not receive the target.
    - Equal‑depth ties: deterministic and stable; the last candidate wins unless you pre‑order your hits or set a policy.
    - Pointer capture: overrides selection until released.
-3) Hover — derive the path from the dispatch via [`path_from_dispatch`](https://docs.rs/understory_responder/latest/understory_responder/hover/fn.path_from_dispatch.html)
-   and feed it to [`HoverState`](https://docs.rs/understory_responder/latest/understory_responder/hover/struct.HoverState.html). `HoverState` emits leave (inner→outer)
-   and enter (outer→inner) events for the minimal transition between old and new paths.
-4) Click — use [`ClickState`](https://docs.rs/understory_responder/latest/understory_responder/click/struct.ClickState.html) to determine when pointer up events
-   should generate click events. Handles cases where elements transform between down and up,
-   applying configurable spatial and temporal tolerance to preserve user intent.
 
-## Focus
+## Integration with Event State
+
+The router produces dispatch sequences that integrate with `understory_event_state` for stateful interactions:
+
+- Extract root→target paths using [`path_from_dispatch`](https://docs.rs/understory_responder/latest/understory_responder/router/fn.path_from_dispatch.html)
+- Feed paths to hover, focus, click, and drag state managers as needed
+- See `understory_event_state` documentation for details on each state manager
+
+## Focus Routing
 
 Focus routing is separate from pointer routing.
-Use [`Router::dispatch_for`](router::Router::dispatch_for) to emit a capture → target → bubble sequence for the focused node.
+Use [`Router::dispatch_for`](router::Router::dispatch_for) to emit a capture → target → bubble sequence for a focused node.
 The router reconstructs the root→target path via [`ParentLookup`](https://docs.rs/understory_responder/latest/understory_responder/types/trait.ParentLookup.html) or falls back to a singleton path.
-Use [`FocusState`](https://docs.rs/understory_responder/latest/understory_responder/focus/struct.FocusState.html) to compute `Enter(..)` and `Leave(..)` transitions between old and new focus paths.
 Keyboard and IME events typically route to focus and may bypass scope filters by policy at a higher layer.
-Click‑to‑focus can be implemented by setting focus after a pointer route and then routing subsequent key input via `dispatch_for`.
 
 ## Dispatcher
 

@@ -9,7 +9,7 @@
 //! Run:
 //! - `cargo run -p understory_examples --example responder_focus`
 
-use understory_responder::focus::{FocusEvent, FocusState};
+use understory_event_state::focus::{FocusEvent, FocusState};
 use understory_responder::router::Router;
 use understory_responder::types::{ParentLookup, WidgetLookup};
 
