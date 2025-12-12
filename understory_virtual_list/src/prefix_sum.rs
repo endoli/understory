@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use crate::{ExtentModel, Scalar};
+use crate::{ExtentModel, ResizableExtentModel, Scalar};
 
 /// An [`ExtentModel`] backed by per-item extents and a lazily-maintained prefix-sum cache.
 ///
@@ -217,6 +217,12 @@ impl<S: Scalar> ExtentModel for PrefixSumExtentModel<S> {
     fn index_at_offset(&mut self, offset: S) -> usize {
         let len = self.extents.len();
         self.index_at_offset_for_len(offset, len)
+    }
+}
+
+impl<S: Scalar> ResizableExtentModel for PrefixSumExtentModel<S> {
+    fn set_len(&mut self, len: usize) {
+        self.set_len(len);
     }
 }
 

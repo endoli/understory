@@ -23,6 +23,8 @@
 //!   scroll state, viewport extent, and overscan, and caches the most recent
 //!   [`VisibleStrip`]. It also provides index-based scrolling via [`ScrollAlign`]
 //!   and convenience methods for visibility queries and scroll clamping.
+//! - [`GridTrackModel`]: an adapter that maps a per-track [`ExtentModel`] onto a
+//!   per-cell view for grid-like layouts (tracks × cells).
 //!
 //! This crate deliberately does **not** know about widgets, display trees, or any
 //! particular UI framework. Host frameworks are responsible for:
@@ -66,6 +68,31 @@
 //!
 //! All extents and offsets live in a caller-chosen 1D coordinate space
 //! (typically logical pixels) and are expected to be finite and non-negative.
+//!
+//! ## Grid-like example with tracks and cells
+//!
+//! For grids, use [`GridTrackModel`] to adapt a per-track model to per-cell
+//! indices. In a vertical grid, tracks typically correspond to rows and cells
+//! to columns:
+//!
+//! ```rust
+//! use core::num::NonZeroUsize;
+//! use understory_virtual_list::{FixedExtentModel, GridTrackModel, VirtualList};
+//!
+//! // Four tracks (rows), each 20 logical pixels tall.
+//! let row_model = FixedExtentModel::new(4, 20.0);
+//! // A 3-column grid over 12 cells (4 rows × 3 columns).
+//! let columns = NonZeroUsize::new(3).unwrap();
+//! let grid_model = GridTrackModel::new(row_model, columns, 12);
+//! let mut list = VirtualList::new(grid_model, 40.0, 0.0);
+//!
+//! let strip = list.visible_strip();
+//! assert!(strip.start < strip.end);
+//! // Host code can map each visible cell index `i` to:
+//! //   let track = list.model().track_of_cell(i);
+//! //   let cell_in_track = list.model().cell_in_track(i);
+//! ```
+//!
 //! This crate is `no_std` and uses `alloc`.
 
 #![no_std]
@@ -73,13 +100,15 @@
 extern crate alloc;
 
 mod fixed;
+mod grid_track;
 mod model;
 mod prefix_sum;
 mod scalar;
 mod virtual_list;
 
 pub use fixed::FixedExtentModel;
-pub use model::{ExtentModel, VisibleStrip, compute_visible_strip};
+pub use grid_track::GridTrackModel;
+pub use model::{ExtentModel, ResizableExtentModel, VisibleStrip, compute_visible_strip};
 pub use prefix_sum::PrefixSumExtentModel;
 pub use scalar::Scalar;
 pub use virtual_list::{ScrollAlign, VirtualList};

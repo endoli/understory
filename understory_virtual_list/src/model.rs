@@ -76,6 +76,18 @@ pub trait ExtentModel {
     fn index_at_offset(&mut self, offset: Self::Scalar) -> usize;
 }
 
+/// An [`ExtentModel`] whose logical length can be resized.
+///
+/// Implementations are expected to ensure storage for `len` items and treat
+/// any newly added items as having extent `0.0` until explicitly updated.
+pub trait ResizableExtentModel: ExtentModel {
+    /// Ensures that the model can represent `len` items.
+    ///
+    /// Implementations typically grow internal storage and treat new items as
+    /// zero-sized until their extents are set by the caller.
+    fn set_len(&mut self, len: usize);
+}
+
 /// Compute the visible slice of a strip, given scroll position, viewport size, and overscan.
 ///
 /// - `scroll_offset`: top of the viewport in strip coordinates (`>= 0`).

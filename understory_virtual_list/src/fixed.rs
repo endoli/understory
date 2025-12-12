@@ -3,7 +3,7 @@
 
 //! A simple extent model with uniform per-item extent.
 
-use crate::{ExtentModel, Scalar};
+use crate::{ExtentModel, ResizableExtentModel, Scalar};
 
 /// An [`ExtentModel`] where all items share the same extent.
 #[derive(Debug, Clone, Copy)]
@@ -86,6 +86,12 @@ impl<S: Scalar> ExtentModel for FixedExtentModel<S> {
         )]
         let i = ratio.floor_to_isize();
         i.clamp(0, self.len as isize - 1) as usize
+    }
+}
+
+impl<S: Scalar> ResizableExtentModel for FixedExtentModel<S> {
+    fn set_len(&mut self, len: usize) {
+        self.set_len(len);
     }
 }
 

@@ -275,7 +275,7 @@ impl<M: ExtentModel> VirtualList<M> {
 #[cfg(test)]
 mod tests {
     use super::ScrollAlign;
-    use crate::{FixedExtentModel, VirtualList};
+    use crate::{FixedExtentModel, GridTrackModel, VirtualList};
 
     #[test]
     fn visible_strip_tracks_scroll_and_viewport() {
@@ -362,5 +362,26 @@ mod tests {
         list.scroll_by(5.0_f32);
         assert!(list.is_index_partially_visible(0));
         assert!(list.is_index_partially_visible(3));
+    }
+
+    #[test]
+    fn grid_virtual_list_covers_all_cells_in_visible_tracks() {
+        // 1000 cells, 3 cells per track, enough tracks to cover all cells.
+        let total_cells: usize = 1000;
+        let cells_per_track = core::num::NonZeroUsize::new(3).unwrap();
+
+        // Each track is 10 units tall. The grid adapter will resize the
+        // underlying track model based on `len` and `cells_per_track`.
+        let row_model = FixedExtentModel::new(0, 10.0_f32);
+        let grid_model = GridTrackModel::new(row_model, cells_per_track, total_cells);
+
+        // Viewport is 3 tracks tall → 3 * 10.
+        let mut list = VirtualList::new(grid_model, 30.0_f32, 0.0);
+
+        let strip = list.visible_strip();
+        // At scroll_offset = 0, we expect the first three tracks to be visible:
+        // 3 tracks × 3 cells per track = 9 cells (indices 0..9).
+        assert_eq!(strip.start, 0);
+        assert_eq!(strip.end, 9);
     }
 }
