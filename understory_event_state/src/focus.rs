@@ -10,7 +10,7 @@
 //!
 //! ## Minimal example
 //! ```
-//! use understory_responder::focus::{FocusState, FocusEvent};
+//! use understory_event_state::focus::{FocusState, FocusEvent};
 //! let mut f: FocusState<u32> = FocusState::new();
 //! assert_eq!(f.update_path(&[1, 2]), vec![FocusEvent::Enter(1), FocusEvent::Enter(2)]);
 //! assert_eq!(f.update_path(&[1, 3]), vec![FocusEvent::Leave(2), FocusEvent::Enter(3)]);
@@ -23,7 +23,7 @@
 //!
 //! ```ignore
 //! use understory_focus::{DefaultPolicy, FocusEntry, FocusPolicy, FocusSpace, Navigation, WrapMode};
-//! use understory_responder::focus::{FocusEvent, FocusState};
+//! use understory_event_state::focus::{FocusEvent, FocusState};
 //!
 //! # type NodeId = u32;
 //! # let root: NodeId = 1;

@@ -19,6 +19,12 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Not a layout engine.
   - Upstream code (your layout system) decides sizes and positions and then updates this tree.
 
+- `understory_event_state`
+  - Common event state managers for UI interactions: hover enter/leave transitions, focus path changes, transform‑aware click recognition, and drag tracking.
+  - Each manager is a focused state machine that accepts pre‑computed information (root→target paths from `understory_responder`, pointer positions) and emits transition events.
+  - Designed to integrate with any event routing or spatial query system.
+  - Generic over node/widget ID types with no framework assumptions.
+
 - `understory_focus`
   - Focus navigation primitives: navigation intents, per‑node focus properties, and a spatial view of focusable candidates.
   - Provides pluggable policies for directional and ordered navigation, and an optional adapter for integrating with `understory_box_tree`.

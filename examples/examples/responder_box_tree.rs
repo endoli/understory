@@ -13,10 +13,10 @@ use std::collections::HashMap;
 
 use kurbo::{Affine, Point, Rect};
 use understory_box_tree::{ClipBehavior, LocalNode, NodeFlags, NodeId, QueryFilter, Tree};
+use understory_event_state::hover::HoverState;
 use understory_responder::adapters::box_tree::{hits_for_rect, top_hit_for_point};
 use understory_responder::dispatcher;
-use understory_responder::hover::{HoverState, path_from_dispatch};
-use understory_responder::router::Router;
+use understory_responder::router::{Router, path_from_dispatch};
 use understory_responder::types::{Outcome, ResolvedHit, WidgetLookup};
 
 fn main() {

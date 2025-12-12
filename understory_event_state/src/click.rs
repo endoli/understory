@@ -25,7 +25,7 @@
 //!
 //! Basic click detection:
 //! ```
-//! use understory_responder::click::{ClickState, ClickResult};
+//! use understory_event_state::click::{ClickState, ClickResult};
 //! use kurbo::Point;
 //!
 //! let mut state: ClickState<u32> = ClickState::new();
@@ -40,7 +40,7 @@
 //!
 //! Transform-tolerant click detection with movement tracking:
 //! ```
-//! # use understory_responder::click::{ClickState, ClickResult};
+//! # use understory_event_state::click::{ClickState, ClickResult};
 //! # use kurbo::Point;
 //! // Configure spatial tolerance of 10px and temporal tolerance of 500ms
 //! let mut state: ClickState<u32> = ClickState::with_thresholds(Some(10.0), Some(500));
@@ -87,7 +87,7 @@
 //!
 //! Each pointer is tracked independently:
 //! ```
-//! # use understory_responder::click::{ClickState, ClickResult, PointerId};
+//! # use understory_event_state::click::{ClickState, ClickResult, PointerId};
 //! # use core::num::NonZeroU64;
 //! # use kurbo::Point;
 //! let mut state: ClickState<u32> = ClickState::new();

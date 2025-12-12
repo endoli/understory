@@ -6,63 +6,44 @@
 //! ## Usage
 //!
 //! 1) Run the router to produce a dispatch sequence for a pointer move or similar.
-//! 2) Extract the root→target path from the dispatch with [`path_from_dispatch`].
+//! 2) Extract the root→target path. This may be done by extracting the path using `path_from_dispatch` from an event dispatch from the `understory_responder` crate.
 //! 3) Call [`HoverState::update_path`] with that path to get `Enter(..)` / `Leave(..)` transitions.
 //!
 //! ## Minimal example
 //!
 //! ```
-//! use understory_responder::hover::{HoverState, HoverEvent};
+//! use understory_event_state::hover::{HoverState, HoverEvent};
 //! let mut h: HoverState<u32> = HoverState::new();
 //! assert_eq!(h.update_path(&[1, 2]), vec![HoverEvent::Enter(1), HoverEvent::Enter(2)]);
 //! assert_eq!(h.update_path(&[1, 3]), vec![HoverEvent::Leave(2), HoverEvent::Enter(3)]);
 //! ```
 //!
-//! ## Example (sketch):
+//! ## Path-based example:
 //!
-//! ```no_run
-//! use understory_responder::hover::{HoverState, path_from_dispatch};
-//! use understory_responder::types::{ResolvedHit, DepthKey, Localizer};
-//! # use understory_responder::router::Router;
-//! # use understory_responder::types::{ParentLookup, WidgetLookup};
-//! #
-//! # // Minimal types for demonstration
-//! # #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-//! # struct Node(u32);
-//! #
-//! # struct Lookup;
-//! # impl WidgetLookup<Node> for Lookup {
-//! #     type WidgetId = u32;
-//! #     fn widget_of(&self, n: &Node) -> Option<u32> { Some(n.0) }
-//! # }
-//! #
-//! # struct Parents;
-//! # impl ParentLookup<Node> for Parents {
-//! #     fn parent_of(&self, _n: &Node) -> Option<Node> { None }
-//! # }
-//! #
-//! # let router: Router<Node, Lookup, Parents> = Router::with_parent(Lookup, Parents);
-//! # let hits = vec![ResolvedHit {
-//! #     node: Node(1),
-//! #     path: None,
-//! #     depth_key: DepthKey::Z(10),
-//! #     localizer: Localizer::default(),
-//! #     meta: (),
-//! # }];
-//! # let seq = router.handle_with_hits::<()>(&hits);
-//! #
-//! // Derive the root→target path from the dispatch sequence.
-//! let path = path_from_dispatch(&seq);
+//! ```
+//! use understory_event_state::hover::{HoverState, HoverEvent};
 //!
-//! // Compute hover transitions from the previous path to the new path.
 //! let mut hover = HoverState::new();
-//! let transitions = hover.update_path(&path);
-//! # let _ = transitions;
+//!
+//! // Start with a path from root to deeply nested element
+//! let transitions = hover.update_path(&[1, 2, 3, 4]);
+//! assert_eq!(transitions, vec![
+//!     HoverEvent::Enter(1),
+//!     HoverEvent::Enter(2),
+//!     HoverEvent::Enter(3),
+//!     HoverEvent::Enter(4)
+//! ]);
+//!
+//! // Move to a sibling branch - leave deep path, enter new branch
+//! let transitions = hover.update_path(&[1, 2, 5]);
+//! assert_eq!(transitions, vec![
+//!     HoverEvent::Leave(4),   // Leave innermost first
+//!     HoverEvent::Leave(3),   // Leave parent
+//!     HoverEvent::Enter(5)    // Enter sibling
+//! ]);
 //! ```
 
 use alloc::vec::Vec;
-
-use crate::types::{Dispatch, Phase};
 
 /// A simple hover state machine over root→target paths.
 ///
@@ -83,10 +64,9 @@ pub struct HoverState<K: Copy + Eq> {
 
 /// A hover transition event.
 ///
-/// Returned by [`HoverState::update_path`]. Use
-/// [`path_from_dispatch`] to derive a root→target path from a router
-/// dispatch sequence, then pass that path into [`HoverState::update_path`]
-/// to obtain `Enter(..)` / `Leave(..)` transitions.
+/// Returned by [`HoverState::update_path`]. If you are using `understory_responder`, you may use
+/// `path_from_dispatch` to derive a root→target path from a router dispatch sequence, then pass
+/// that path into [`HoverState::update_path`] to obtain `Enter(..)` / `Leave(..)` transitions.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum HoverEvent<K> {
     /// Pointer enters the given node (in order from outer→inner).
@@ -148,24 +128,6 @@ impl<K: Copy + Eq> HoverState<K> {
         self.current.extend_from_slice(new_path);
         out
     }
-}
-
-/// Extract a root→target path from a router dispatch sequence.
-///
-/// Assumes the sequence begins with all [`Capture`](crate::types::Phase::Capture)
-/// events for the path, followed by the [`Target`](crate::types::Phase::Target)
-/// and [`Bubble`](crate::types::Phase::Bubble) phases (as produced by the
-/// router in this crate). Pass the returned path to
-/// [`HoverState::update_path`] to compute hover transitions.
-pub fn path_from_dispatch<K: Copy, W, M>(seq: &[Dispatch<K, W, M>]) -> Vec<K> {
-    let mut path = Vec::new();
-    for d in seq {
-        match d.phase {
-            Phase::Capture | Phase::Target => path.push(d.node),
-            Phase::Bubble => break,
-        }
-    }
-    path
 }
 
 #[cfg(test)]
@@ -264,60 +226,5 @@ mod tests {
         let second = h.update_path(&[7, 8]);
         assert!(second.is_empty());
         assert_eq!(h.current_path(), &[7, 8]);
-    }
-
-    // Test that `path_from_dispatch` includes `Target` phase in the path
-    #[test]
-    fn path_from_dispatch_includes_target_phase() {
-        use crate::types::{Dispatch, Localizer, Phase};
-
-        let seq = vec![
-            Dispatch {
-                phase: Phase::Capture,
-                node: 1_u32,
-                widget: Some(10),
-                localizer: Localizer::default(),
-                meta: Some(()),
-            },
-            Dispatch {
-                phase: Phase::Capture,
-                node: 2_u32,
-                widget: Some(20),
-                localizer: Localizer::default(),
-                meta: Some(()),
-            },
-            Dispatch {
-                phase: Phase::Target,
-                node: 3_u32,
-                widget: Some(30),
-                localizer: Localizer::default(),
-                meta: Some(()),
-            },
-            Dispatch {
-                phase: Phase::Bubble,
-                node: 3_u32,
-                widget: Some(30),
-                localizer: Localizer::default(),
-                meta: Some(()),
-            },
-            Dispatch {
-                phase: Phase::Bubble,
-                node: 2_u32,
-                widget: Some(20),
-                localizer: Localizer::default(),
-                meta: Some(()),
-            },
-            Dispatch {
-                phase: Phase::Bubble,
-                node: 1_u32,
-                widget: Some(10),
-                localizer: Localizer::default(),
-                meta: Some(()),
-            },
-        ];
-
-        let path = path_from_dispatch(&seq);
-        // Should include all `Capture` phases plus the `Target` phase
-        assert_eq!(path, vec![1, 2, 3]);
     }
 }
