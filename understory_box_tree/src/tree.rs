@@ -16,7 +16,7 @@ use crate::util::{rect_to_aabb, transform_rect_bbox};
 /// The type parameter `B` controls which spatial index backend is used. It
 /// defaults to a flat-vector backend ([`FlatVec<f64>`]), so most callers can
 /// simply use [`Tree`] without specifying `B`. Advanced callers can override
-/// `B` to use an [R-tree][understory_index::backends::RTree] or
+/// `B` to use a grid, an [R-tree][understory_index::backends::RTree], or a
 /// [BVH][understory_index::backends::Bvh] backend from `understory_index`.
 ///
 /// Changes to local node data (bounds, transform, clip, flags, z) do **not**
@@ -1136,6 +1136,24 @@ mod tests {
 
         // Use a BVH backend and verify basic hit-testing still works.
         let mut tree: Tree<BvhF64> = Tree::with_backend(BvhF64::default());
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+        let hit = tree.hit_test_point(Point::new(50.0, 50.0), QueryFilter::new());
+        assert_eq!(hit.map(|h| h.node), Some(root));
+    }
+
+    #[test]
+    fn test_grid_backend() {
+        use understory_index::backends::GridF64;
+
+        // Use a grid backend and verify basic hit-testing still works.
+        let mut tree: Tree<GridF64> = Tree::with_backend(GridF64::new(50.0));
         let root = tree.insert(
             None,
             LocalNode {

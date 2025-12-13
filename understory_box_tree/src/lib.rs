@@ -37,12 +37,13 @@
 //! ## Integration with Understory Index
 //!
 //! This crate uses [`understory_index`] for spatial queries. You can choose the backend and scalar to
-//! fit your workload (flat vector, R-tree or BVH). Float inputs are
+//! fit your workload (flat vector, grid, R-tree, or BVH). Float inputs are
 //! assumed to be finite (no NaNs). AABBs are loose for non-axis-aligned transforms and rounded
 //! clips: we store an axis-aligned box that fully contains what is drawn, but it is not
 //! guaranteed to be tight.
 //!
 //! See [`understory_index::Index`],
+//! [`understory_index::backends::GridF32`]/[`understory_index::backends::GridF64`]/[`understory_index::backends::GridI64`],
 //! [`understory_index::backends::RTreeF32`]/[`understory_index::backends::RTreeF64`]/[`understory_index::backends::RTreeI64`],
 //! and
 //! [`understory_index::backends::BvhF32`]/[`understory_index::backends::BvhF64`]/[`understory_index::backends::BvhI64`]
