@@ -42,6 +42,8 @@ The core concepts are:
   and convenience methods for visibility queries and scroll clamping.
 - [`GridTrackModel`]: an adapter that maps a per-track [`ExtentModel`] onto a
   per-cell view for grid-like layouts (tracks × cells).
+- [`TailAnchoredExtentModel`]: a wrapper that adds tail-anchoring helpers
+  for chat/log-style lists that stick to the end of content.
 
 This crate deliberately does **not** know about widgets, display trees, or any
 particular UI framework. Host frameworks are responsible for:

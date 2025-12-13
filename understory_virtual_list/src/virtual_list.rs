@@ -3,7 +3,7 @@
 
 //! A small controller that owns an [`ExtentModel`] and scroll state.
 
-use crate::{ExtentModel, Scalar, VisibleStrip, compute_visible_strip};
+use crate::{ExtentModel, Scalar, TailAnchoredExtentModel, VisibleStrip, compute_visible_strip};
 
 /// Alignment mode when scrolling a specific index into view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,10 +272,45 @@ impl<M: ExtentModel> VirtualList<M> {
     }
 }
 
+impl<M: ExtentModel> VirtualList<TailAnchoredExtentModel<M>> {
+    /// Returns `true` if the current scroll offset is considered anchored to the tail.
+    ///
+    /// This delegates to [`TailAnchoredExtentModel::is_at_tail`], using the
+    /// current [`VirtualList::scroll_offset`] and [`VirtualList::viewport_extent`].
+    #[must_use]
+    pub fn is_at_tail(&mut self) -> bool {
+        let viewport = self.viewport_extent;
+        let offset = self.scroll_offset;
+        self.model.is_at_tail(offset, viewport)
+    }
+
+    /// Scrolls so that the tail of the content is visible at the end of the viewport.
+    ///
+    /// This delegates to [`TailAnchoredExtentModel::tail_scroll_offset`] and sets
+    /// the scroll offset accordingly.
+    pub fn scroll_to_tail(&mut self) {
+        let viewport = self.viewport_extent;
+        let tail = self.model.tail_scroll_offset(viewport);
+        self.set_scroll_offset(tail);
+    }
+
+    /// If the list is currently anchored to the tail, re-aligns the scroll offset
+    /// to the current tail position. Otherwise, leaves the scroll offset unchanged.
+    ///
+    /// This is useful when item extents change or items are appended: call this
+    /// after updating the underlying model to keep the view pinned to the tail
+    /// only when the user was already at (or near) the end of the list.
+    pub fn stick_to_tail_if_anchored(&mut self) {
+        if self.is_at_tail() {
+            self.scroll_to_tail();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ScrollAlign;
-    use crate::{FixedExtentModel, GridTrackModel, VirtualList};
+    use crate::{FixedExtentModel, GridTrackModel, TailAnchoredExtentModel, VirtualList};
 
     #[test]
     fn visible_strip_tracks_scroll_and_viewport() {
@@ -383,5 +418,34 @@ mod tests {
         // 3 tracks × 3 cells per track = 9 cells (indices 0..9).
         assert_eq!(strip.start, 0);
         assert_eq!(strip.end, 9);
+    }
+
+    #[test]
+    fn tail_anchored_helpers_scroll_and_detect_tail() {
+        // 10 items * 10 = 100 total extent, viewport = 30 → tail offset = 70.
+        let inner = FixedExtentModel::new(10, 10.0_f32);
+        let ta = TailAnchoredExtentModel::with_default_epsilon(inner);
+        let mut list = VirtualList::new(ta, 30.0_f32, 0.0);
+
+        // Initially at top, not at tail.
+        assert!(!list.is_at_tail());
+
+        // Scroll directly to tail and verify helpers agree.
+        list.scroll_to_tail();
+        assert!((list.scroll_offset() - 70.0_f32).abs() < f32::EPSILON);
+        assert!(list.is_at_tail());
+
+        // Move slightly away from tail but within epsilon; stick_to_tail_if_anchored
+        // should pull us back to the exact tail offset.
+        list.set_scroll_offset(69.5_f32);
+        assert!(list.is_at_tail());
+        list.stick_to_tail_if_anchored();
+        assert!((list.scroll_offset() - 70.0_f32).abs() < f32::EPSILON);
+
+        // Move far from tail; stick_to_tail_if_anchored should leave offset unchanged.
+        list.set_scroll_offset(10.0_f32);
+        assert!(!list.is_at_tail());
+        list.stick_to_tail_if_anchored();
+        assert!((list.scroll_offset() - 10.0_f32).abs() < f32::EPSILON);
     }
 }
