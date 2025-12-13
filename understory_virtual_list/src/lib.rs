@@ -25,6 +25,8 @@
 //!   and convenience methods for visibility queries and scroll clamping.
 //! - [`GridTrackModel`]: an adapter that maps a per-track [`ExtentModel`] onto a
 //!   per-cell view for grid-like layouts (tracks × cells).
+//! - [`TailAnchoredExtentModel`]: a wrapper that adds tail-anchoring helpers
+//!   for chat/log-style lists that stick to the end of content.
 //!
 //! This crate deliberately does **not** know about widgets, display trees, or any
 //! particular UI framework. Host frameworks are responsible for:
@@ -104,6 +106,7 @@ mod grid_track;
 mod model;
 mod prefix_sum;
 mod scalar;
+mod tail_anchored;
 mod virtual_list;
 
 pub use fixed::FixedExtentModel;
@@ -111,4 +114,5 @@ pub use grid_track::GridTrackModel;
 pub use model::{ExtentModel, ResizableExtentModel, VisibleStrip, compute_visible_strip};
 pub use prefix_sum::PrefixSumExtentModel;
 pub use scalar::Scalar;
+pub use tail_anchored::TailAnchoredExtentModel;
 pub use virtual_list::{ScrollAlign, VirtualList};
