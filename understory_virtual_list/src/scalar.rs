@@ -49,10 +49,11 @@ pub trait Scalar:
         }
     }
 
-    /// Floors the value and converts it to `isize`.
+    /// Converts the value to `isize` for index approximation.
     ///
-    /// Implementations may clamp or truncate as needed; callers are expected
-    /// to clamp the result to a valid index range afterwards.
+    /// Implementations may truncate as needed (the `f32`/`f64` impls truncate
+    /// toward zero). Callers are expected to clamp the result to a valid index
+    /// range afterwards.
     fn floor_to_isize(self) -> isize;
 }
 
