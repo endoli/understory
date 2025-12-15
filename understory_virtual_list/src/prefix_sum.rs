@@ -106,7 +106,7 @@ impl<S: Scalar> PrefixSumExtentModel<S> {
             self.prefix_starts[dirty_from - 1] + self.extents[dirty_from - 1]
         };
 
-        for i in dirty_from..len {
+        for i in dirty_from..=through {
             self.prefix_starts[i] = pos;
             pos = pos + self.extents[i];
         }
@@ -289,5 +289,32 @@ mod tests {
         assert_eq!(model.index_at_offset_for_len(0.0, 3), 0);
         assert_eq!(model.index_at_offset_for_len(15.0, 3), 1);
         assert_eq!(model.index_at_offset_for_len(40.0, 3), 2);
+    }
+
+    #[test]
+    fn prefix_cache_rebuilds_only_through_requested_index() {
+        let mut model = PrefixSumExtentModel::<f32>::new();
+        model.set_len(5);
+        for i in 0..5 {
+            model.set_extent(i, 10.0);
+        }
+
+        // Force a full build so prefix_starts are initialized.
+        assert_eq!(model.total_extent(), 50.0);
+        assert_eq!(model.dirty_from, None);
+        let old_prefix_start_3 = model.prefix_starts[3];
+
+        // Mutate an early extent, then only query an early offset.
+        model.set_extent(0, 20.0);
+        assert_eq!(model.offset_of(1), 20.0);
+        assert_eq!(model.dirty_from, Some(2));
+
+        // Cache entries after `through` remain untouched (and are considered dirty).
+        assert_eq!(model.prefix_starts[3], old_prefix_start_3);
+
+        // A later query rebuilds the remaining prefix sums.
+        assert_eq!(model.offset_of(4), 50.0);
+        assert_eq!(model.prefix_starts[3], 40.0);
+        assert_eq!(model.dirty_from, None);
     }
 }
