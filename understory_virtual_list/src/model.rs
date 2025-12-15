@@ -67,13 +67,35 @@ pub trait ExtentModel {
     /// - for all valid `i`, `offset_of(i + 1) >= offset_of(i) + extent_of(i)`.
     fn offset_of(&mut self, index: usize) -> Self::Scalar;
 
-    /// Given a scroll offset, find an index `i` such that:
+    /// Given a scroll offset, find the greatest index `i` such that the item
+    /// at `i` starts at or before that offset, or, if `len() == 0`, return `0`
+    /// (note: this is not a valid index).
     ///
-    /// - the item at `i` is at or before that offset,
-    /// - and `i` is clamped into `0..=len()`.
+    /// When `len() > 0`, the return value must be in `0..len()`.
+    ///
+    /// # Panics / misuse
+    ///
+    /// This method itself must not panic, but when `len() == 0` it returns `0`
+    /// as a sentinel. Treating the result as a valid index without checking
+    /// `len()` may lead to panics elsewhere (for example, indexing a slice).
+    /// Prefer [`ExtentModel::try_index_at_offset`] when the strip may be empty.
     ///
     /// Typical implementations use prefix sums plus a binary search.
     fn index_at_offset(&mut self, offset: Self::Scalar) -> usize;
+
+    /// Like [`ExtentModel::index_at_offset`], but returns `None` if `len() == 0`.
+    ///
+    /// This is a convenience helper for call sites that want to avoid relying
+    /// on the `0` sentinel returned by [`ExtentModel::index_at_offset`] for
+    /// empty strips.
+    #[must_use]
+    fn try_index_at_offset(&mut self, offset: Self::Scalar) -> Option<usize> {
+        if self.len() == 0 {
+            None
+        } else {
+            Some(self.index_at_offset(offset))
+        }
+    }
 }
 
 /// An [`ExtentModel`] whose logical length can be resized.

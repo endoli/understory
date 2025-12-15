@@ -79,8 +79,8 @@ impl<M: ResizableExtentModel> GridTrackModel<M> {
 
     /// Sets the number of cells per track.
     ///
-    /// This does not modify the underlying track model; it only affects how
-    /// the flat cell indices are mapped onto tracks.
+    /// This also resizes the underlying track model to the number of tracks
+    /// as determined by the current `len` and the new `cells_per_track`.
     ///
     /// `cells_per_track` must be non-zero.
     pub fn set_cells_per_track(&mut self, cells_per_track: NonZeroUsize) {
@@ -97,8 +97,8 @@ impl<M: ResizableExtentModel> GridTrackModel<M> {
 
     /// Sets the total number of cells in the grid.
     ///
-    /// This does not modify the underlying track model; callers are expected
-    /// to keep the number of tracks in the model consistent with their usage.
+    /// This also resizes the underlying track model to the number of tracks
+    /// as determined by the new `len` and the current `cells_per_track`.
     pub fn set_len(&mut self, len: usize) {
         self.len = len;
         let track_count = self.track_count();
