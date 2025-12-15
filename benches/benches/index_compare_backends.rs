@@ -139,7 +139,7 @@ fn bench_insert_commit_rect_grid_f64(c: &mut Criterion) {
         I: IndexOpsF64U32 + 'static,
     {
         b.iter_batched(
-            || make_index(),
+            make_index,
             |mut idx| {
                 for (i, r) in rects.iter().copied().enumerate() {
                     idx.insert_box(r, i as u32);
