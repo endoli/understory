@@ -6,7 +6,7 @@ use criterion::{
 };
 use understory_index::{Aabb2D, Backend, Index, IndexGeneric};
 
-fn gen_grid_rects(n: usize, cell: f64) -> Vec<Aabb2D<f64>> {
+fn gen_grid_rects_f64(n: usize, cell: f64) -> Vec<Aabb2D<f64>> {
     let mut out = Vec::with_capacity(n * n);
     for y in 0..n {
         for x in 0..n {
@@ -42,7 +42,7 @@ fn gen_grid_rects_i64(n: usize, cell: i64) -> Vec<Aabb2D<i64>> {
     out
 }
 
-fn gen_overlap_grid_rects(n: usize, cell: f64, scale: f64) -> Vec<Aabb2D<f64>> {
+fn gen_overlap_grid_rects_f64(n: usize, cell: f64, scale: f64) -> Vec<Aabb2D<f64>> {
     let mut out = Vec::with_capacity(n * n);
     for y in 0..n {
         for x in 0..n {
@@ -132,7 +132,11 @@ where
     }
 }
 
-fn bench_insert_commit_rect_grid_f64(c: &mut Criterion) {
+fn bench_insert_commit_rects_f64(
+    c: &mut Criterion,
+    benchmark_group_name: &str,
+    make_rects: impl Fn(usize) -> Vec<Aabb2D<f64>>,
+) {
     fn bench<F, I>(b: &mut criterion::Bencher, rects: &[Aabb2D<f64>], make_index: F)
     where
         F: Fn() -> I + Clone + 'static,
@@ -151,10 +155,10 @@ fn bench_insert_commit_rect_grid_f64(c: &mut Criterion) {
         )
     }
 
-    let mut group = c.benchmark_group("insert_commit_rect_grid_f64");
+    let mut group = c.benchmark_group(benchmark_group_name);
     for &n in &[32usize, 64, 128] {
-        let rects = gen_grid_rects(n, 10.0);
-        group.throughput(Throughput::Elements((n * n) as u64));
+        let rects = make_rects(n);
+        group.throughput(Throughput::Elements(rects.len() as u64));
         group.bench_function(BenchmarkId::new("FlatVec", n), |b| {
             bench(b, &rects, Index::<f64, u32>::new)
         });
@@ -171,12 +175,24 @@ fn bench_insert_commit_rect_grid_f64(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_insert_commit_rect_grid_f64(c: &mut Criterion) {
+    bench_insert_commit_rects_f64(c, "insert_commit_rect_grid_f64", |size| {
+        gen_grid_rects_f64(size, 10.)
+    });
+}
+
+fn bench_insert_commit_rect_overlap_f64(c: &mut Criterion) {
+    bench_insert_commit_rects_f64(c, "insert_commit_rect_overlap_f64", |size| {
+        gen_overlap_grid_rects_f64(size, 10.0, 3.0)
+    });
+}
+
 fn bench_query_heavy_f64_with_backend<F, I>(c: &mut Criterion, group_name: &str, make_index: F)
 where
     F: Fn() -> I + Clone + 'static,
     I: IndexOpsF64U32 + 'static,
 {
-    let rects = gen_grid_rects(128, 8.0);
+    let rects = gen_grid_rects_f64(128, 8.0);
     let mut group = c.benchmark_group(group_name);
     group.bench_function("build_then_many_queries", |b| {
         let make_index = make_index.clone();
@@ -197,48 +213,6 @@ where
                     total += idx.query_rect_count_box(Aabb2D::<f64>::from_xywh(x, y, 64.0, 64.0));
                 }
                 black_box(total);
-            },
-            BatchSize::SmallInput,
-        )
-    });
-    group.finish();
-}
-
-fn bench_flatvec(c: &mut Criterion) {
-    let mut group = c.benchmark_group("flatvec");
-    for &n in &[32usize, 64, 128] {
-        let rects = gen_grid_rects(n, 10.0);
-        group.throughput(Throughput::Elements((n * n) as u64));
-        group.bench_function(format!("insert_commit_rect_n{}", n), |b| {
-            b.iter_batched(
-                Index::<f64, u32>::new,
-                |mut idx| {
-                    for (i, r) in rects.iter().copied().enumerate() {
-                        let _ = idx.insert(r, i as u32);
-                    }
-                    let _ = idx.commit();
-                    let hits: usize = idx
-                        .query_rect(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0))
-                        .count();
-                    black_box(hits);
-                },
-                BatchSize::SmallInput,
-            )
-        });
-    }
-    let rects = gen_overlap_grid_rects(64, 10.0, 3.0);
-    group.bench_function("insert_commit_rect_overlap", |b| {
-        b.iter_batched(
-            Index::<f64, u32>::new,
-            |mut idx| {
-                for (i, r) in rects.iter().copied().enumerate() {
-                    let _ = idx.insert(r, i as u32);
-                }
-                let _ = idx.commit();
-                let hits: usize = idx
-                    .query_rect(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0))
-                    .count();
-                black_box(hits);
             },
             BatchSize::SmallInput,
         )
@@ -387,34 +361,11 @@ fn bench_bvh_clustered_f64(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_grid_f64(c: &mut Criterion) {
-    let mut group = c.benchmark_group("grid_f64");
-    let rects = gen_overlap_grid_rects(64, 10.0, 3.0);
-    group.bench_function("insert_commit_rect_overlap", |b| {
-        b.iter_batched(
-            || Index::<f64, u32>::with_grid(10.0),
-            |mut idx| {
-                for (i, r) in rects.iter().copied().enumerate() {
-                    let _ = idx.insert(r, i as u32);
-                }
-                let _ = idx.commit();
-                let hits: usize = idx
-                    .query_rect(Aabb2D::<f64>::from_xywh(100.0, 100.0, 400.0, 400.0))
-                    .count();
-                black_box(hits);
-            },
-            BatchSize::SmallInput,
-        )
-    });
-    group.finish();
-}
-
 criterion_group!(
     benches,
     bench_insert_commit_rect_grid_f64,
-    bench_flatvec,
+    bench_insert_commit_rect_overlap_f64,
     bench_bvh_f32,
-    bench_grid_f64,
     bench_rtree,
     bench_rtree_f32,
     bench_update_heavy_rtree_i64,
