@@ -191,7 +191,7 @@ impl<T> Selection<T> {
 
     /// Returns a slice of all selected keys in their internal order.
     ///
-    /// The order is stable within a single `SelectionSet` instance but should not
+    /// The order is stable within a single `Selection` instance but should not
     /// be relied upon for application semantics; callers are free to interpret it
     /// however they find convenient.
     #[must_use]
