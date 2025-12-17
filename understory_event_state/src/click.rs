@@ -131,8 +131,8 @@ pub struct ClickState<K> {
     pub total_pointer_moved_threshold: Option<f64>,
     /// Time threshold before rejecting user intent as a click when targets differ (milliseconds)
     pub time_threshold: Option<u64>,
-    /// The last press that was registered
-    last_press: Option<Press<K>>,
+    /// The last click that was registered.
+    last_click: Option<Press<K>>,
 }
 
 /// State for an active pointer press.
@@ -170,7 +170,7 @@ impl<K: PartialEq + Clone> ClickState<K> {
             presses: BTreeMap::new(),
             total_pointer_moved_threshold: Some(5.0), // 5-pixel tolerance before rejecting click intent
             time_threshold: Some(100), // 100ms tolerance before rejecting click intent
-            last_press: None,
+            last_click: None,
         }
     }
 
@@ -187,7 +187,7 @@ impl<K: PartialEq + Clone> ClickState<K> {
             presses: BTreeMap::new(),
             total_pointer_moved_threshold,
             time_threshold,
-            last_press: None,
+            last_click: None,
         }
     }
 
@@ -260,6 +260,8 @@ impl<K: PartialEq + Clone> ClickState<K> {
 
         // Fast path: same target
         if press.target == *current_target {
+            // Store last successful click.
+            self.last_click = Some(press.clone());
             return ClickResult::Click(press.target);
         }
 
@@ -287,6 +289,8 @@ impl<K: PartialEq + Clone> ClickState<K> {
             .is_none_or(|threshold| time_elapsed <= threshold);
 
         if distance_ok && time_ok {
+            // Store last successful click.
+            self.last_click = Some(press.clone());
             ClickResult::Click(press.target)
         } else {
             ClickResult::Suppressed(Some(press.target))
@@ -382,9 +386,17 @@ impl<K: PartialEq + Clone> ClickState<K> {
         self.presses.values()
     }
 
-    /// Get the last press that was registered
-    pub fn last_press(&self) -> Option<Press<K>> {
-        self.last_press.clone()
+    /// Get the last press that produced a `ClickResult::Click`.
+    ///
+    /// Returns a clone of the `Press` that most recently resulted in a click,
+    /// or `None` if no click has been generated yet.
+    pub fn last_click(&self) -> Option<Press<K>> {
+        self.last_click.clone()
+    }
+
+    /// Get the target of the last click, if any.
+    pub fn last_click_target(&self) -> Option<&K> {
+        self.last_click.as_ref().map(|p| &p.target)
     }
 }
 
@@ -753,5 +765,66 @@ mod tests {
         // pointer2 should generate click for different target (release close to move position)
         let result2 = state.on_up(Some(pointer2), None, &99, Point::new(103.0, 203.0), 1080); // ~4.24 from down
         assert_eq!(result2, ClickResult::Click(42));
+    }
+
+    #[test]
+    fn last_press_is_none_before_any_click() {
+        let mut state: ClickState<u32> = ClickState::new();
+
+        assert!(state.last_click().is_none());
+
+        // A suppressed click shouldn't set it either.
+        let result = state.on_up(None, None, &42, Point::new(0.0, 0.0), 0);
+        assert_eq!(result, ClickResult::Suppressed(None));
+        assert!(state.last_click().is_none());
+    }
+
+    #[test]
+    fn last_press_updates_on_same_target_click() {
+        let mut state: ClickState<u32> = ClickState::new();
+
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result = state.on_up(None, None, &42, Point::new(12.0, 22.0), 1050);
+
+        assert_eq!(result, ClickResult::Click(42));
+
+        let last = state.last_click().expect("last_press should be set");
+        assert_eq!(last.target, 42);
+        assert_eq!(last.down_position, Point::new(10.0, 20.0));
+        assert_eq!(last.down_time, 1000);
+    }
+
+    #[test]
+    fn last_press_updates_only_on_clicks() {
+        let mut state: ClickState<u32> = ClickState::with_thresholds(Some(5.0), Some(100));
+
+        // First, a valid click.
+        state.on_down(None, None, 42, Point::new(10.0, 20.0), 1000);
+        let result1 = state.on_up(None, None, &42, Point::new(12.0, 22.0), 1050);
+        assert_eq!(result1, ClickResult::Click(42));
+        assert_eq!(state.last_click().unwrap().target, 42);
+
+        // Next, a suppressed click (e.g. too far).
+        state.on_down(None, None, 99, Point::new(0.0, 0.0), 2000);
+        let result2 = state.on_up(None, None, &100, Point::new(100.0, 100.0), 2100);
+        assert_eq!(result2, ClickResult::Suppressed(Some(99)));
+
+        // last_press should still be the previous successful click (42).
+        assert_eq!(state.last_click().unwrap().target, 42);
+    }
+
+    #[test]
+    fn last_press_tracks_last_of_multiple_clicks() {
+        let mut state: ClickState<u32> = ClickState::new();
+
+        // First click on 1.
+        state.on_down(None, None, 1, Point::new(0.0, 0.0), 0);
+        state.on_up(None, None, &1, Point::new(0.0, 0.0), 10);
+        assert_eq!(state.last_click().unwrap().target, 1);
+
+        // Second click on 2.
+        state.on_down(None, None, 2, Point::new(10.0, 10.0), 100);
+        state.on_up(None, None, &2, Point::new(10.0, 10.0), 110);
+        assert_eq!(state.last_click().unwrap().target, 2);
     }
 }
