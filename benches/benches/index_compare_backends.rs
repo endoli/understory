@@ -6,6 +6,11 @@ use criterion::{
 };
 use understory_index::{Aabb2D, Backend, Index, IndexGeneric};
 
+struct Size<T> {
+    width: T,
+    height: T,
+}
+
 fn gen_grid_rects_f64(n: usize, cell: f64) -> Vec<Aabb2D<f64>> {
     let mut out = Vec::with_capacity(n * n);
     for y in 0..n {
@@ -92,6 +97,52 @@ fn gen_clustered_rects(n_clusters: usize, per_cluster: usize, spread: f64) -> Ve
     out
 }
 
+/// Generates `count` random rectangles whose centers are all contained in `world`, and whose sizes
+/// are uniformly between `min_rect_size` and `max_rect_size`.
+///
+/// Note: the generated rectangles can spill out of `world` if their center is close to the world
+/// edge.
+fn gen_random_rects_in_world_f64(
+    count: usize,
+    world: Aabb2D<f64>,
+    min_rect_size: Size<f64>,
+    max_rect_size: Size<f64>,
+) -> Vec<Aabb2D<f64>> {
+    let mut rng = Rng::new(0x3C6E_F35F_4750_2932);
+    (0..count)
+        .into_iter()
+        .map(|_| {
+            let center_x = rng.next_f64() * (world.max_x - world.min_x) + world.min_x;
+            let center_y = rng.next_f64() * (world.max_y - world.min_y) + world.min_y;
+
+            let width =
+                rng.next_f64() * (max_rect_size.width - min_rect_size.width) + min_rect_size.width;
+            let height = rng.next_f64() * (max_rect_size.height - min_rect_size.height)
+                + min_rect_size.height;
+
+            Aabb2D::from_xywh(
+                center_x - 0.5 * width,
+                center_y - 0.5 * height,
+                width,
+                height,
+            )
+        })
+        .collect()
+}
+
+/// Generates `count` random points `(x, y)` that are all contained in `world`.
+fn gen_random_points_in_world_f64(count: usize, world: Aabb2D<f64>) -> Vec<(f64, f64)> {
+    let mut rng = Rng::new(0x81FD_BEE7_94F0_AF1A);
+    (0..count)
+        .into_iter()
+        .map(|_| {
+            let x = rng.next_f64() * (world.max_x - world.min_x) + world.min_x;
+            let y = rng.next_f64() * (world.max_y - world.min_y) + world.min_y;
+            (x, y)
+        })
+        .collect()
+}
+
 fn gen_random_rects_f32(
     count: usize,
     max_w: f32,
@@ -109,46 +160,23 @@ fn gen_random_rects_f32(
     out
 }
 
-trait IndexOpsF64U32 {
-    fn insert_box(&mut self, aabb: Aabb2D<f64>, payload: u32);
-    fn commit_box(&mut self);
-    fn query_rect_count_box(&self, rect: Aabb2D<f64>) -> usize;
-}
-
-impl<B> IndexOpsF64U32 for IndexGeneric<f64, u32, B>
-where
-    B: Backend<f64>,
-{
-    fn insert_box(&mut self, aabb: Aabb2D<f64>, payload: u32) {
-        let _ = self.insert(aabb, payload);
-    }
-
-    fn commit_box(&mut self) {
-        let _ = self.commit();
-    }
-
-    fn query_rect_count_box(&self, rect: Aabb2D<f64>) -> usize {
-        self.query_rect(rect).count()
-    }
-}
-
 fn bench_insert_commit_rects_f64(
     c: &mut Criterion,
     benchmark_group_name: &str,
     make_rects: impl Fn(usize) -> Vec<Aabb2D<f64>>,
 ) {
-    fn bench<F, I>(b: &mut criterion::Bencher, rects: &[Aabb2D<f64>], make_index: F)
+    fn bench<F, B>(b: &mut criterion::Bencher, rects: &[Aabb2D<f64>], make_index: F)
     where
-        F: Fn() -> I + Clone + 'static,
-        I: IndexOpsF64U32 + 'static,
+        F: Fn() -> IndexGeneric<f64, u32, B> + Clone + 'static,
+        B: Backend<f64> + 'static,
     {
         b.iter_batched(
             make_index,
             |mut idx| {
                 for (i, r) in rects.iter().copied().enumerate() {
-                    idx.insert_box(r, i as u32);
+                    idx.insert(r, i as u32);
                 }
-                idx.commit_box();
+                idx.commit();
                 idx
             },
             BatchSize::SmallInput,
@@ -175,6 +203,121 @@ fn bench_insert_commit_rects_f64(
     group.finish();
 }
 
+fn bench_visit_point_f64(
+    c: &mut Criterion,
+    benchmark_group_name: &str,
+    make_rects: impl Fn(usize) -> Vec<Aabb2D<f64>>,
+    make_visit_points: impl Fn(usize) -> Vec<(f64, f64)>,
+) {
+    fn bench<F, B>(
+        b: &mut criterion::Bencher,
+        rects: &[Aabb2D<f64>],
+        visit_points: &[(f64, f64)],
+        make_index: F,
+    ) where
+        F: Fn() -> IndexGeneric<f64, u32, B> + Clone + 'static,
+        B: Backend<f64> + 'static,
+    {
+        let mut idx = make_index();
+        for (i, r) in rects.iter().copied().enumerate() {
+            idx.insert(r, i as u32);
+        }
+        idx.commit();
+
+        b.iter(|| {
+            let mut total = 0usize;
+            for &(x, y) in visit_points {
+                idx.visit_point(
+                    x,
+                    y,
+                    #[inline(always)]
+                    |_, _| total += 1,
+                );
+            }
+            total
+        })
+    }
+
+    let mut group = c.benchmark_group(benchmark_group_name);
+    for &n in &[32usize, 64, 128] {
+        let rects = make_rects(n);
+        let visit_points = make_visit_points(n);
+        group.throughput(Throughput::Elements(rects.len() as u64));
+        group.bench_function(BenchmarkId::new("FlatVec", n), |b| {
+            bench(b, &rects, &visit_points, Index::<f64, u32>::new)
+        });
+        group.bench_function(BenchmarkId::new("Bvh", n), |b| {
+            bench(b, &rects, &visit_points, Index::<f64, u32>::with_bvh)
+        });
+        group.bench_function(BenchmarkId::new("RTree", n), |b| {
+            bench(b, &rects, &visit_points, Index::<f64, u32>::with_rtree)
+        });
+        group.bench_function(BenchmarkId::new("Grid(10.)", n), |b| {
+            bench(b, &rects, &visit_points, || {
+                Index::<f64, u32>::with_grid(10.0)
+            })
+        });
+    }
+    group.finish();
+}
+
+fn bench_visit_rect_f64(
+    c: &mut Criterion,
+    benchmark_group_name: &str,
+    make_rects: impl Fn(usize) -> Vec<Aabb2D<f64>>,
+    make_visit_rects: impl Fn(usize) -> Vec<Aabb2D<f64>>,
+) {
+    fn bench<F, B>(
+        b: &mut criterion::Bencher,
+        rects: &[Aabb2D<f64>],
+        visit_rects: &[Aabb2D<f64>],
+        make_index: F,
+    ) where
+        F: Fn() -> IndexGeneric<f64, u32, B> + Clone + 'static,
+        B: Backend<f64> + 'static,
+    {
+        let mut idx = make_index();
+        for (i, r) in rects.iter().copied().enumerate() {
+            idx.insert(r, i as u32);
+        }
+        idx.commit();
+
+        b.iter(|| {
+            let mut total = 0usize;
+            for visit_rect in visit_rects {
+                idx.visit_rect(
+                    *visit_rect,
+                    #[inline(always)]
+                    |_, _| total += 1,
+                );
+            }
+            total
+        })
+    }
+
+    let mut group = c.benchmark_group(benchmark_group_name);
+    for &n in &[32usize, 64, 128] {
+        let rects = make_rects(n);
+        let visit_rects = make_visit_rects(n);
+        group.throughput(Throughput::Elements(rects.len() as u64));
+        group.bench_function(BenchmarkId::new("FlatVec", n), |b| {
+            bench(b, &rects, &visit_rects, Index::<f64, u32>::new)
+        });
+        group.bench_function(BenchmarkId::new("Bvh", n), |b| {
+            bench(b, &rects, &visit_rects, Index::<f64, u32>::with_bvh)
+        });
+        group.bench_function(BenchmarkId::new("RTree", n), |b| {
+            bench(b, &rects, &visit_rects, Index::<f64, u32>::with_rtree)
+        });
+        group.bench_function(BenchmarkId::new("Grid(10.)", n), |b| {
+            bench(b, &rects, &visit_rects, || {
+                Index::<f64, u32>::with_grid(10.0)
+            })
+        });
+    }
+    group.finish();
+}
+
 fn bench_insert_commit_rect_grid_f64(c: &mut Criterion) {
     bench_insert_commit_rects_f64(c, "insert_commit_rect_grid_f64", |size| {
         gen_grid_rects_f64(size, 10.)
@@ -187,37 +330,96 @@ fn bench_insert_commit_rect_overlap_f64(c: &mut Criterion) {
     });
 }
 
-fn bench_query_heavy_f64_with_backend<F, I>(c: &mut Criterion, group_name: &str, make_index: F)
-where
-    F: Fn() -> I + Clone + 'static,
-    I: IndexOpsF64U32 + 'static,
-{
-    let rects = gen_grid_rects_f64(128, 8.0);
-    let mut group = c.benchmark_group(group_name);
-    group.bench_function("build_then_many_queries", |b| {
-        let make_index = make_index.clone();
-        b.iter_batched(
-            || {
-                let mut idx = make_index();
-                for (i, r) in rects.iter().copied().enumerate() {
-                    idx.insert_box(r, i as u32);
-                }
-                idx.commit_box();
-                idx
-            },
-            |idx| {
-                let mut total = 0usize;
-                for q in 0..256 {
-                    let x = (q % 64) as f64 * 8.0;
-                    let y = (q / 64) as f64 * 8.0;
-                    total += idx.query_rect_count_box(Aabb2D::<f64>::from_xywh(x, y, 64.0, 64.0));
-                }
-                black_box(total);
-            },
-            BatchSize::SmallInput,
-        )
-    });
-    group.finish();
+fn bench_visit_point_grid_f64(c: &mut Criterion) {
+    bench_visit_point_f64(
+        c,
+        "visit_point_grid_f64",
+        // Rects that inserted into the index.
+        |size| gen_grid_rects_f64(size, 10.),
+        // Points that are visited
+        |size| {
+            // The grid generated above has a total size of `size` * 10. (with each rectangle in that
+            // grid being of size 10).
+            gen_random_points_in_world_f64(
+                1000,
+                Aabb2D::from_xywh(0., 0., size as f64 * 10., size as f64 * 10.),
+            )
+        },
+    );
+}
+
+fn bench_visit_point_overlap_f64(c: &mut Criterion) {
+    bench_visit_point_f64(
+        c,
+        "visit_point_overlap_f64",
+        // Rects that inserted into the index.
+        |size| gen_overlap_grid_rects_f64(size, 10., 3.),
+        // Points that are visited
+        |size| {
+            // The grid generated above has a total size of `size-1` * 10 + 10 * 3 = size * 10 + 20
+            // (with each rectangle in that grid being of size 10*3 = 30).
+            gen_random_points_in_world_f64(
+                1000,
+                Aabb2D::from_xywh(0., 0., size as f64 * 10. + 20., size as f64 * 10. + 20.),
+            )
+        },
+    );
+}
+
+fn bench_visit_rect_grid_f64(c: &mut Criterion) {
+    bench_visit_rect_f64(
+        c,
+        "visit_rect_grid_f64",
+        // Rects that inserted into the index.
+        |size| gen_grid_rects_f64(size, 10.),
+        // Rects whose overlap is queried
+        |size| {
+            // The grid generated above has a total size of `size` * 10. (with each rectangle in that
+            // grid being of size 10).
+            gen_random_rects_in_world_f64(
+                1000,
+                Aabb2D::from_xywh(0., 0., size as f64 * 10., size as f64 * 10.),
+                // The generated query rectangles have a random size, overlapping 1 to 6 cells per
+                // axis (1 to 36 cells in total, 18 on average).
+                Size {
+                    width: 1.,
+                    height: 1.,
+                },
+                Size {
+                    width: 50.,
+                    height: 50.,
+                },
+            )
+        },
+    );
+}
+
+fn bench_visit_rect_overlap_f64(c: &mut Criterion) {
+    bench_visit_rect_f64(
+        c,
+        "visit_rect_overlap_f64",
+        // Rects that inserted into the index.
+        |size| gen_overlap_grid_rects_f64(size, 10., 3.),
+        // Rects whose overlap is queried
+        |size| {
+            // The grid generated above has a total size of `size-1` * 10 + 10 * 3 = size * 10 + 20
+            // (with each rectangle in that grid being of size 10*3 = 30).
+            gen_random_rects_in_world_f64(
+                1000,
+                Aabb2D::from_xywh(0., 0., size as f64 * 10. + 20., size as f64 * 10. + 20.),
+                // The generated query rectangles have a random size, overlapping 1 to 6 cells per
+                // axis (1 to 36 cells in total, 18 on average).
+                Size {
+                    width: 1.,
+                    height: 1.,
+                },
+                Size {
+                    width: 50.,
+                    height: 50.,
+                },
+            )
+        },
+    );
 }
 
 fn bench_rtree(c: &mut Criterion) {
@@ -323,22 +525,6 @@ fn bench_update_heavy_rtree_i64(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_query_heavy_rtree_f64(c: &mut Criterion) {
-    bench_query_heavy_f64_with_backend(c, "rtree_f64_query_heavy", || {
-        Index::<f64, u32>::with_rtree()
-    });
-}
-
-fn bench_query_heavy_flatvec_and_grid_f64(c: &mut Criterion) {
-    // Flatvec: build once, then many queries.
-    bench_query_heavy_f64_with_backend(c, "flatvec_query_heavy_f64", Index::<f64, u32>::new);
-
-    // Grid: same workload, grid-backed index.
-    bench_query_heavy_f64_with_backend(c, "grid_f64_query_heavy", || {
-        Index::<f64, u32>::with_grid(8.0)
-    });
-}
-
 fn bench_bvh_clustered_f64(c: &mut Criterion) {
     let mut group = c.benchmark_group("bvh_f64_clustered");
     let rects = gen_clustered_rects(16, 256, 128.0);
@@ -365,12 +551,14 @@ criterion_group!(
     benches,
     bench_insert_commit_rect_grid_f64,
     bench_insert_commit_rect_overlap_f64,
+    bench_visit_point_grid_f64,
+    bench_visit_point_overlap_f64,
+    bench_visit_rect_grid_f64,
+    bench_visit_rect_overlap_f64,
     bench_bvh_f32,
     bench_rtree,
     bench_rtree_f32,
     bench_update_heavy_rtree_i64,
-    bench_query_heavy_rtree_f64,
     bench_bvh_clustered_f64,
-    bench_query_heavy_flatvec_and_grid_f64,
 );
 criterion_main!(benches);
