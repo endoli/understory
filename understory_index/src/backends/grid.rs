@@ -13,7 +13,7 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use smallvec::SmallVec;
 
 use crate::backend::Backend;
