@@ -110,7 +110,6 @@ fn gen_random_rects_in_world_f64(
 ) -> Vec<Aabb2D<f64>> {
     let mut rng = Rng::new(0x3C6E_F35F_4750_2932);
     (0..count)
-        .into_iter()
         .map(|_| {
             let center_x = rng.next_f64() * (world.max_x - world.min_x) + world.min_x;
             let center_y = rng.next_f64() * (world.max_y - world.min_y) + world.min_y;
@@ -134,7 +133,6 @@ fn gen_random_rects_in_world_f64(
 fn gen_random_points_in_world_f64(count: usize, world: Aabb2D<f64>) -> Vec<(f64, f64)> {
     let mut rng = Rng::new(0x81FD_BEE7_94F0_AF1A);
     (0..count)
-        .into_iter()
         .map(|_| {
             let x = rng.next_f64() * (world.max_x - world.min_x) + world.min_x;
             let y = rng.next_f64() * (world.max_y - world.min_y) + world.min_y;
