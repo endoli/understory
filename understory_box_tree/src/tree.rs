@@ -8,7 +8,7 @@ use kurbo::{Affine, Point, Rect, RoundedRect};
 use understory_index::{Backend, IndexGeneric, Key as AabbKey, backends::FlatVec};
 
 use crate::damage::Damage;
-use crate::types::{ClipBehavior, LocalNode, NodeFlags, NodeId};
+use crate::types::{LocalNode, NodeFlags, NodeId};
 use crate::util::{rect_to_aabb, transform_rect_bbox};
 
 /// Top-level region tree.
@@ -322,23 +322,12 @@ impl<B: Backend<f64>> Tree<B> {
         }
     }
 
-    /// Update local clip. Application is controlled by [`ClipBehavior`].
+    /// Update local clip..
     pub fn set_local_clip(&mut self, id: NodeId, clip: Option<RoundedRect>) {
         if let Some(n) = self.node_opt_mut(id)
             && n.local.local_clip != clip
         {
             n.local.local_clip = clip;
-            n.dirty.clip = true;
-            n.dirty.index = true;
-        }
-    }
-
-    /// Update how local and ancestor clips are composed for this node.
-    pub fn set_clip_behavior(&mut self, id: NodeId, behavior: ClipBehavior) {
-        if let Some(n) = self.node_opt_mut(id)
-            && n.local.clip_behavior != behavior
-        {
-            n.local.clip_behavior = behavior;
             n.dirty.clip = true;
             n.dirty.index = true;
         }
@@ -473,9 +462,8 @@ impl<B: Backend<f64>> Tree<B> {
                 unreachable!("`self.containing_point` only returns live nodes");
             };
 
-            if node.local.clip_behavior != ClipBehavior::Ignore
-                && let Some(clip) = node.local.local_clip
-            {
+            // TODO: ancestor clips also need to be checked
+            if let Some(clip) = node.local.local_clip {
                 let local_point = node.world.world_transform.inverse() * point;
                 if !clip.rect().contains(local_point) {
                     continue;
@@ -772,15 +760,11 @@ impl<B: Backend<f64>> Tree<B> {
                 .local
                 .local_clip
                 .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()));
-            let world_clip = match node.local.clip_behavior {
-                ClipBehavior::Ignore => None,
-                ClipBehavior::PreferLocal => local_clip.or(current_clip),
-                ClipBehavior::Inherit => match (local_clip, current_clip) {
-                    (Some(local), Some(parent)) => Some(local.intersect(parent)),
-                    (Some(local), None) => Some(local),
-                    (None, Some(parent)) => Some(parent),
-                    (None, None) => None,
-                },
+            let world_clip = match (local_clip, current_clip) {
+                (Some(local), Some(parent)) => Some(local.intersect(parent)),
+                (Some(local), None) => Some(local),
+                (None, Some(parent)) => Some(parent),
+                (None, None) => None,
             };
             if let Some(c) = world_clip {
                 world_bounds = world_bounds.intersect(c);
@@ -904,7 +888,7 @@ mod tests {
     }
 
     #[test]
-    fn inherited_child_clip_intersects_with_parent_clip() {
+    fn child_clip_intersects_with_parent_clip() {
         let mut tree = Tree::new();
         let root = tree.insert(
             None,
@@ -921,7 +905,6 @@ mod tests {
             Some(root),
             LocalNode {
                 local_bounds: Rect::new(80.0, 80.0, 180.0, 180.0),
-                clip_behavior: ClipBehavior::Inherit,
                 local_clip: Some(RoundedRect::from_rect(
                     Rect::new(60.0, 60.0, 160.0, 160.0),
                     0.0,
@@ -941,7 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn prefer_local_without_local_clip_inherits_parent_clip() {
+    fn inherits_parent_clip() {
         let mut tree = Tree::new();
         let root = tree.insert(
             None,
@@ -958,7 +941,6 @@ mod tests {
             Some(root),
             LocalNode {
                 local_bounds: Rect::new(80.0, 80.0, 180.0, 180.0),
-                clip_behavior: ClipBehavior::PreferLocal,
                 ..Default::default()
             },
         );
@@ -971,80 +953,6 @@ mod tests {
         // A point outside the parent's clip must not hit the child.
         let miss = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
         assert!(miss.is_none());
-    }
-
-    #[test]
-    fn clip_behavior_prefer_local_allows_overflow() {
-        let mut tree = Tree::new();
-        let root = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
-                local_clip: Some(RoundedRect::from_rect(
-                    Rect::new(0.0, 0.0, 100.0, 100.0),
-                    0.0,
-                )),
-                ..Default::default()
-            },
-        );
-        let child = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(80.0, 80.0, 180.0, 180.0),
-                local_clip: Some(RoundedRect::from_rect(
-                    Rect::new(80.0, 80.0, 180.0, 180.0),
-                    0.0,
-                )),
-                clip_behavior: ClipBehavior::PreferLocal, // ignore parent clip when local clip is present
-                ..Default::default()
-            },
-        );
-        let _ = tree.commit();
-
-        // Child bounds should remain unclipped and extend beyond parent's clip.
-        let bounds = tree.world_bounds(child).unwrap();
-        assert_eq!(bounds, Rect::new(80.0, 80.0, 180.0, 180.0));
-
-        // Hit test at a point outside parent's clip but inside child should succeed.
-        let hit = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
-        assert_eq!(hit.map(|h| h.node), Some(child));
-    }
-
-    #[test]
-    fn clip_behavior_ignore_disables_clipping() {
-        let mut tree = Tree::new();
-        let root = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
-                local_clip: Some(RoundedRect::from_rect(
-                    Rect::new(0.0, 0.0, 100.0, 100.0),
-                    0.0,
-                )),
-                ..Default::default()
-            },
-        );
-        let child = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(80.0, 80.0, 180.0, 180.0),
-                local_clip: Some(RoundedRect::from_rect(
-                    Rect::new(80.0, 80.0, 90.0, 90.0),
-                    0.0,
-                )),
-                clip_behavior: ClipBehavior::Ignore,
-                ..Default::default()
-            },
-        );
-        let _ = tree.commit();
-
-        // Bounds should not be clipped by either local or parent clip.
-        let bounds = tree.world_bounds(child).unwrap();
-        assert_eq!(bounds, Rect::new(80.0, 80.0, 180.0, 180.0));
-
-        // Hit test at a point outside both clips but inside local bounds should still hit.
-        let hit = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
-        assert_eq!(hit.map(|h| h.node), Some(child));
     }
 
     #[test]

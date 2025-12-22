@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 use kurbo::{Affine, Point, Rect};
-use understory_box_tree::{ClipBehavior, LocalNode, NodeFlags, NodeId, QueryFilter, Tree};
+use understory_box_tree::{LocalNode, NodeFlags, NodeId, QueryFilter, Tree};
 use understory_event_state::hover::HoverState;
 use understory_responder::adapters::box_tree::{hits_for_rect, top_hit_for_point};
 use understory_responder::dispatcher;
@@ -27,7 +27,6 @@ fn main() {
         local_bounds: Rect::new(0.0, 0.0, 400.0, 400.0),
         local_transform: Affine::IDENTITY,
         local_clip: None,
-        clip_behavior: ClipBehavior::default(),
         z_index: 0,
         flags: NodeFlags::VISIBLE | NodeFlags::PICKABLE,
     };
