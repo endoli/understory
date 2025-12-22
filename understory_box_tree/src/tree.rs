@@ -912,6 +912,35 @@ mod tests {
     }
 
     #[test]
+    fn inside_aabb_but_outside_local_bounds() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 0.0, 0.0),
+                local_transform: Affine::rotate(45_f64.to_radians()),
+                ..Default::default()
+            },
+        );
+        tree.insert(
+            Some(root),
+            LocalNode {
+                // In world space, this rectangle is rotated by 45 degrees due to the parent's
+                // transform, resulting in a larger world-space axis-aligned bounding box.
+                local_bounds: Rect::new(-100.0, -100.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Hit testing a world-space point that is inside the axis-aligned bounding box of the
+        // rotated local bounds, but outside the actual rotated local bounds, should yield no
+        // results.
+        let miss = tree.hit_test_point(Point::new(90.0, 90.0), QueryFilter::new());
+        assert!(miss.is_none());
+    }
+
+    #[test]
     fn child_clip_intersects_with_parent_clip() {
         let mut tree = Tree::new();
         let root = tree.insert(
