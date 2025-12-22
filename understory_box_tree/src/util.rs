@@ -22,3 +22,21 @@ pub(crate) fn transform_rect_bbox(affine: Affine, rect: Rect) -> Rect {
 pub(crate) fn rect_to_aabb(r: Rect) -> Aabb2D<f64> {
     Aabb2D::new(r.x0, r.y0, r.x1, r.y1)
 }
+
+#[cfg(test)]
+mod tests {
+    use kurbo::{Affine, Rect};
+
+    use super::*;
+
+    /// The bounding box of a square rotated by 45 degrees has sides of length
+    /// `sqrt(2) * original length`.
+    ///
+    /// Hence, the area of the bounding box is `2 * area of square`.
+    #[test]
+    fn non_axis_aligned_bbox_rotation() {
+        let rect = Rect::new(-1., -1., 2., 2.);
+        let bbox_rotation = transform_rect_bbox(Affine::rotate(45_f64.to_radians()), rect);
+        assert!((bbox_rotation.area() - 2. * rect.area()).abs() < 1e-8);
+    }
+}

@@ -824,10 +824,10 @@ impl<B: Backend<f64>> Tree<B> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloc::vec;
-    use core::f64::consts::FRAC_PI_4;
     use kurbo::Vec2;
+
+    use super::*;
 
     /// Returns whether the two sets of node IDs are equal. The two sets do not need to be ordered.
     ///
@@ -1041,29 +1041,6 @@ mod tests {
             .hit_test_point(Point::new(25.0, 25.0), QueryFilter::new())
             .unwrap();
         assert_eq!(hits.node, child);
-    }
-
-    #[test]
-    fn rotated_bbox_expands() {
-        let mut tree = Tree::new();
-        let root = tree.insert(
-            None,
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 0.0, 0.0),
-                ..Default::default()
-            },
-        );
-        let n = tree.insert(
-            Some(root),
-            LocalNode {
-                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
-                ..Default::default()
-            },
-        );
-        let _ = tree.commit();
-        let _nb = tree.node(n).world.world_bounds;
-        let _expected =
-            transform_rect_bbox(Affine::rotate(FRAC_PI_4), Rect::new(0.0, 0.0, 10.0, 10.0));
     }
 
     #[test]
