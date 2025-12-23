@@ -322,7 +322,7 @@ impl<B: Backend<f64>> Tree<B> {
         }
     }
 
-    /// Update local clip..
+    /// Update local clip.
     pub fn set_local_clip(&mut self, id: NodeId, clip: Option<RoundedRect>) {
         if let Some(n) = self.node_opt_mut(id)
             && n.local.local_clip != clip
