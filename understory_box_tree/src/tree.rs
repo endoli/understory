@@ -4,7 +4,7 @@
 //! Core tree implementation: structure, updates, queries.
 
 use alloc::{vec, vec::Vec};
-use kurbo::{Affine, Point, Rect, RoundedRect};
+use kurbo::{Affine, Point, Rect, RoundedRect, Shape};
 use understory_index::{Backend, IndexGeneric, Key as AabbKey, backends::FlatVec};
 
 use crate::damage::Damage;
@@ -456,37 +456,93 @@ impl<B: Backend<f64>> Tree<B> {
     /// This tie-break is intentionally deterministic for now. In the future this
     /// may be made configurable (for example via a `TieBreakPolicy`).
     pub fn hit_test_point(&self, point: Point, filter: QueryFilter) -> Option<Hit> {
-        let mut best: Option<(NodeId, i32, usize)> = None;
+        /// Walk the tree upward from the given node (given its `NodeId` and `&Node` data),
+        /// checking whether `point` is within its bounds, its clip, and all its ancestors' clips.
+        ///
+        /// `path` should be empty when calling this function. The path from the node to the root
+        /// of its tree will be contained in `path` (in order from node to root) if and only if the
+        /// point is within all the aforementioned geometry. If `path` is empty after calling this
+        /// function, the point is not within the geometry.
+        fn walk_tree_and_check_geometry<B: Backend<f64>>(
+            tree: &Tree<B>,
+            point: Point,
+            id: NodeId,
+            node: &Node,
+            path: &mut Vec<NodeId>,
+        ) {
+            let local_point = node.world.world_transform.inverse() * point;
+            if !node.local.local_bounds.contains(local_point) {
+                return;
+            }
+
+            if let Some(local_clip) = node.local.local_clip
+                && !local_clip.contains(local_point)
+            {
+                return;
+            }
+
+            path.push(id);
+
+            // Walk the parents up to this node's tree root node, checking each parent's clip.
+            let mut current = node.parent;
+            while let Some(parent_id) = current {
+                let Some(parent) = &tree.nodes[parent_id.idx()] else {
+                    unreachable!("parent slot is unoccupied");
+                };
+                if let Some(clip) = parent.local.local_clip {
+                    let parent_local_point = parent.world.world_transform.inverse() * point;
+                    if !clip.contains(parent_local_point) {
+                        path.clear();
+                        return;
+                    }
+                }
+                path.push(parent_id);
+                current = parent.parent;
+            }
+        }
+
+        let mut best: Option<(NodeId, i32, Vec<NodeId>)> = None;
+        let mut path_buf: Vec<NodeId> = Vec::new();
+
         for id in self.containing_point(point, filter) {
             let Some(node) = self.nodes[id.idx()].as_ref() else {
                 unreachable!("`self.containing_point` only returns live nodes");
             };
 
-            // TODO: ancestor clips also need to be checked
-            if let Some(clip) = node.local.local_clip {
-                let local_point = node.world.world_transform.inverse() * point;
-                if !clip.rect().contains(local_point) {
-                    continue;
-                }
+            walk_tree_and_check_geometry(self, point, id, node, &mut path_buf);
+            if path_buf.is_empty() {
+                // The point is not within the node's geometry (either its bounds, its clip, or its
+                // ancestors' clips).
+                continue;
             }
-            let depth = self.depth(id);
+
             match best {
-                None => best = Some((id, node.local.z_index, depth)),
-                Some((best_id, z_best, depth_best)) => {
+                None => {
+                    best = Some((id, node.local.z_index, core::mem::take(&mut path_buf)));
+                }
+                Some((ref mut id_best, ref mut z_best, ref mut path_best)) => {
                     let z = node.local.z_index;
-                    if z > z_best
-                        || (z == z_best
+                    let depth_best = path_best.len();
+                    let depth = path_buf.len();
+                    if z > *z_best
+                        || (z == *z_best
                             && (depth > depth_best
-                                || (depth == depth_best && id_is_newer(id, best_id))))
+                                || (depth == depth_best && id_is_newer(id, *id_best))))
                     {
-                        best = Some((id, z, depth));
+                        core::mem::swap(&mut path_buf, path_best);
+                        path_buf.clear();
+                        *id_best = id;
+                        *z_best = z;
                     }
                 }
             }
         }
-        best.map(|(node, _, _)| Hit {
-            node,
-            path: self.path_to_root(node),
+
+        best.map(|(node, _, mut path)| {
+            // Reverse the path we found earlier, as `Hit::path` paths are from the root to the
+            // node.
+            path.reverse();
+            Hit { node, path }
         })
     }
 
@@ -687,24 +743,6 @@ impl<B: Backend<f64>> Tree<B> {
         None
     }
 
-    /// Return the depth of a node in the tree (1-based), or 0 if the id is stale.
-    ///
-    /// Roots have depth 1, direct children of roots have depth 2, and so on.
-    fn depth(&self, mut id: NodeId) -> usize {
-        if !self.is_alive(id) {
-            return 0;
-        }
-        let mut d = 0;
-        loop {
-            d += 1;
-            match self.node(id).parent {
-                Some(p) => id = p,
-                None => break,
-            }
-        }
-        d
-    }
-
     fn node_opt_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         let n = self.nodes.get_mut(id.idx())?.as_mut()?;
         if n.generation != id.1 {
@@ -723,20 +761,6 @@ impl<B: Backend<f64>> Tree<B> {
         let p = self.node_mut(parent);
         p.children.retain(|c| *c != id);
         self.node_mut(id).parent = None;
-    }
-
-    fn path_to_root(&self, mut id: NodeId) -> Vec<NodeId> {
-        let mut out = Vec::new();
-        loop {
-            out.push(id);
-            let parent = self.node(id).parent;
-            match parent {
-                Some(p) => id = p,
-                None => break,
-            }
-        }
-        out.reverse();
-        out
     }
 
     fn update_world_recursive(
@@ -953,6 +977,41 @@ mod tests {
         // A point outside the parent's clip must not hit the child.
         let miss = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
         assert!(miss.is_none());
+    }
+
+    #[test]
+    fn ancestor_rounded_rect_clip_blocks_hit() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 0.0, 0.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    20.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let clipped_hits = tree.hit_test_point(Point::new(5.0, 5.0), QueryFilter::new());
+        assert!(
+            clipped_hits.is_none(),
+            "corner outside rounded clip should not hit"
+        );
+
+        let hits = tree
+            .hit_test_point(Point::new(25.0, 25.0), QueryFilter::new())
+            .unwrap();
+        assert_eq!(hits.node, child);
     }
 
     #[test]
