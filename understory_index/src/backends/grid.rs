@@ -95,9 +95,9 @@ impl GridScalar for i64 {
         let coord = rel.div_euclid(cell_size);
 
         // Saturate values out of `i32` range.
-        if coord >= i64::from(i32::MAX) {
+        if coord >= Self::from(i32::MAX) {
             i32::MAX
-        } else if coord <= i64::from(i32::MIN) {
+        } else if coord <= Self::from(i32::MIN) {
             i32::MIN
         } else {
             coord as i32
