@@ -35,7 +35,7 @@ pub trait GridScalar: Scalar {
 impl GridScalar for f32 {
     #[allow(
         clippy::cast_possible_truncation,
-        reason = "Grid cell indices are intentionally i32; higher bits are truncated by design."
+        reason = "Grid cell indices are intentionally i32; out-of-range values are saturated."
     )]
     #[inline]
     fn cell_coord(value: Self, origin: Self, cell_size: Self) -> i32 {
@@ -44,11 +44,13 @@ impl GridScalar for f32 {
             "grid cell_size must be strictly positive (f32)"
         );
         let t = (value - origin) / cell_size;
-        if t >= 0.0 {
-            t as i32
+        let coord = t as i32;
+
+        // Round towards -∞ (the cast above has already truncated).
+        if t < 0.0 && (coord as Self) > t {
+            coord.saturating_sub(1)
         } else {
-            let ti = t as i32;
-            if (ti as Self) == t { ti } else { ti - 1 }
+            coord
         }
     }
 }
@@ -56,7 +58,7 @@ impl GridScalar for f32 {
 impl GridScalar for f64 {
     #[allow(
         clippy::cast_possible_truncation,
-        reason = "Grid cell indices are intentionally i32; higher bits are truncated by design."
+        reason = "Grid cell indices are intentionally i32; out-of-range values are saturated."
     )]
     #[inline]
     fn cell_coord(value: Self, origin: Self, cell_size: Self) -> i32 {
@@ -65,11 +67,13 @@ impl GridScalar for f64 {
             "grid cell_size must be strictly positive (f64)"
         );
         let t = (value - origin) / cell_size;
-        if t >= 0.0 {
-            t as i32
+        let coord = t as i32;
+
+        // Round towards -∞ (the cast above has already truncated).
+        if t < 0.0 && (coord as Self) > t {
+            coord.saturating_sub(1)
         } else {
-            let ti = t as i32;
-            if (ti as Self) == t { ti } else { ti - 1 }
+            coord
         }
     }
 }
@@ -77,7 +81,7 @@ impl GridScalar for f64 {
 impl GridScalar for i64 {
     #[allow(
         clippy::cast_possible_truncation,
-        reason = "Grid cell indices are intentionally i32; higher bits are truncated by design."
+        reason = "Grid cell indices are intentionally i32; out-of-range values are saturated."
     )]
     #[inline]
     fn cell_coord(value: Self, origin: Self, cell_size: Self) -> i32 {
@@ -88,7 +92,16 @@ impl GridScalar for i64 {
         let rel = value - origin;
         // Euclidean division rounds toward -∞, which matches floor for all
         // integer values.
-        (rel.div_euclid(cell_size)) as i32
+        let coord = rel.div_euclid(cell_size);
+
+        // Saturate values out of `i32` range.
+        if coord >= i64::from(i32::MAX) {
+            i32::MAX
+        } else if coord <= i64::from(i32::MIN) {
+            i32::MIN
+        } else {
+            coord as i32
+        }
     }
 }
 
@@ -399,5 +412,68 @@ mod tests {
         hits.clear();
         g_i64.visit_point(-20, -20, |s| hits.push(s));
         assert_eq!(hits, vec![3]);
+    }
+
+    #[test]
+    fn cell_coord_saturates() {
+        assert_eq!(GridScalar::cell_coord(1e20_f32, 0.0, 1.0), i32::MAX);
+        assert_eq!(GridScalar::cell_coord(-1e20_f32, 0.0, 1.0), i32::MIN);
+        assert_eq!(GridScalar::cell_coord(1e20_f64, 0.0, 1.0), i32::MAX);
+        assert_eq!(GridScalar::cell_coord(-1e20_f64, 0.0, 1.0), i32::MIN);
+    }
+
+    #[test]
+    fn cell_coord_is_monotonic_f32() {
+        // An `f32` cannot represent integers precisely near the edges of the `i32` range. We
+        // expect `cell_coord` to be *strictly* monotonic there.
+        let value = i32::MIN as f32;
+        assert_eq!(
+            GridScalar::cell_coord(value.next_down(), 0.0, 1.0),
+            i32::MIN
+        );
+        assert_eq!(GridScalar::cell_coord(value, 0.0, 1.0), i32::MIN);
+        assert!(GridScalar::cell_coord(value.next_up(), 0.0, 1.0) > i32::MIN);
+        assert!(
+            GridScalar::cell_coord(value.next_up().next_up(), 0.0, 1.0)
+                > GridScalar::cell_coord(value.next_up(), 0.0, 1.0)
+        );
+
+        let value = i32::MAX as f32;
+        assert_eq!(GridScalar::cell_coord(value.next_up(), 0.0, 1.0), i32::MAX);
+        assert_eq!(GridScalar::cell_coord(value, 0.0, 1.0), i32::MAX);
+        assert!(GridScalar::cell_coord(value.next_down(), 0.0, 1.0) < i32::MAX);
+        assert!(
+            GridScalar::cell_coord(value.next_down().next_down(), 0.0, 1.0)
+                < GridScalar::cell_coord(value.next_down(), 0.0, 1.0)
+        );
+
+        // But around -1, 0, 1, etc we just expect monotonicity.
+        for value in [-1_f32, 0., 1.] {
+            assert!(
+                GridScalar::cell_coord(value.next_down(), 0.0, 1.0)
+                    <= GridScalar::cell_coord(value, 0.0, 1.0)
+            );
+            assert!(
+                GridScalar::cell_coord(value, 0.0, 1.0)
+                    <= GridScalar::cell_coord(value.next_up(), 0.0, 1.0)
+            );
+        }
+    }
+
+    #[test]
+    fn cell_coord_is_monotonic_f64() {
+        // All integers in range of an `i32` can be represented exactly by `f64`. We expect all
+        // `cell_coord` to be monotonic in `value`, including at the extremes of what an `i32` can
+        // represent.
+        for value in [i32::MIN as f64, -1., 0., 1., i32::MAX as f64] {
+            assert!(
+                GridScalar::cell_coord(value.next_down(), 0.0, 1.0)
+                    <= GridScalar::cell_coord(value, 0.0, 1.0)
+            );
+            assert!(
+                GridScalar::cell_coord(value, 0.0, 1.0)
+                    <= GridScalar::cell_coord(value.next_up(), 0.0, 1.0)
+            );
+        }
     }
 }
