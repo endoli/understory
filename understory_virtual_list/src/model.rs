@@ -70,7 +70,11 @@ pub trait ExtentModel {
     /// Given a scroll offset, find an index `i` such that:
     ///
     /// - the item at `i` is at or before that offset,
-    /// - and `i` is clamped into `0..=len()`.
+    /// - and `i` is clamped into the valid index range.
+    ///
+    /// Concretely:
+    /// - if `len() == 0`, this must return `0`,
+    /// - otherwise it must return an index in `0..len()`.
     ///
     /// Typical implementations use prefix sums plus a binary search.
     fn index_at_offset(&mut self, offset: Self::Scalar) -> usize;
