@@ -435,6 +435,51 @@ impl<B: Backend<f64>> Tree<B> {
             .map(|node| node.world.world_bounds)
     }
 
+    /// Return the local clip for a live node.
+    ///
+    /// This is the clip set through [`Tree::set_local_clip`]. It does not
+    /// require a [`Tree::commit`] to be observed here. Returns `None` for stale
+    /// identifiers.
+    pub fn local_clip(&self, id: NodeId) -> Option<Option<RoundedRect>> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_clip)
+    }
+
+    /// Return the local transform for a live node.
+    ///
+    /// This is the transform set through [`Tree::set_local_transform`]. It does
+    /// not require a [`Tree::commit`] to be observed here. Returns `None` for
+    /// stale identifiers.
+    pub fn local_transform(&self, id: NodeId) -> Option<Affine> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_transform)
+    }
+
+    /// Return the local bounds for a live node.
+    ///
+    /// This is the rectangle set through [`Tree::set_local_bounds`]. It does
+    /// not require a [`Tree::commit`] to be observed here. Returns `None` for
+    /// stale identifiers.
+    pub fn local_bounds(&self, id: NodeId) -> Option<Rect> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_bounds)
+    }
+
     /// Access a node for debugging; panics if `id` is stale.
     pub(crate) fn node(&self, id: NodeId) -> &Node {
         self.nodes[id.idx()].as_ref().expect("dangling NodeId")
@@ -2002,6 +2047,51 @@ mod tests {
         // Stale ids must not expose transforms or bounds.
         assert!(tree.world_transform(node).is_none());
         assert!(tree.world_bounds(node).is_none());
+    }
+
+    #[test]
+    fn local_and_world_accessors_observe_commit_boundary() {
+        let mut tree = Tree::new();
+        let node = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let committed_tf = tree.node(node).world.world_transform;
+        let committed_bounds = tree.node(node).world.world_bounds;
+
+        let next_tf = Affine::translate(Vec2::new(5.0, 0.0));
+        let next_bounds = Rect::new(0.0, 0.0, 20.0, 20.0);
+        let next_clip = RoundedRect::from_rect(Rect::new(0.0, 0.0, 10.0, 10.0), 0.0);
+
+        tree.set_local_transform(node, next_tf);
+        tree.set_local_bounds(node, next_bounds);
+        tree.set_local_clip(node, Some(next_clip));
+
+        assert!(tree.needs_commit());
+        assert_eq!(tree.local_transform(node), Some(next_tf));
+        assert_eq!(tree.local_bounds(node), Some(next_bounds));
+        assert_eq!(tree.local_clip(node), Some(Some(next_clip)));
+
+        assert_eq!(tree.node(node).world.world_transform, committed_tf);
+        assert_eq!(tree.node(node).world.world_bounds, committed_bounds);
+
+        let next_world_bounds = transform_rect_bbox(next_tf, next_bounds)
+            .intersect(transform_rect_bbox(next_tf, next_clip.rect()));
+        let _ = tree.commit();
+        assert_eq!(tree.world_transform(node).unwrap(), next_tf);
+        assert_eq!(tree.world_bounds(node).unwrap(), next_world_bounds);
+
+        tree.remove(node);
+        assert_eq!(tree.local_transform(node), None);
+        assert_eq!(tree.local_bounds(node), None);
+        assert_eq!(tree.local_clip(node), None);
+        assert_eq!(tree.world_transform(node), None);
+        assert_eq!(tree.world_bounds(node), None);
     }
 
     #[test]
