@@ -435,6 +435,51 @@ impl<B: Backend<f64>> Tree<B> {
             .map(|node| node.world.world_bounds)
     }
 
+    /// Return the local clip for a live node.
+    ///
+    /// This is the clip set through [`Tree::set_local_clip`]. It does not
+    /// require a [`Tree::commit`] to be observed here. Returns `None` for stale
+    /// identifiers.
+    pub fn local_clip(&self, id: NodeId) -> Option<Option<RoundedRect>> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_clip)
+    }
+
+    /// Return the local transform for a live node.
+    ///
+    /// This is the transform set through [`Tree::set_local_transform`]. It does
+    /// not require a [`Tree::commit`] to be observed here. Returns `None` for
+    /// stale identifiers.
+    pub fn local_transform(&self, id: NodeId) -> Option<Affine> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_transform)
+    }
+
+    /// Return the local bounds for a live node.
+    ///
+    /// This is the rectangle set through [`Tree::set_local_bounds`]. It does
+    /// not require a [`Tree::commit`] to be observed here. Returns `None` for
+    /// stale identifiers.
+    pub fn local_bounds(&self, id: NodeId) -> Option<Rect> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_bounds)
+    }
+
     /// Access a node for debugging; panics if `id` is stale.
     pub(crate) fn node(&self, id: NodeId) -> &Node {
         self.nodes[id.idx()].as_ref().expect("dangling NodeId")
