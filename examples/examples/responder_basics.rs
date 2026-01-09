@@ -44,7 +44,7 @@ fn main() {
     let hits = vec![
         ResolvedHit {
             node: Node(9),
-            path: Some(vec![Node(9)]),
+            path: Some((&[Node(9)]).into()),
             depth_key: DepthKey::Z(5),
             localizer: Localizer::default(),
             meta: (),

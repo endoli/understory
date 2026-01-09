@@ -40,7 +40,7 @@ pub fn top_hit_for_point(
     tree: &Tree,
     pt: Point,
     filter: QueryFilter,
-) -> Option<ResolvedHit<understory_box_tree::NodeId, ()>> {
+) -> Option<ResolvedHit<'_, understory_box_tree::NodeId, ()>> {
     let hit = tree.hit_test_point(pt, filter)?;
     let depth_key = tree
         .z_index(hit.node)
@@ -48,7 +48,7 @@ pub fn top_hit_for_point(
         .unwrap_or(DepthKey::Z(0));
     Some(ResolvedHit {
         node: hit.node,
-        path: Some(hit.path),
+        path: Some(hit.path.into()),
         depth_key,
         localizer: Localizer::default(),
         meta: (),
@@ -65,7 +65,7 @@ pub fn hits_for_rect(
     tree: &Tree,
     rect: Rect,
     filter: QueryFilter,
-) -> Vec<ResolvedHit<understory_box_tree::NodeId, ()>> {
+) -> Vec<ResolvedHit<'static, understory_box_tree::NodeId, ()>> {
     tree.intersect_rect(rect, filter)
         .map(|id| ResolvedHit {
             node: id,

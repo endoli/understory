@@ -30,7 +30,7 @@ pub struct KeyHit<K> {
 /// This helper is agnostic to any particular tree; it assumes the caller has
 /// already performed broad-phase culling and precise tests and simply wants
 /// a convenient way to produce `ResolvedHit` values.
-pub fn resolved_hits_from_precise<K>(hits: &[KeyHit<K>]) -> Vec<ResolvedHit<K, ()>>
+pub fn resolved_hits_from_precise<K>(hits: &[KeyHit<K>]) -> Vec<ResolvedHit<'static, K, ()>>
 where
     K: Copy,
 {

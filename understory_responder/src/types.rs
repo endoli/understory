@@ -108,11 +108,14 @@ pub struct Localizer {
 /// 3D ray cast). It is the input to
 /// [`Router::handle_with_hits`](crate::router::Router::handle_with_hits).
 #[derive(Clone, Debug)]
-pub struct ResolvedHit<K, M = ()> {
+pub struct ResolvedHit<'a, K, M = ()>
+where
+    [K]: alloc::borrow::ToOwned<Owned = Vec<K>>,
+{
     /// Node key associated with the hit.
     pub node: K,
     /// Optional root→target path; if absent, the router may consult [`ParentLookup`] to derive one.
-    pub path: Option<Vec<K>>,
+    pub path: Option<alloc::borrow::Cow<'a, [K]>>,
     /// Primary depth ordering key used to pick the winning target from candidates.
     pub depth_key: DepthKey,
     /// Transformation context from world space to the target's local coordinates.

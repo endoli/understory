@@ -27,7 +27,7 @@
 //!
 //! `understory_event_state` for hover transitions derived from the dispatch sequence.
 
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, vec::Vec};
 
 use crate::types::{
     Dispatch, Localizer, NoParent, ParentLookup, Phase, ResolvedHit, TieBreakPolicy, WidgetLookup,
@@ -122,7 +122,7 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
     /// Handle a pre-resolved sequence of hits and produce a propagation sequence.
     pub fn handle_with_hits<M>(
         &self,
-        hits: &[ResolvedHit<K, M>],
+        hits: &[ResolvedHit<'_, K, M>],
     ) -> Vec<Dispatch<K, L::WidgetId, M>>
     where
         M: Clone,
@@ -140,17 +140,17 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
                     Some(h.meta.clone()),
                 ),
                 Some(h) => (
-                    Self::reconstruct_path(cap, &self.parent),
+                    Self::reconstruct_path(cap, &self.parent).into(),
                     h.localizer.clone(),
                     Some(h.meta.clone()),
                 ),
                 None => (
-                    Self::reconstruct_path(cap, &self.parent),
+                    Self::reconstruct_path(cap, &self.parent).into(),
                     Localizer::default(),
                     None,
                 ),
             };
-            return self.emit_path(path, localizer, meta);
+            return self.emit_path(&path, localizer, meta);
         }
 
         // Single-pass selection without allocation/sort. Equal-depth ties are
@@ -190,13 +190,13 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         let best = &hits[i];
 
         // Derive path if not provided.
-        let path: Vec<K> = if let Some(p) = &best.path {
+        let path: Cow<'_, [K]> = if let Some(p) = &best.path {
             p.clone()
         } else {
-            Self::reconstruct_path(best.node, &self.parent)
+            Self::reconstruct_path(best.node, &self.parent).into()
         };
 
-        self.emit_path(path, best.localizer.clone(), Some(best.meta.clone()))
+        self.emit_path(&path, best.localizer.clone(), Some(best.meta.clone()))
     }
 
     /// Emit a dispatch sequence for a specific target node by reconstructing its path.
@@ -221,7 +221,7 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         M: Clone,
     {
         let path = Self::reconstruct_path(target, &self.parent);
-        self.emit_path(path, localizer, meta)
+        self.emit_path(&path, localizer, meta)
     }
 
     fn make_dispatch<M: Clone>(
@@ -258,7 +258,7 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
 
     fn emit_path<M: Clone>(
         &self,
-        path: Vec<K>,
+        path: &[K],
         localizer: Localizer,
         meta: Option<M>,
     ) -> Vec<Dispatch<K, L::WidgetId, M>> {
@@ -388,7 +388,7 @@ mod tests {
         // Competing hit with higher Z for a different node.
         let hits = vec![ResolvedHit {
             node: Node(9),
-            path: Some(vec![Node(9)]),
+            path: Some((&[Node(9)]).into()),
             depth_key: DepthKey::Z(999),
             localizer: Localizer::default(),
             meta: (),
@@ -416,7 +416,7 @@ mod tests {
         struct Meta(&'static str);
         let hits = vec![ResolvedHit {
             node: Node(7),
-            path: Some(vec![Node(1), Node(7)]),
+            path: Some((&[Node(1), Node(7)]).into()),
             depth_key: DepthKey::Z(0),
             localizer: Localizer::default(),
             meta: Meta("captured"),
@@ -441,7 +441,7 @@ mod tests {
         router.set_scope(Some(|n: &Node| (n.0 & 1) == 0)); // even only
         let hits = vec![ResolvedHit {
             node: Node(2),
-            path: Some(vec![Node(2)]),
+            path: Some((&[Node(2)]).into()),
             depth_key: DepthKey::Z(100),
             localizer: Localizer::default(),
             meta: (),
@@ -460,7 +460,7 @@ mod tests {
         let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
         let hits = vec![ResolvedHit {
             node: Node(3),
-            path: Some(vec![Node(1), Node(2), Node(3)]),
+            path: Some((&[Node(1), Node(2), Node(3)]).into()),
             depth_key: DepthKey::Z(10),
             localizer: Localizer::default(),
             meta: (),
@@ -483,14 +483,14 @@ mod tests {
         let hits = vec![
             ResolvedHit {
                 node: Node(1),
-                path: Some(vec![Node(1)]),
+                path: Some((&[Node(1)]).into()),
                 depth_key: DepthKey::Z(100),
                 localizer: Localizer::default(),
                 meta: (),
             },
             ResolvedHit {
                 node: Node(2),
-                path: Some(vec![Node(2)]),
+                path: Some((&[Node(2)]).into()),
                 depth_key: DepthKey::Z(50),
                 localizer: Localizer::default(),
                 meta: (),
@@ -553,14 +553,14 @@ mod tests {
         let hits = vec![
             ResolvedHit {
                 node: Node(10),
-                path: Some(vec![Node(10)]),
+                path: Some((&[Node(10)]).into()),
                 depth_key: DepthKey::Distance(0.1),
                 localizer: Localizer::default(),
                 meta: (),
             },
             ResolvedHit {
                 node: Node(20),
-                path: Some(vec![Node(20)]),
+                path: Some((&[Node(20)]).into()),
                 depth_key: DepthKey::Z(0),
                 localizer: Localizer::default(),
                 meta: (),
@@ -581,14 +581,14 @@ mod tests {
         let hits = vec![
             ResolvedHit {
                 node: Node(1),
-                path: Some(vec![Node(1)]),
+                path: Some((&[Node(1)]).into()),
                 depth_key: DepthKey::Z(5),
                 localizer: Localizer::default(),
                 meta: (),
             },
             ResolvedHit {
                 node: Node(2),
-                path: Some(vec![Node(2)]),
+                path: Some((&[Node(2)]).into()),
                 depth_key: DepthKey::Z(5),
                 localizer: Localizer::default(),
                 meta: (),
@@ -610,7 +610,7 @@ mod tests {
         let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
         let hits = vec![ResolvedHit {
             node: Node(7),
-            path: Some(vec![Node(7)]),
+            path: Some((&[Node(7)]).into()),
             depth_key: DepthKey::Z(1),
             localizer: Localizer::default(),
             meta: Meta("hello"),
@@ -630,7 +630,7 @@ mod tests {
         let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
         let hits = vec![ResolvedHit {
             node: Node(42),
-            path: Some(vec![Node(1), Node(42)]),
+            path: Some((&[Node(1), Node(42)]).into()),
             depth_key: DepthKey::Z(10),
             localizer: Localizer::default(),
             meta: (),
@@ -649,14 +649,14 @@ mod tests {
         let hits = vec![
             ResolvedHit {
                 node: Node(5),
-                path: Some(vec![Node(5)]),
+                path: Some((&[Node(5)]).into()),
                 depth_key: DepthKey::Z(1),
                 localizer: Localizer::default(),
                 meta: (),
             },
             ResolvedHit {
                 node: Node(5),
-                path: Some(vec![Node(5)]),
+                path: Some((&[Node(5)]).into()),
                 depth_key: DepthKey::Z(10),
                 localizer: Localizer::default(),
                 meta: (),
@@ -685,14 +685,14 @@ mod tests {
         let hits = vec![
             ResolvedHit {
                 node: Node(2),
-                path: Some(vec![Node(2)]),
+                path: Some((&[Node(2)]).into()),
                 depth_key: DepthKey::Z(1),
                 localizer: Localizer::default(),
                 meta: (),
             },
             ResolvedHit {
                 node: Node(3),
-                path: Some(vec![Node(3)]),
+                path: Some((&[Node(3)]).into()),
                 depth_key: DepthKey::Z(10),
                 localizer: Localizer::default(),
                 meta: (),
@@ -716,14 +716,14 @@ mod tests {
         let hits = vec![
             ResolvedHit {
                 node: Node(7),
-                path: Some(vec![Node(7)]),
+                path: Some((&[Node(7)]).into()),
                 depth_key: DepthKey::Z(1),
                 localizer: Localizer::default(),
                 meta: Meta("first"),
             },
             ResolvedHit {
                 node: Node(7),
-                path: Some(vec![Node(1), Node(7)]),
+                path: Some((&[Node(1), Node(7)]).into()),
                 depth_key: DepthKey::Z(2),
                 localizer: Localizer::default(),
                 meta: Meta("second"),
@@ -748,21 +748,21 @@ mod tests {
         let hits = vec![
             ResolvedHit {
                 node: Node(1),
-                path: Some(vec![Node(1)]),
+                path: Some((&[Node(1)]).into()),
                 depth_key: DepthKey::Distance(0.25),
                 localizer: Localizer::default(),
                 meta: (),
             },
             ResolvedHit {
                 node: Node(2),
-                path: Some(vec![Node(2)]),
+                path: Some((&[Node(2)]).into()),
                 depth_key: DepthKey::Distance(0.25),
                 localizer: Localizer::default(),
                 meta: (),
             },
             ResolvedHit {
                 node: Node(3),
-                path: Some(vec![Node(3)]),
+                path: Some((&[Node(3)]).into()),
                 depth_key: DepthKey::Distance(0.10),
                 localizer: Localizer::default(),
                 meta: (),
@@ -843,7 +843,7 @@ mod tests {
         let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
         let hits = vec![ResolvedHit {
             node: Node(3),
-            path: Some(vec![Node(1), Node(2), Node(3)]),
+            path: Some((&[Node(1), Node(2), Node(3)]).into()),
             depth_key: DepthKey::Z(10),
             localizer: Localizer::default(),
             meta: (),
@@ -875,7 +875,7 @@ mod tests {
         let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
         let hits = vec![ResolvedHit {
             node: Node(3),
-            path: Some(vec![Node(1), Node(2), Node(3)]),
+            path: Some((&[Node(1), Node(2), Node(3)]).into()),
             depth_key: DepthKey::Z(10),
             localizer: Localizer::default(),
             meta: (),
@@ -907,7 +907,7 @@ mod tests {
         let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
         let hits = vec![ResolvedHit {
             node: Node(5),
-            path: Some(vec![Node(1), Node(2), Node(5)]),
+            path: Some((&[Node(1), Node(2), Node(5)]).into()),
             depth_key: DepthKey::Z(10),
             localizer: Localizer::default(),
             meta: (),
