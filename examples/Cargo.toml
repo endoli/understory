@@ -5,14 +5,28 @@ edition = "2024"
 publish = false
 
 [dependencies]
+kurbo = { workspace = true, default-features = true }
+png = "0.17"
+pollster = "0.3"
+skia-safe = "0.90.0"
+skrifa = "0.39"
+ui-events = { version = "0.2.0" }
+ui-events-winit = { version = "0.2.0" }
+understory_box_tree = { path = "../understory_box_tree" }
+understory_event_state = { path = "../understory_event_state" }
+understory_focus = { path = "../understory_focus" }
+understory_imaging = { path = "../understory_imaging" }
+understory_imaging_vello = { path = "../understory_imaging_vello" }
+understory_imaging_skia = { path = "../understory_imaging_skia" }
+understory_imaging_vello_cpu = { path = "../understory_imaging_vello_cpu" }
+understory_index = { path = "../understory_index" }
+understory_precise_hit = { path = "../understory_precise_hit" }
 understory_responder = { path = "../understory_responder", features = [
   "box_tree_adapter",
   "hit2d_adapter",
   "std",
 ] }
-kurbo = { workspace = true, default-features = true }
-understory_box_tree = { path = "../understory_box_tree" }
-understory_focus = { path = "../understory_focus" }
-understory_index = { path = "../understory_index" }
-understory_precise_hit = { path = "../understory_precise_hit" }
-understory_event_state = { path = "../understory_event_state" }
+understory_text_imaging = { path = "../understory_text_imaging" }
+vello_cpu = { workspace = true }
+vello = { workspace = true, features = ["wgpu_default"] }
+winit = { version = "0.30" }

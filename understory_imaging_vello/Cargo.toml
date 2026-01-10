@@ -1,0 +1,27 @@
+[package]
+name = "understory_imaging_vello"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Vello backend implementation of the understory_imaging IR."
+keywords = ["graphics", "rendering", "imaging", "vello"]
+categories = ["graphics", "rendering"]
+
+[dependencies]
+kurbo.workspace = true
+understory_imaging = { path = "../understory_imaging" }
+vello.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = ["kurbo/std"]
+libm = ["kurbo/libm"]
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = []

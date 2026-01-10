@@ -1,0 +1,26 @@
+[package]
+name = "understory_imaging"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Backend-agnostic imaging IR and backend traits for Understory."
+keywords = ["graphics", "rendering", "imaging", "ir"]
+categories = ["graphics", "rendering", "no-std"]
+
+[dependencies]
+kurbo.workspace = true
+peniko.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+std = ["kurbo/std", "peniko/std"]
+libm = ["kurbo/libm", "peniko/libm"]
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = []

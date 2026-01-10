@@ -1,0 +1,30 @@
+[package]
+name = "understory_imaging_web_canvas"
+version = "0.0.1"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+understory_imaging = { path = "../understory_imaging" }
+kurbo = { workspace = true, features = ["libm"] }
+peniko = { workspace = true, features = ["libm"] }
+
+[features]
+default = []
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2.100", default-features = true }
+js-sys = "0.3.77"
+web-sys = { version = "0.3.77", features = [
+  "CanvasGradient",
+  "CanvasRenderingContext2d",
+  "CanvasWindingRule",
+  "Document",
+  "Element",
+  "HtmlCanvasElement",
+  "Window",
+] }

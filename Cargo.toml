@@ -3,6 +3,14 @@ resolver = "2"
 members = [
   "understory_index",
   "understory_box_tree",
+  "understory_imaging_vello_cpu",
+  "understory_imaging_skia",
+  "understory_text_imaging",
+  "understory_imaging",
+  "understory_imaging_ref",
+  "understory_imaging_svg",
+  "understory_imaging_vello",
+  "understory_imaging_web_canvas",
   "understory_focus",
   "understory_precise_hit",
   "understory_responder",
@@ -10,6 +18,8 @@ members = [
   "understory_view2d",
   "understory_virtual_list",
   "understory_event_state",
+  "understory_imaging_snapshot_tests",
+  "xtask",
   "benches",
   "examples",
 ]
@@ -27,6 +37,10 @@ repository = "https://github.com/endoli/understory"
 # Kurbo supports no_std via its `libm` feature. Disable default features here and
 # let member crates opt into `std` or `libm` explicitly via their own features.
 kurbo = { version = "0.12.0", default-features = false }
+peniko = { version = "0.5.0", default-features = false }
+vello = { version = "0.6", default-features = false }
+vello_common = { version = "0.0.5", default-features = false }
+vello_cpu = { version = "0.0.5", default-features = false }
 bitflags = "2.10.0"
 hashbrown = "0.16.1"
 smallvec = { version = "1.13.2", default-features = false }

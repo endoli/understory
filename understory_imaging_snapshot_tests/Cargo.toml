@@ -1,0 +1,37 @@
+[package]
+name = "understory_imaging_snapshot_tests"
+publish = false
+version = "0.0.1"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/endoli/understory"
+description = "Development-only image snapshot tests for Understory imaging backends."
+categories = ["graphics", "rendering", "development-tools::testing"]
+
+[dependencies]
+understory_imaging = { path = "../understory_imaging" }
+kurbo = { workspace = true, default-features = true }
+peniko = { workspace = true, default-features = true }
+
+# Backends (feature-gated; this crate is dev-only and can opt into heavy deps).
+understory_imaging_vello_cpu = { path = "../understory_imaging_vello_cpu", optional = true }
+vello_cpu = { workspace = true, default-features = true, optional = true }
+
+understory_imaging_skia = { path = "../understory_imaging_skia", optional = true }
+skia-safe = { version = "0.90.0", optional = true }
+
+understory_imaging_vello = { path = "../understory_imaging_vello", optional = true }
+vello = { workspace = true, features = ["wgpu_default"], optional = true }
+pollster = { version = "0.3", optional = true }
+
+[dev-dependencies]
+kompari = { git = "https://github.com/linebender/kompari.git", rev = "4b851413e1b17307064aa48c50e59d7e29656543" }
+
+[features]
+default = ["vello_cpu"]
+vello_cpu = ["dep:understory_imaging_vello_cpu", "dep:vello_cpu"]
+skia = ["dep:understory_imaging_skia", "dep:skia-safe"]
+vello = ["dep:understory_imaging_vello", "dep:vello", "dep:pollster"]
+
+[lints]
+workspace = true
