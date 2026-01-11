@@ -54,6 +54,7 @@ pub struct Tree<B: Backend<f64> = FlatVec<f64>> {
     pub(crate) free_list: Vec<usize>,
     pub(crate) epoch: u64,
     pub(crate) index: IndexGeneric<f64, NodeId, B>,
+    needs_commit: bool,
 }
 
 impl<B: Backend<f64> + core::fmt::Debug> core::fmt::Debug for Tree<B> {
@@ -67,6 +68,7 @@ impl<B: Backend<f64> + core::fmt::Debug> core::fmt::Debug for Tree<B> {
             .field("free_list", &free)
             .field("epoch", &self.epoch)
             .field("index", &self.index)
+            .field("needs_commit", &self.needs_commit)
             .finish_non_exhaustive()
     }
 }
@@ -199,6 +201,7 @@ impl Tree {
             free_list: Vec::new(),
             epoch: 0,
             index: IndexGeneric::new(),
+            needs_commit: false,
         }
     }
 }
@@ -212,7 +215,29 @@ impl<B: Backend<f64>> Tree<B> {
             free_list: Vec::new(),
             epoch: 0,
             index: IndexGeneric::with_backend(backend),
+            needs_commit: false,
         }
+    }
+
+    /// Returns `true` if the tree has uncommitted geometry or structural changes.
+    ///
+    /// When this returns `true`, cached world-space values (such as
+    /// [`Tree::world_transform`] and [`Tree::world_bounds`]) and spatial-index-backed query
+    /// results are only valid after calling [`Tree::commit`].
+    ///
+    /// Note: not all updates require a commit. Changes to [`LocalNode`] flags or `z_index` take
+    /// effect immediately and do not affect this value.
+    #[inline]
+    pub fn needs_commit(&self) -> bool {
+        self.needs_commit
+    }
+
+    #[inline]
+    fn debug_assert_committed(&self) {
+        debug_assert!(
+            !self.needs_commit,
+            "Tree queries require calling `Tree::commit()` after geometry/tree-structure mutations"
+        );
     }
 
     fn mark_subtree_dirty(&mut self, id: NodeId, flags: Dirty) {
@@ -262,6 +287,7 @@ impl<B: Backend<f64>> Tree<B> {
         if let Some(p) = parent {
             self.link_parent(id, p);
         }
+        self.needs_commit = true;
         id
     }
 
@@ -273,6 +299,7 @@ impl<B: Backend<f64>> Tree<B> {
         if !self.is_alive(id) {
             return;
         }
+        self.needs_commit = true;
         if let Some(parent) = self.node(id).parent {
             self.unlink_parent(id, parent);
         }
@@ -295,6 +322,7 @@ impl<B: Backend<f64>> Tree<B> {
         if !self.is_alive(id) {
             return;
         }
+        self.needs_commit = true;
         if let Some(parent) = self.node(id).parent {
             self.unlink_parent(id, parent);
         }
@@ -317,35 +345,41 @@ impl<B: Backend<f64>> Tree<B> {
     ///
     /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_transform(&mut self, id: NodeId, tf: Affine) {
-        let Some(n) = self.node_opt_mut(id) else {
-            return;
+        let changed = match self.node_opt_mut(id) {
+            Some(n) if n.local.local_transform != tf => {
+                n.local.local_transform = tf;
+                n.dirty.transform = true;
+                n.dirty.index = true;
+                true
+            }
+            _ => false,
         };
-        if n.local.local_transform == tf {
-            return;
+        if changed {
+            self.needs_commit = true;
         }
-        n.local.local_transform = tf;
-        n.dirty.transform = true;
-        n.dirty.index = true;
     }
 
     /// Update local clip.
     ///
     /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_clip(&mut self, id: NodeId, clip: Option<RoundedRect>) {
-        let Some(n) = self.node_opt_mut(id) else {
-            return;
+        let changed = match self.node_opt_mut(id) {
+            Some(n) if n.local.local_clip != clip => {
+                n.local.local_clip = clip;
+                n.dirty.clip = true;
+                n.dirty.index = true;
+                true
+            }
+            _ => false,
         };
-        if n.local.local_clip == clip {
-            return;
+        if changed {
+            self.needs_commit = true;
         }
-        n.local.local_clip = clip;
-        n.dirty.clip = true;
-        n.dirty.index = true;
     }
 
     /// Update z index.
     ///
-    /// The change takes effect immediately.
+    /// The change takes effect immediately and does not require a [`Tree::commit`].
     pub fn set_z_index(&mut self, id: NodeId, z: i32) {
         if let Some(n) = self.node_opt_mut(id)
             && n.local.z_index != z
@@ -359,20 +393,23 @@ impl<B: Backend<f64>> Tree<B> {
     ///
     /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_bounds(&mut self, id: NodeId, bounds: Rect) {
-        let Some(n) = self.node_opt_mut(id) else {
-            return;
+        let changed = match self.node_opt_mut(id) {
+            Some(n) if n.local.local_bounds != bounds => {
+                n.local.local_bounds = bounds;
+                n.dirty.layout = true;
+                n.dirty.index = true;
+                true
+            }
+            _ => false,
         };
-        if n.local.local_bounds == bounds {
-            return;
+        if changed {
+            self.needs_commit = true;
         }
-        n.local.local_bounds = bounds;
-        n.dirty.layout = true;
-        n.dirty.index = true;
     }
 
     /// Update node flags.
     ///
-    /// The change takes effect immediately.
+    /// The change takes effect immediately and does not require a [`Tree::commit`].
     pub fn set_flags(&mut self, id: NodeId, flags: NodeFlags) {
         let Some(n) = self.node_opt_mut(id) else {
             return;
@@ -392,6 +429,7 @@ impl<B: Backend<f64>> Tree<B> {
         if !self.is_alive(id) {
             return None;
         }
+        self.debug_assert_committed();
         self.nodes
             .get(id.idx())
             .and_then(|slot| slot.as_ref())
@@ -409,6 +447,7 @@ impl<B: Backend<f64>> Tree<B> {
         if !self.is_alive(id) {
             return None;
         }
+        self.debug_assert_committed();
         self.nodes
             .get(id.idx())
             .and_then(|slot| slot.as_ref())
@@ -432,7 +471,14 @@ impl<B: Backend<f64>> Tree<B> {
     /// index, and returns a [`Damage`] summary capturing added/removed/moved
     /// regions. Call this after mutating any `LocalNode` fields or tree
     /// structure before issuing queries.
+    ///
+    /// Note: not all updates require a commit. Changes to [`LocalNode`] flags or
+    /// `z_index` take effect immediately (they do not affect world-space data or
+    /// the spatial index).
     pub fn commit(&mut self) -> Damage {
+        if !self.needs_commit {
+            return Damage::default();
+        }
         let mut damage = Damage::default();
         let roots: Vec<NodeId> = self
             .nodes
@@ -461,6 +507,7 @@ impl<B: Backend<f64>> Tree<B> {
             damage.dirty_rects.push(r);
         }
 
+        self.needs_commit = false;
         damage
     }
 
@@ -476,6 +523,7 @@ impl<B: Backend<f64>> Tree<B> {
     /// This tie-break is intentionally deterministic for now. In the future this
     /// may be made configurable (for example via a `TieBreakPolicy`).
     pub fn hit_test_point(&self, point: Point, filter: QueryFilter) -> Option<Hit> {
+        self.debug_assert_committed();
         let mut best: Option<(NodeId, i32, u16)> = None;
         self.index.visit_point(point.x, point.y, |_, id| {
             // The spatial index provides a coarse world-AABB candidate set. Everything below is
@@ -554,6 +602,7 @@ impl<B: Backend<f64>> Tree<B> {
         rect: Rect,
         filter: QueryFilter,
     ) -> impl Iterator<Item = NodeId> + 'a {
+        self.debug_assert_committed();
         let q = rect_to_aabb(rect);
         self.index
             .query_rect(q)
@@ -580,6 +629,7 @@ impl<B: Backend<f64>> Tree<B> {
         point: Point,
         filter: QueryFilter,
     ) -> impl Iterator<Item = NodeId> + 'a {
+        self.debug_assert_committed();
         self.index
             .query_point(point.x, point.y)
             .map(|(_, id)| id)
@@ -924,6 +974,126 @@ mod tests {
         tree.set_local_transform(n, Affine::translate(Vec2::new(50.0, 0.0)));
         let dmg = tree.commit();
         assert!(dmg.union_rect().is_some());
+    }
+
+    #[test]
+    fn noop_commit_returns_default_and_queries_unchanged() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                ..Default::default()
+            },
+        );
+        let top = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 10,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let hit_before = tree
+            .hit_test_point(Point::new(50.0, 50.0), QueryFilter::new())
+            .unwrap();
+        assert_eq!(hit_before.node, top);
+
+        let dmg = tree.commit();
+        assert!(dmg.dirty_rects.is_empty());
+        assert!(dmg.union_rect().is_none());
+
+        let hit_after = tree
+            .hit_test_point(Point::new(50.0, 50.0), QueryFilter::new())
+            .unwrap();
+        assert_eq!(hit_after.node, top);
+        assert_eq!(hit_after.path, hit_before.path);
+    }
+
+    #[test]
+    fn set_z_index_does_not_require_commit() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                ..Default::default()
+            },
+        );
+        let a = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let b = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 10,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        assert_eq!(
+            tree.hit_test_point(Point::new(50.0, 50.0), QueryFilter::new())
+                .unwrap()
+                .node,
+            b
+        );
+
+        tree.set_z_index(a, 20);
+        assert_eq!(
+            tree.hit_test_point(Point::new(50.0, 50.0), QueryFilter::new())
+                .unwrap()
+                .node,
+            a
+        );
+    }
+
+    #[test]
+    fn set_flags_does_not_require_commit() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                flags: NodeFlags::VISIBLE,
+                ..Default::default()
+            },
+        );
+        let n = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        assert_eq!(
+            tree.hit_test_point(
+                Point::new(50.0, 50.0),
+                QueryFilter::new().visible().pickable()
+            )
+            .unwrap()
+            .node,
+            n
+        );
+
+        tree.set_flags(n, NodeFlags::VISIBLE);
+        assert!(
+            tree.hit_test_point(
+                Point::new(50.0, 50.0),
+                QueryFilter::new().visible().pickable()
+            )
+            .is_none()
+        );
     }
 
     #[test]
