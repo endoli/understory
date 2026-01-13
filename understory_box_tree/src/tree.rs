@@ -55,6 +55,7 @@ pub struct Tree<B: Backend<f64> = FlatVec<f64>> {
     pub(crate) epoch: u64,
     pub(crate) index: IndexGeneric<f64, NodeId, B>,
     needs_commit: bool,
+    dirty_roots: Vec<NodeId>,
 }
 
 impl<B: Backend<f64> + core::fmt::Debug> core::fmt::Debug for Tree<B> {
@@ -153,7 +154,6 @@ struct Dirty {
     layout: bool,
     transform: bool,
     clip: bool,
-    z: bool,
     index: bool,
 }
 
@@ -180,7 +180,6 @@ impl Node {
                 layout: true,
                 transform: true,
                 clip: true,
-                z: true,
                 index: true,
             },
             index_key: None,
@@ -202,6 +201,7 @@ impl Tree {
             epoch: 0,
             index: IndexGeneric::new(),
             needs_commit: false,
+            dirty_roots: Vec::new(),
         }
     }
 }
@@ -216,6 +216,7 @@ impl<B: Backend<f64>> Tree<B> {
             epoch: 0,
             index: IndexGeneric::with_backend(backend),
             needs_commit: false,
+            dirty_roots: Vec::new(),
         }
     }
 
@@ -240,22 +241,10 @@ impl<B: Backend<f64>> Tree<B> {
         );
     }
 
-    fn mark_subtree_dirty(&mut self, id: NodeId, flags: Dirty) {
-        if !self.is_alive(id) {
-            return;
-        }
-        let children = {
-            let n = self.node_mut(id);
-            n.dirty.layout |= flags.layout;
-            n.dirty.transform |= flags.transform;
-            n.dirty.clip |= flags.clip;
-            n.dirty.z |= flags.z;
-            n.dirty.index |= flags.index;
-            n.children.clone()
-        };
-        for c in children {
-            self.mark_subtree_dirty(c, flags);
-        }
+    #[inline]
+    fn mark_dirty(&mut self, id: NodeId) {
+        self.needs_commit = true;
+        self.dirty_roots.push(id);
     }
 
     /// Insert a new node as a child of `parent` (or as a root if `None`).
@@ -287,7 +276,7 @@ impl<B: Backend<f64>> Tree<B> {
         if let Some(p) = parent {
             self.link_parent(id, p);
         }
-        self.needs_commit = true;
+        self.mark_dirty(id);
         id
     }
 
@@ -322,23 +311,17 @@ impl<B: Backend<f64>> Tree<B> {
         if !self.is_alive(id) {
             return;
         }
-        self.needs_commit = true;
         if let Some(parent) = self.node(id).parent {
             self.unlink_parent(id, parent);
         }
         if let Some(p) = new_parent {
             self.link_parent(id, p);
         }
-        self.mark_subtree_dirty(
-            id,
-            Dirty {
-                layout: true,
-                transform: true,
-                clip: true,
-                z: true,
-                index: true,
-            },
-        );
+        self.mark_dirty(id);
+        let node = self.node_mut(id);
+        node.dirty.transform = true;
+        node.dirty.clip = true;
+        node.dirty.index = true;
     }
 
     /// Update local transform.
@@ -355,7 +338,7 @@ impl<B: Backend<f64>> Tree<B> {
             _ => false,
         };
         if changed {
-            self.needs_commit = true;
+            self.mark_dirty(id);
         }
     }
 
@@ -373,7 +356,7 @@ impl<B: Backend<f64>> Tree<B> {
             _ => false,
         };
         if changed {
-            self.needs_commit = true;
+            self.mark_dirty(id);
         }
     }
 
@@ -385,7 +368,6 @@ impl<B: Backend<f64>> Tree<B> {
             && n.local.z_index != z
         {
             n.local.z_index = z;
-            n.dirty.z = true;
         }
     }
 
@@ -403,7 +385,7 @@ impl<B: Backend<f64>> Tree<B> {
             _ => false,
         };
         if changed {
-            self.needs_commit = true;
+            self.mark_dirty(id);
         }
     }
 
@@ -418,7 +400,6 @@ impl<B: Backend<f64>> Tree<B> {
             return;
         }
         n.local.flags = flags;
-        n.dirty.index = true;
     }
 
     /// Return the world transform for a live node as of the last [`Tree::commit`].
@@ -480,25 +461,50 @@ impl<B: Backend<f64>> Tree<B> {
             return Damage::default();
         }
         let mut damage = Damage::default();
-        let roots: Vec<NodeId> = self
-            .nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, n)| match n {
-                Some(n) if n.parent.is_none() =>
-                {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "NodeId uses 32-bit indices by design."
-                    )]
-                    Some(NodeId::new(i as u32, n.generation))
-                }
-                _ => None,
-            })
-            .collect();
+        let mut starts = core::mem::take(&mut self.dirty_roots);
+        starts.retain(|id| self.is_alive(*id));
+        starts.sort_by_key(|id| (id.1, id.0));
+        starts.dedup_by_key(|id| (id.1, id.0));
 
-        for root in roots {
-            self.update_world_recursive(root, Affine::IDENTITY, None, &mut damage);
+        // Remove any start node that is already covered by a start ancestor that will traverse
+        // into its descendants.
+        //
+        // We only traverse a subtree when an ancestor transform/clip changed. If an ancestor is
+        // dirty only for local layout/index, it will be updated but its children won't be visited.
+        let mut top_level = Vec::new();
+        for &id in &starts {
+            let mut covered = false;
+            let mut current = self.node(id).parent;
+            while let Some(p) = current {
+                if starts
+                    .binary_search_by_key(&(p.1, p.0), |x| (x.1, x.0))
+                    .is_ok()
+                {
+                    let ancestor_dirty = self.node(p).dirty;
+                    if ancestor_dirty.transform || ancestor_dirty.clip {
+                        covered = true;
+                        break;
+                    }
+                }
+                current = self.node(p).parent;
+            }
+            if !covered {
+                top_level.push(id);
+            }
+        }
+
+        for id in top_level {
+            let (parent_tf, parent_clip, depth) = if let Some(parent) = self.node(id).parent {
+                let p = self.node(parent);
+                (
+                    p.world.world_transform,
+                    p.world.world_clip,
+                    p.world.depth.saturating_add(1),
+                )
+            } else {
+                (Affine::IDENTITY, None, 1_u16)
+            };
+            self.update_world_subtree(id, parent_tf, parent_clip, depth, false, &mut damage);
         }
 
         let idx_damage = self.index.commit();
@@ -821,67 +827,110 @@ impl<B: Backend<f64>> Tree<B> {
         out
     }
 
-    fn update_world_recursive(
+    fn update_world_subtree(
         &mut self,
         root_id: NodeId,
         root_tf: Affine,
         root_clip: Option<Rect>,
+        root_depth: u16,
+        inherited_dirty: bool,
         damage: &mut Damage,
     ) {
-        // The world is updated by walking the tree depth-first, propagating transforms and clips
-        // toward the leaves.
-        let mut stack = vec![(root_id, root_tf, root_clip, 1_u16)];
+        enum IndexOp {
+            Update(AabbKey, understory_index::Aabb2D<f64>),
+            Insert(understory_index::Aabb2D<f64>),
+        }
 
-        while let Some((id, current_tf, current_clip, depth)) = stack.pop() {
-            let node = self.node_mut(id);
-            let old_world_bounds = node.world.world_bounds;
-            node.world.world_transform = current_tf * node.local.local_transform;
-            node.world.world_transform_inverse = node.world.world_transform.inverse();
-            node.world.depth = depth;
-            let mut world_bounds =
-                transform_rect_bbox(node.world.world_transform, node.local.local_bounds);
-            let local_clip = node
-                .local
-                .local_clip
-                .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()));
-            let world_clip = match (local_clip, current_clip) {
-                (Some(local), Some(parent)) => Some(local.intersect(parent)),
-                (Some(local), None) => Some(local),
-                (None, Some(parent)) => Some(parent),
-                (None, None) => None,
-            };
-            if let Some(c) = world_clip {
-                world_bounds = world_bounds.intersect(c);
-            }
-            node.world.world_bounds = world_bounds;
-            node.world.world_clip = world_clip;
-            let aabb = rect_to_aabb(world_bounds);
+        // Update world-space data by walking depth-first from `root_id`. We only walk into
+        // descendants when an ancestor transform/clip has changed (because that affects
+        // descendant world-space state).
+        let mut stack = vec![(root_id, root_tf, root_clip, root_depth, inherited_dirty)];
 
-            if old_world_bounds != node.world.world_bounds {
-                if old_world_bounds.width() > 0.0 && old_world_bounds.height() > 0.0 {
-                    damage.dirty_rects.push(old_world_bounds);
+        while let Some((id, current_tf, current_clip, depth, inherited_dirty)) = stack.pop() {
+            let mut index_op: Option<IndexOp> = None;
+            {
+                let node = self.node_mut(id);
+                let dirty = node.dirty;
+                let subtree_inherited_dirty = inherited_dirty || dirty.transform || dirty.clip;
+
+                // Even if only z/flags changed, we still want to clear the dirty bits, but we can
+                // skip recomputing world-space geometry.
+                let needs_update_world =
+                    inherited_dirty || dirty.layout || dirty.transform || dirty.clip || dirty.index;
+
+                if needs_update_world {
+                    let old_world_bounds = node.world.world_bounds;
+
+                    node.world.world_transform = current_tf * node.local.local_transform;
+                    node.world.world_transform_inverse = node.world.world_transform.inverse();
+                    node.world.depth = depth;
+
+                    let mut world_bounds =
+                        transform_rect_bbox(node.world.world_transform, node.local.local_bounds);
+                    let local_clip = node
+                        .local
+                        .local_clip
+                        .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()));
+                    let world_clip = match (local_clip, current_clip) {
+                        (Some(local), Some(parent)) => Some(local.intersect(parent)),
+                        (Some(local), None) => Some(local),
+                        (None, Some(parent)) => Some(parent),
+                        (None, None) => None,
+                    };
+                    if let Some(c) = world_clip {
+                        world_bounds = world_bounds.intersect(c);
+                    }
+                    node.world.world_bounds = world_bounds;
+                    node.world.world_clip = world_clip;
+
+                    let bounds_changed = old_world_bounds != node.world.world_bounds;
+                    if bounds_changed {
+                        if old_world_bounds.width() > 0.0 && old_world_bounds.height() > 0.0 {
+                            damage.dirty_rects.push(old_world_bounds);
+                        }
+                        if node.world.world_bounds.width() > 0.0
+                            && node.world.world_bounds.height() > 0.0
+                        {
+                            damage.dirty_rects.push(node.world.world_bounds);
+                        }
+                    }
+
+                    // Only touch the spatial index when the AABB changes (or for new nodes).
+                    if bounds_changed || node.index_key.is_none() {
+                        let aabb = rect_to_aabb(node.world.world_bounds);
+                        index_op = Some(if let Some(key) = node.index_key {
+                            IndexOp::Update(key, aabb)
+                        } else {
+                            IndexOp::Insert(aabb)
+                        });
+                    }
                 }
-                if node.world.world_bounds.width() > 0.0 && node.world.world_bounds.height() > 0.0 {
-                    damage.dirty_rects.push(node.world.world_bounds);
+
+                node.dirty = Dirty::default();
+
+                // Push all children to the stack if an ancestor change affects them.
+                if subtree_inherited_dirty {
+                    let world_clip = node.world.world_clip;
+                    for &child in node.children.iter().rev() {
+                        stack.push((
+                            child,
+                            node.world.world_transform,
+                            world_clip,
+                            depth.saturating_add(1),
+                            subtree_inherited_dirty,
+                        ));
+                    }
                 }
             }
 
-            // Push all children to the stack. The `.rev()` is not strictly necessary, but means we
-            // visit the children in the order they are given in `node.children`.
-            for &child in node.children.iter().rev() {
-                stack.push((
-                    child,
-                    node.world.world_transform,
-                    world_clip,
-                    depth.saturating_add(1),
-                ));
-            }
-
-            if let Some(key) = node.index_key {
-                self.index.update(key, aabb);
-            } else {
-                let key = self.index.insert(aabb, id);
-                self.node_mut(id).index_key = Some(key);
+            if let Some(op) = index_op {
+                match op {
+                    IndexOp::Update(key, aabb) => self.index.update(key, aabb),
+                    IndexOp::Insert(aabb) => {
+                        let key = self.index.insert(aabb, id);
+                        self.node_mut(id).index_key = Some(key);
+                    }
+                }
             }
         }
     }
@@ -889,10 +938,62 @@ impl<B: Backend<f64>> Tree<B> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::sync::Arc;
     use alloc::vec;
+    use core::sync::atomic::{AtomicUsize, Ordering};
     use kurbo::Vec2;
+    use understory_index::Aabb2D;
 
     use super::*;
+
+    #[derive(Default)]
+    struct BackendCounts {
+        inserts: AtomicUsize,
+        updates: AtomicUsize,
+        removes: AtomicUsize,
+        clears: AtomicUsize,
+    }
+
+    struct CountingBackend<B> {
+        inner: B,
+        counts: Arc<BackendCounts>,
+    }
+
+    impl<B> CountingBackend<B> {
+        fn new(inner: B, counts: Arc<BackendCounts>) -> Self {
+            Self { inner, counts }
+        }
+    }
+
+    impl<B: Backend<f64>> Backend<f64> for CountingBackend<B> {
+        fn insert(&mut self, slot: usize, aabb: Aabb2D<f64>) {
+            self.counts.inserts.fetch_add(1, Ordering::Relaxed);
+            self.inner.insert(slot, aabb);
+        }
+
+        fn update(&mut self, slot: usize, aabb: Aabb2D<f64>) {
+            self.counts.updates.fetch_add(1, Ordering::Relaxed);
+            self.inner.update(slot, aabb);
+        }
+
+        fn remove(&mut self, slot: usize) {
+            self.counts.removes.fetch_add(1, Ordering::Relaxed);
+            self.inner.remove(slot);
+        }
+
+        fn clear(&mut self) {
+            self.counts.clears.fetch_add(1, Ordering::Relaxed);
+            self.inner.clear();
+        }
+
+        fn visit_point<F: FnMut(usize)>(&self, x: f64, y: f64, f: F) {
+            self.inner.visit_point(x, y, f);
+        }
+
+        fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<f64>, f: F) {
+            self.inner.visit_rect(rect, f);
+        }
+    }
 
     /// Returns whether the two sets of node IDs are equal. The two sets do not need to be ordered.
     ///
@@ -912,6 +1013,127 @@ mod tests {
             }
         }
         a.len() == b.len() && b.iter().all(|node| a.contains(node))
+    }
+
+    #[test]
+    fn commit_noop_does_not_touch_backend() {
+        let counts = Arc::new(BackendCounts::default());
+        let backend = CountingBackend::new(FlatVec::<f64>::default(), counts.clone());
+        let mut tree: Tree<CountingBackend<FlatVec<f64>>> = Tree::with_backend(backend);
+
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 5.0, 5.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let inserts0 = counts.inserts.load(Ordering::Relaxed);
+        let updates0 = counts.updates.load(Ordering::Relaxed);
+        let removes0 = counts.removes.load(Ordering::Relaxed);
+        let clears0 = counts.clears.load(Ordering::Relaxed);
+
+        let _ = tree.commit();
+
+        assert_eq!(counts.inserts.load(Ordering::Relaxed), inserts0);
+        assert_eq!(counts.updates.load(Ordering::Relaxed), updates0);
+        assert_eq!(counts.removes.load(Ordering::Relaxed), removes0);
+        assert_eq!(counts.clears.load(Ordering::Relaxed), clears0);
+    }
+
+    #[test]
+    fn commit_skips_backend_update_when_clipped_bounds_unchanged() {
+        let counts = Arc::new(BackendCounts::default());
+        let backend = CountingBackend::new(FlatVec::<f64>::default(), counts.clone());
+        let mut tree: Tree<CountingBackend<FlatVec<f64>>> = Tree::with_backend(backend);
+
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 0.0, 0.0),
+                local_clip: Some(RoundedRect::from_rect(Rect::new(0.0, 0.0, 10.0, 10.0), 0.0)),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                // Large enough to fully cover the parent's clip even if we nudge it slightly.
+                local_bounds: Rect::new(-100.0, -100.0, 1000.0, 1000.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let updates0 = counts.updates.load(Ordering::Relaxed);
+        tree.set_local_transform(child, Affine::translate(Vec2::new(0.25, 0.0)));
+        let _ = tree.commit();
+        assert_eq!(
+            counts.updates.load(Ordering::Relaxed),
+            updates0,
+            "world bounds are unchanged (fully clipped), so the spatial backend should not be updated"
+        );
+    }
+
+    #[test]
+    fn commit_does_not_drop_dirty_descendant_when_ancestor_layout_only() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let parent = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(parent),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        // Mutate the ancestor in a way that *does not* require visiting descendants, and also
+        // mutate a descendant's transform. A commit must update the descendant even if the
+        // ancestor is also dirty.
+        tree.set_local_bounds(parent, Rect::new(0.0, 0.0, 200.0, 200.0));
+        tree.set_local_transform(child, Affine::translate(Vec2::new(50.0, 0.0)));
+        let _ = tree.commit();
+
+        let child_bounds = tree.world_bounds(child).unwrap();
+        assert_eq!(child_bounds, Rect::new(50.0, 0.0, 60.0, 10.0));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "Tree queries require calling `Tree::commit()`")]
+    fn hit_test_without_commit_panics_in_debug() {
+        let mut tree = Tree::new();
+        tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.hit_test_point(Point::new(5.0, 5.0), QueryFilter::new());
     }
 
     #[test]
