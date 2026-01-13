@@ -19,10 +19,10 @@ use crate::util::{rect_to_aabb, transform_rect_bbox};
 /// `B` to use a grid, an [R-tree][understory_index::backends::RTree], or a
 /// [BVH][understory_index::backends::Bvh] backend from `understory_index`.
 ///
-/// Changes to local node data (bounds, transform, clip, flags, z) do **not**
-/// take effect immediately. They are batched and applied when [`Tree::commit`]
-/// is called, which recomputes world-space data and synchronizes the spatial
-/// index.
+/// Changes to local node geometry (bounds, transform, clip) dirty the tree and
+/// are **not** propagated immediately. The changes are batched and applied
+/// when [`Tree::commit`] is called, which recomputes world-space data and
+/// synchronizes the spatial index.
 ///
 /// ## Example
 ///
@@ -40,7 +40,7 @@ use crate::util::{rect_to_aabb, transform_rect_bbox};
 ///     },
 /// );
 ///
-/// // Changes only take effect after commit.
+/// // Changes are propagated on commit.
 /// tree.commit();
 ///
 /// let world = tree.world_bounds(root).unwrap();
@@ -312,6 +312,8 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Update local transform.
+    ///
+    /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_transform(&mut self, id: NodeId, tf: Affine) {
         if let Some(n) = self.node_opt_mut(id)
             && n.local.local_transform != tf
@@ -323,6 +325,8 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Update local clip.
+    ///
+    /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_clip(&mut self, id: NodeId, clip: Option<RoundedRect>) {
         if let Some(n) = self.node_opt_mut(id)
             && n.local.local_clip != clip
@@ -334,6 +338,8 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Update z index.
+    ///
+    /// The change takes effect immediately.
     pub fn set_z_index(&mut self, id: NodeId, z: i32) {
         if let Some(n) = self.node_opt_mut(id)
             && n.local.z_index != z
@@ -344,6 +350,8 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Update local bounds.
+    ///
+    /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_bounds(&mut self, id: NodeId, bounds: Rect) {
         if let Some(n) = self.node_opt_mut(id)
             && n.local.local_bounds != bounds
@@ -355,6 +363,8 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Update node flags.
+    ///
+    /// The change takes effect immediately.
     pub fn set_flags(&mut self, id: NodeId, flags: NodeFlags) {
         if let Some(n) = self.node_opt_mut(id)
             && n.local.flags != flags
