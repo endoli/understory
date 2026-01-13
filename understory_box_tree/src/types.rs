@@ -97,10 +97,12 @@ pub struct LocalNode {
     /// - Points outside `local_clip` (once transformed) cannot hit this node or any descendant.
     ///   Backends may still apply more precise clipping during rendering.
     pub local_clip: Option<RoundedRect>,
-    /// Z-order within the parent stacking context.
+    /// The node's z-order within the [`Tree`](crate::Tree).
     ///
-    /// - Higher values are drawn on top of siblings with lower values.
-    /// - Hit testing also compares `z_index` across different parents when nodes overlap;
+    /// This does not model stacking contexts.
+    ///
+    /// - Nodes with higher values are drawn on top of nodes with lower values.
+    /// - Hit testing compares `z_index` when nodes within the tree overlap;
     ///   depth in the tree and insertion order are used as secondary tie-breakers.
     pub z_index: i32,
     /// Visibility and interaction flags.
