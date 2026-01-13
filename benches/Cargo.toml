@@ -3,15 +3,20 @@ name = "understory_benches"
 version = "0.1.0"
 edition = "2024"
 publish = false
+autobenches = false
 
 [dependencies]
 understory_index = { path = "../understory_index" }
+understory_box_tree = { path = "../understory_box_tree" }
+kurbo.workspace = true
 rstar = { version = "0.11", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = [
   "cargo_bench_support",
 ] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.138"
 
 [features]
 compare_rstar = ["dep:rstar"]
@@ -24,3 +29,7 @@ harness = false
 name = "rtree_external_compare"
 harness = false
 required-features = ["compare_rstar"]
+
+[[bench]]
+name = "ui_box_tree"
+harness = false
