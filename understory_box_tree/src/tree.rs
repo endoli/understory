@@ -149,7 +149,6 @@ struct Dirty {
     layout: bool,
     transform: bool,
     clip: bool,
-    z: bool,
     index: bool,
 }
 
@@ -176,7 +175,6 @@ impl Node {
                 layout: true,
                 transform: true,
                 clip: true,
-                z: true,
                 index: true,
             },
             index_key: None,
@@ -222,7 +220,6 @@ impl<B: Backend<f64>> Tree<B> {
             n.dirty.layout |= flags.layout;
             n.dirty.transform |= flags.transform;
             n.dirty.clip |= flags.clip;
-            n.dirty.z |= flags.z;
             n.dirty.index |= flags.index;
             n.children.clone()
         };
@@ -305,7 +302,6 @@ impl<B: Backend<f64>> Tree<B> {
                 layout: true,
                 transform: true,
                 clip: true,
-                z: true,
                 index: true,
             },
         );
@@ -339,7 +335,6 @@ impl<B: Backend<f64>> Tree<B> {
             && n.local.z_index != z
         {
             n.local.z_index = z;
-            n.dirty.z = true;
         }
     }
 
