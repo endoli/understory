@@ -80,10 +80,6 @@ impl<S: Scalar> ExtentModel for FixedExtentModel<S> {
             return 0;
         }
         let ratio = offset / self.extent;
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "Index is clamped to bounds immediately after the cast"
-        )]
         let i = ratio.floor_to_isize();
         i.clamp(0, self.len as isize - 1) as usize
     }

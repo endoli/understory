@@ -241,7 +241,7 @@ impl<B: Backend<f64>> Tree<B> {
             let generation = self.generations[idx].saturating_add(1);
             self.generations[idx] = generation;
             self.nodes[idx] = Some(Node::new(generation, local));
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "NodeId uses 32-bit indices by design."
             )]
@@ -250,7 +250,7 @@ impl<B: Backend<f64>> Tree<B> {
             let generation = 1_u32;
             self.nodes.push(Some(Node::new(generation, local)));
             self.generations.push(generation);
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "NodeId uses 32-bit indices by design."
             )]
@@ -421,7 +421,7 @@ impl<B: Backend<f64>> Tree<B> {
             .filter_map(|(i, n)| match n {
                 Some(n) if n.parent.is_none() =>
                 {
-                    #[allow(
+                    #[expect(
                         clippy::cast_possible_truncation,
                         reason = "NodeId uses 32-bit indices by design."
                     )]

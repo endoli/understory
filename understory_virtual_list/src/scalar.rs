@@ -82,7 +82,7 @@ impl Scalar for f32 {
     }
 
     fn floor_to_isize(self) -> isize {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "Used only for index approximation; result is clamped immediately after"
         )]
@@ -118,7 +118,7 @@ impl Scalar for f64 {
     }
 
     fn floor_to_isize(self) -> isize {
-        #[allow(
+        #[expect(
             clippy::cast_possible_truncation,
             reason = "Used only for index approximation; result is clamped immediately after"
         )]

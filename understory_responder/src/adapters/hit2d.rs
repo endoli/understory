@@ -38,7 +38,7 @@ where
         .map(|h| ResolvedHit {
             node: h.key,
             path: None,
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "DepthKey uses f32; precision loss is acceptable for hit sorting."
             )]
