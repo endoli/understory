@@ -15,7 +15,7 @@ use crate::types::Aabb2D;
 pub struct Key(u32, u32);
 
 impl Key {
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "Index keys are intentionally 32-bit; higher bits are truncated by design."
     )]

@@ -33,7 +33,7 @@ pub trait GridScalar: Scalar {
 }
 
 impl GridScalar for f32 {
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "Grid cell indices are intentionally i32; out-of-range values are saturated."
     )]
@@ -56,7 +56,7 @@ impl GridScalar for f32 {
 }
 
 impl GridScalar for f64 {
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "Grid cell indices are intentionally i32; out-of-range values are saturated."
     )]
@@ -79,7 +79,7 @@ impl GridScalar for f64 {
 }
 
 impl GridScalar for i64 {
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "Grid cell indices are intentionally i32; out-of-range values are saturated."
     )]

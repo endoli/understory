@@ -83,7 +83,7 @@ struct DumpNode {
     local_clip: Option<DumpRoundedRect>,
     local_transform: [f64; 6],
     children: Vec<DumpNode>,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     view_id: Option<String>,
 }
 
@@ -386,7 +386,7 @@ fn build_synthetic_ui_box_tree<B: Backend<f64>>(backend: B) -> (Tree<B>, Vec<Nod
     (tree, ids, stats)
 }
 
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "Local helper to keep the synthetic tree construction readable."
 )]
