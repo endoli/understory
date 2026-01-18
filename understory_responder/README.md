@@ -31,9 +31,12 @@ Instead, feed it [`ResolvedHit`](https://docs.rs/understory_responder/latest/und
 
 ## Inputs
 
-Provide one or more [`ResolvedHit`](https://docs.rs/understory_responder/latest/understory_responder/types/struct.ResolvedHit.html) values for candidate targets.
-A [`ResolvedHit`](https://docs.rs/understory_responder/latest/understory_responder/types/struct.ResolvedHit.html) contains the node key, an optional root→target `path`, a [`DepthKey`](https://docs.rs/understory_responder/latest/understory_responder/types/enum.DepthKey.html) used for ordering,
+Provide one or more hit candidates for targets.
+The simplest is [`ResolvedHit`](https://docs.rs/understory_responder/latest/understory_responder/types/struct.ResolvedHit.html), which contains the node key, an optional owned root→target `path`, a [`DepthKey`](https://docs.rs/understory_responder/latest/understory_responder/types/enum.DepthKey.html) used for ordering,
 a [`Localizer`](https://docs.rs/understory_responder/latest/understory_responder/types/struct.Localizer.html) for coordinate conversion, and an optional `meta` payload (e.g., text or ray‑hit details).
+
+If your picker caches full paths (for example in an `Rc<[K]>`), you can avoid rebuilding a `Vec<K>` by using [`ResolvedHitRef`](https://docs.rs/understory_responder/latest/understory_responder/types/struct.ResolvedHitRef.html),
+which borrows a `&[K]` path, or by implementing [`Hit`](https://docs.rs/understory_responder/latest/understory_responder/types/trait.Hit.html) for your own hit type.
 You may also provide a [`ParentLookup`](https://docs.rs/understory_responder/latest/understory_responder/types/trait.ParentLookup.html) source to reconstruct a path when `path` is absent.
 
 ## Ordering

@@ -14,9 +14,12 @@
 //!
 //! ## Inputs
 //!
-//! Provide one or more [`ResolvedHit`](crate::types::ResolvedHit) values for candidate targets.
-//! A [`ResolvedHit`](crate::types::ResolvedHit) contains the node key, an optional root→target `path`, a [`DepthKey`](crate::types::DepthKey) used for ordering,
+//! Provide one or more hit candidates for targets.
+//! The simplest is [`ResolvedHit`](crate::types::ResolvedHit), which contains the node key, an optional owned root→target `path`, a [`DepthKey`](crate::types::DepthKey) used for ordering,
 //! a [`Localizer`](crate::types::Localizer) for coordinate conversion, and an optional `meta` payload (e.g., text or ray‑hit details).
+//!
+//! If your picker caches full paths (for example in an `Rc<[K]>`), you can avoid rebuilding a `Vec<K>` by using [`ResolvedHitRef`](crate::types::ResolvedHitRef),
+//! which borrows a `&[K]` path, or by implementing [`Hit`](crate::types::Hit) for your own hit type.
 //! You may also provide a [`ParentLookup`](crate::types::ParentLookup) source to reconstruct a path when `path` is absent.
 //!
 //! ## Ordering

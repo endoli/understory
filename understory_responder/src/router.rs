@@ -30,7 +30,7 @@
 use alloc::vec::Vec;
 
 use crate::types::{
-    Dispatch, Localizer, NoParent, ParentLookup, Phase, ResolvedHit, TieBreakPolicy, WidgetLookup,
+    Dispatch, Hit, Localizer, NoParent, ParentLookup, Phase, TieBreakPolicy, WidgetLookup,
 };
 
 /// Deterministic responder chain router.
@@ -120,10 +120,10 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
     }
 
     /// Handle a pre-resolved sequence of hits and produce a propagation sequence.
-    pub fn handle_with_hits<M>(
-        &self,
-        hits: &[ResolvedHit<K, M>],
-    ) -> Vec<Dispatch<K, L::WidgetId, M>>
+    ///
+    /// Accepts any hit type implementing [`Hit`], including
+    /// [`ResolvedHit`](crate::types::ResolvedHit) and [`ResolvedHitRef`](crate::types::ResolvedHitRef).
+    pub fn handle_with_hits<M>(&self, hits: &[impl Hit<K, M>]) -> Vec<Dispatch<K, L::WidgetId, M>>
     where
         M: Clone,
     {
@@ -132,23 +132,26 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         // reconstruct via parent lookup, and finally fall back to a singleton path.
         if let Some(cap) = self.capture {
             // Find any hit for the captured node (prefer the last if multiple exist).
-            let cap_hit = hits.iter().rev().find(|h| h.node == cap);
+            let cap_hit = hits.iter().rev().find(|h| h.node() == cap);
+            let owned_path;
             let (path, localizer, meta) = match cap_hit {
-                Some(h) if h.path.is_some() => (
-                    h.path.clone().unwrap(),
-                    h.localizer.clone(),
-                    Some(h.meta.clone()),
+                Some(h) if h.path().is_some() => (
+                    h.path().unwrap_or_default(),
+                    h.localizer().clone(),
+                    Some(h.meta().clone()),
                 ),
-                Some(h) => (
-                    Self::reconstruct_path(cap, &self.parent),
-                    h.localizer.clone(),
-                    Some(h.meta.clone()),
-                ),
-                None => (
-                    Self::reconstruct_path(cap, &self.parent),
-                    Localizer::default(),
-                    None,
-                ),
+                Some(h) => {
+                    owned_path = Self::reconstruct_path(cap, &self.parent);
+                    (
+                        &owned_path[..],
+                        h.localizer().clone(),
+                        Some(h.meta().clone()),
+                    )
+                }
+                None => {
+                    owned_path = Self::reconstruct_path(cap, &self.parent);
+                    (&owned_path[..], Localizer::default(), None)
+                }
             };
             return self.emit_path(path, localizer, meta);
         }
@@ -159,7 +162,7 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         let mut best_idx: Option<usize> = None;
         for (i, h) in hits.iter().enumerate() {
             if let Some(f) = self.scope
-                && !f(&h.node)
+                && !f(&h.node())
             {
                 continue;
             }
@@ -168,10 +171,10 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
                 Some(j) => {
                     let a = &hits[j];
                     use core::cmp::Ordering::*;
-                    let better = match a.depth_key.cmp(&h.depth_key) {
+                    let better = match a.depth_key().cmp(h.depth_key()) {
                         Less => true,     // h nearer than a
                         Greater => false, // a nearer than h
-                        Equal => match self.tiebreak(&a.node, &h.node) {
+                        Equal => match self.tiebreak(&a.node(), &h.node()) {
                             Less => true,     // h preferred by policy
                             Greater => false, // a preferred by policy
                             Equal => true,    // stable last wins
@@ -190,13 +193,15 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         let best = &hits[i];
 
         // Derive path if not provided.
-        let path: Vec<K> = if let Some(p) = &best.path {
-            p.clone()
+        let owned_path;
+        let path: &[K] = if let Some(p) = best.path() {
+            p
         } else {
-            Self::reconstruct_path(best.node, &self.parent)
+            owned_path = Self::reconstruct_path(best.node(), &self.parent);
+            &owned_path
         };
 
-        self.emit_path(path, best.localizer.clone(), Some(best.meta.clone()))
+        self.emit_path(path, best.localizer().clone(), Some(best.meta().clone()))
     }
 
     /// Emit a dispatch sequence for a specific target node by reconstructing its path.
@@ -221,7 +226,7 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
         M: Clone,
     {
         let path = Self::reconstruct_path(target, &self.parent);
-        self.emit_path(path, localizer, meta)
+        self.emit_path(&path, localizer, meta)
     }
 
     fn make_dispatch<M: Clone>(
@@ -258,7 +263,7 @@ impl<K: Copy + Eq, L: WidgetLookup<K>, P: ParentLookup<K>> Router<K, L, P> {
 
     fn emit_path<M: Clone>(
         &self,
-        path: Vec<K>,
+        path: &[K],
         localizer: Localizer,
         meta: Option<M>,
     ) -> Vec<Dispatch<K, L::WidgetId, M>> {
@@ -353,6 +358,7 @@ mod tests {
     use super::*;
     use crate::dispatcher;
     use crate::types::*;
+    use alloc::rc::Rc;
     use alloc::vec;
 
     #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -393,6 +399,35 @@ mod tests {
             localizer: Localizer::default(),
             meta: (),
         }];
+        let out = router.handle_with_hits::<()>(&hits);
+        let phases: Vec<(Phase, u32)> = out.iter().map(|d| (d.phase, d.node.0)).collect();
+        assert_eq!(
+            phases,
+            vec![
+                (Phase::Capture, 1),
+                (Phase::Capture, 2),
+                (Phase::Target, 3),
+                (Phase::Bubble, 2),
+                (Phase::Bubble, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn handle_with_hits_accepts_borrowed_path() {
+        let lookup = Lookup;
+        let router: Router<Node, Lookup, NoParent> = Router::new(lookup);
+
+        // Simulate a picker caching the full root→target path as an Rc slice.
+        let cached_path: Rc<[Node]> = Rc::from([Node(1), Node(2), Node(3)]);
+        let hits = [ResolvedHitRef {
+            node: Node(3),
+            path: Some(&cached_path),
+            depth_key: DepthKey::Z(0),
+            localizer: Localizer::default(),
+            meta: (),
+        }];
+
         let out = router.handle_with_hits::<()>(&hits);
         let phases: Vec<(Phase, u32)> = out.iter().map(|d| (d.phase, d.node.0)).collect();
         assert_eq!(
