@@ -94,8 +94,8 @@ pub struct Hit {
 
 /// Filters applied during hit testing and rectangle intersection.
 ///
-/// Used by [`Tree::hit_test_point`] and [`Tree::intersect_rect`] to restrict
-/// which nodes participate in queries.
+/// Used by [`Tree::hit_test_point`], [`Tree::hit_test_visual_stack`], and
+/// [`Tree::intersect_rect`] to restrict which nodes participate in queries.
 #[derive(Clone, Copy, Debug)]
 pub struct QueryFilter {
     /// Bitfield of required node flags. Only nodes containing all these flags will be included.
@@ -592,6 +592,80 @@ impl<B: Backend<f64>> Tree<B> {
             node,
             path: self.path_to_root(node),
         })
+    }
+
+    /// Hit test a world-space point and return the full visual hit stack.
+    ///
+    /// Unlike [`Tree::hit_test_point`], this returns all matching nodes, not just the topmost.
+    /// The result is ordered deterministically by `z_index`, tree depth, and [`NodeId`]
+    /// recency tie-break (`id_is_newer`).
+    pub fn hit_test_visual_stack(&self, point: Point, filter: QueryFilter) -> Vec<NodeId> {
+        let mut hits: Vec<(NodeId, i32, u16)> = Vec::new();
+
+        self.index.visit_point(point.x, point.y, |_, id| {
+            let Some(node) = self.nodes.get(id.idx()).and_then(|slot| slot.as_ref()) else {
+                return;
+            };
+            if node.generation != id.1 || !filter.matches(node.local.flags) {
+                return;
+            }
+
+            // Test local bounds
+            let local_point = node.world.world_transform_inverse * point;
+            if !node.local.local_bounds.contains(local_point) {
+                return;
+            }
+
+            // Test node's own clip
+            if let Some(clip) = node.local.local_clip
+                && !clip.contains(local_point)
+            {
+                return;
+            }
+
+            // Walk ancestors checking their clips
+            let mut current = node.parent;
+            while let Some(parent_id) = current {
+                let parent = self.node(parent_id);
+                debug_assert_eq!(
+                    parent.generation, parent_id.1,
+                    "parent slot generation mismatch"
+                );
+                if let Some(clip) = parent.local.local_clip {
+                    let parent_local_point = parent.world.world_transform_inverse * point;
+                    if !clip.contains(parent_local_point) {
+                        return;
+                    }
+                }
+                current = parent.parent;
+            }
+
+            let depth = node.world.depth;
+            let z = node.local.z_index;
+            hits.push((id, z, depth));
+        });
+
+        // Sort by z-index, then depth, then recency.
+        hits.sort_by(|a, b| {
+            let (id_a, z_a, depth_a) = a;
+            let (id_b, z_b, depth_b) = b;
+
+            match z_a.cmp(z_b) {
+                core::cmp::Ordering::Equal => match depth_a.cmp(depth_b) {
+                    core::cmp::Ordering::Equal => {
+                        if id_is_newer(*id_a, *id_b) {
+                            core::cmp::Ordering::Greater
+                        } else {
+                            core::cmp::Ordering::Less
+                        }
+                    }
+                    other => other,
+                },
+                other => other,
+            }
+        });
+
+        hits.into_iter().map(|(id, _, _)| id).collect()
     }
 
     /// Iterate live nodes whose world-space bounds intersect a world-space rectangle.
@@ -1621,6 +1695,74 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hit2.node, c, "newer id should win on equal z and depth");
+    }
+
+    #[test]
+    fn hit_test_visual_stack_returns_all_hits() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                ..Default::default()
+            },
+        );
+
+        let back = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 0,
+                ..Default::default()
+            },
+        );
+        let front = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 10,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let hits = tree.hit_test_visual_stack(Point::new(60.0, 60.0), QueryFilter::new());
+        assert_eq!(hits, vec![root, back, front]);
+    }
+
+    #[test]
+    fn hit_test_visual_stack_tiebreak_matches_existing_semantics() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                ..Default::default()
+            },
+        );
+
+        let a = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 5,
+                ..Default::default()
+            },
+        );
+        let b = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(40.0, 40.0, 120.0, 120.0),
+                z_index: 5,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let expected_front = if id_is_newer(a, b) { b } else { a };
+        let expected_back = if id_is_newer(a, b) { a } else { b };
+        let hits = tree.hit_test_visual_stack(Point::new(60.0, 60.0), QueryFilter::new());
+        assert_eq!(hits, vec![root, expected_front, expected_back]);
     }
 
     #[test]
