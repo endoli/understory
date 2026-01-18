@@ -102,6 +102,31 @@ pub struct Localizer {
     // Future: carry inverse transforms or scroll offsets as needed.
 }
 
+impl Localizer {
+    /// Create a default localizer.
+    #[inline]
+    pub const fn new() -> Self {
+        Self {}
+    }
+}
+
+/// Read-only view of a hit candidate for routing.
+///
+/// This trait exists so callers can provide hits that borrow an existing cached
+/// root→target path (for example from an `Rc<[K]>`) without rebuilding a `Vec<K>`.
+pub trait Hit<K, M = ()> {
+    /// Node key associated with the hit.
+    fn node(&self) -> K;
+    /// Optional root→target path.
+    fn path(&self) -> Option<&[K]>;
+    /// Primary depth ordering key used to pick the winning target from candidates.
+    fn depth_key(&self) -> &DepthKey;
+    /// Transformation context from world space to the target's local coordinates.
+    fn localizer(&self) -> &Localizer;
+    /// Metadata carried alongside the hit.
+    fn meta(&self) -> &M;
+}
+
 /// A resolved hit to be routed.
 ///
 /// Typically obtained from your picker (for example a 2D box tree hit test or a
@@ -119,6 +144,78 @@ pub struct ResolvedHit<K, M = ()> {
     pub localizer: Localizer,
     /// Optional metadata carried alongside the hit (e.g., text or ray-hit details).
     pub meta: M,
+}
+
+impl<K: Copy, M> Hit<K, M> for ResolvedHit<K, M> {
+    #[inline]
+    fn node(&self) -> K {
+        self.node
+    }
+
+    #[inline]
+    fn path(&self) -> Option<&[K]> {
+        self.path.as_deref()
+    }
+
+    #[inline]
+    fn depth_key(&self) -> &DepthKey {
+        &self.depth_key
+    }
+
+    #[inline]
+    fn localizer(&self) -> &Localizer {
+        &self.localizer
+    }
+
+    #[inline]
+    fn meta(&self) -> &M {
+        &self.meta
+    }
+}
+
+/// A `ResolvedHit` that borrows its path instead of owning it.
+///
+/// This is useful when your picker caches paths in a shared structure (e.g. `Rc<[K]>`)
+/// and you want to avoid rebuilding the path as a `Vec<K>` just to call the router.
+#[derive(Clone, Debug)]
+pub struct ResolvedHitRef<'a, K, M = ()> {
+    /// Node key associated with the hit.
+    pub node: K,
+    /// Optional root→target path.
+    pub path: Option<&'a [K]>,
+    /// Primary depth ordering key used to pick the winning target from candidates.
+    pub depth_key: DepthKey,
+    /// Transformation context from world space to the target's local coordinates.
+    pub localizer: Localizer,
+    /// Optional metadata carried alongside the hit (e.g., text or ray-hit details).
+    pub meta: M,
+}
+
+impl<K: Copy, M> Hit<K, M> for ResolvedHitRef<'_, K, M> {
+    #[inline]
+    fn node(&self) -> K {
+        self.node
+    }
+
+    #[inline]
+    fn path(&self) -> Option<&[K]> {
+        self.path
+    }
+
+    #[inline]
+    fn depth_key(&self) -> &DepthKey {
+        &self.depth_key
+    }
+
+    #[inline]
+    fn localizer(&self) -> &Localizer {
+        &self.localizer
+    }
+
+    #[inline]
+    fn meta(&self) -> &M {
+        &self.meta
+    }
 }
 
 /// Map nodes to toolkit widget identifiers.
@@ -193,51 +290,60 @@ impl<K, W, M> Dispatch<K, W, M> {
     /// assert!(matches!(seq[1].phase, Phase::Target));
     /// assert!(matches!(seq[2].phase, Phase::Bubble));
     /// ```
-    pub fn capture(node: K) -> Self {
+    #[inline]
+    pub const fn capture(node: K) -> Self {
         Self {
             phase: Phase::Capture,
             node,
             widget: None,
-            localizer: Localizer::default(),
+            localizer: Localizer::new(),
             meta: None,
         }
     }
 
     /// Create a target-phase dispatch for `node` with no widget and no metadata.
-    pub fn target(node: K) -> Self {
+    #[inline]
+    pub const fn target(node: K) -> Self {
         Self {
             phase: Phase::Target,
             node,
             widget: None,
-            localizer: Localizer::default(),
+            localizer: Localizer::new(),
             meta: None,
         }
     }
 
     /// Create a bubble-phase dispatch for `node` with no widget and no metadata.
-    pub fn bubble(node: K) -> Self {
+    #[inline]
+    pub const fn bubble(node: K) -> Self {
         Self {
             phase: Phase::Bubble,
             node,
             widget: None,
-            localizer: Localizer::default(),
+            localizer: Localizer::new(),
             meta: None,
         }
     }
 
     /// Attach a widget id to this dispatch entry.
+    #[inline]
+    #[must_use]
     pub fn with_widget(mut self, w: W) -> Self {
         self.widget = Some(w);
         self
     }
 
     /// Attach a localizer to this dispatch entry.
+    #[inline]
+    #[must_use]
     pub fn with_localizer(mut self, loc: Localizer) -> Self {
         self.localizer = loc;
         self
     }
 
     /// Attach metadata to this dispatch entry.
+    #[inline]
+    #[must_use]
     pub fn with_meta(mut self, m: M) -> Self {
         self.meta = Some(m);
         self
