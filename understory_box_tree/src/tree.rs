@@ -163,6 +163,7 @@ pub(crate) struct Node {
     parent: Option<NodeId>,
     children: Vec<NodeId>,
     local: LocalNode,
+    pending_world_position: Option<Point>,
     world: WorldNode,
     dirty: Dirty,
     index_key: Option<AabbKey>,
@@ -175,6 +176,7 @@ impl Node {
             parent: None,
             children: Vec::new(),
             local,
+            pending_world_position: None,
             world: WorldNode::default(),
             dirty: Dirty {
                 layout: true,
@@ -342,6 +344,37 @@ impl<B: Backend<f64>> Tree<B> {
         }
     }
 
+    /// Set or clear a world-space position override for this node.
+    ///
+    /// This records a world-space position target and resolves it during [`Tree::commit`].
+    /// At commit time, local translation is computed from the current parent world transform
+    /// (including rotation/scale), while preserving the node's local rotation/scale.
+    ///
+    /// Why this is useful:
+    /// - Interactive updates (dragging, fixed overlays, animations) can write desired world
+    ///   positions in O(1), without ancestor walks per event.
+    /// - Parent transforms can change in the same frame; resolving at commit uses the final parent
+    ///   world transform for that frame.
+    /// - Work stays in the existing commit traversal, where world transforms/index updates
+    ///   already happen.
+    ///
+    /// Semantics:
+    /// - `Some(point)`: enable/update the world-position override.
+    /// - `None`: clear the override and return to pure local-transform positioning.
+    /// - Descendants inherit the moved world transform on commit, so children move with this node.
+    ///
+    /// Calling this method is O(1); commit performs the world update.
+    pub fn set_world_position(&mut self, id: NodeId, world_pos: Option<Point>) -> bool {
+        let Some(node) = self.node_opt_mut(id) else {
+            return false;
+        };
+        node.pending_world_position = world_pos;
+        node.dirty.transform = true;
+        node.dirty.index = true;
+        self.mark_dirty(id);
+        true
+    }
+
     /// Update local clip.
     ///
     /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
@@ -433,6 +466,51 @@ impl<B: Backend<f64>> Tree<B> {
             .get(id.idx())
             .and_then(|slot| slot.as_ref())
             .map(|node| node.world.world_bounds)
+    }
+
+    /// Return the local clip for a live node.
+    ///
+    /// This is the clip set through [`Tree::set_local_clip`]. It does not
+    /// require a [`Tree::commit`] to be observed here. Returns `None` for stale
+    /// identifiers.
+    pub fn local_clip(&self, id: NodeId) -> Option<Option<RoundedRect>> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_clip)
+    }
+
+    /// Return the local transform for a live node.
+    ///
+    /// This is the transform set through [`Tree::set_local_transform`]. It does
+    /// not require a [`Tree::commit`] to be observed here. Returns `None` for
+    /// stale identifiers.
+    pub fn local_transform(&self, id: NodeId) -> Option<Affine> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_transform)
+    }
+
+    /// Return the local bounds for a live node.
+    ///
+    /// This is the rectangle set through [`Tree::set_local_bounds`]. It does
+    /// not require a [`Tree::commit`] to be observed here. Returns `None` for
+    /// stale identifiers.
+    pub fn local_bounds(&self, id: NodeId) -> Option<Rect> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.local.local_bounds)
     }
 
     /// Access a node for debugging; panics if `id` is stale.
@@ -850,6 +928,15 @@ impl<B: Backend<f64>> Tree<B> {
             let mut index_op: Option<IndexOp> = None;
             {
                 let node = self.node_mut(id);
+                let effective_local_transform = if let Some(world_pos) = node.pending_world_position
+                {
+                    let local_pos = current_tf.inverse() * world_pos;
+                    node.local
+                        .local_transform
+                        .with_translation(local_pos.to_vec2())
+                } else {
+                    node.local.local_transform
+                };
                 let dirty = node.dirty;
                 let subtree_inherited_dirty = inherited_dirty || dirty.transform || dirty.clip;
 
@@ -861,7 +948,7 @@ impl<B: Backend<f64>> Tree<B> {
                 if needs_update_world {
                     let old_world_bounds = node.world.world_bounds;
 
-                    node.world.world_transform = current_tf * node.local.local_transform;
+                    node.world.world_transform = current_tf * effective_local_transform;
                     node.world.world_transform_inverse = node.world.world_transform.inverse();
                     node.world.depth = depth;
 
@@ -1315,6 +1402,231 @@ mod tests {
                 QueryFilter::new().visible().pickable()
             )
             .is_none()
+        );
+    }
+
+    #[test]
+    fn set_world_position_simple() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+
+        // Set world translation directly
+        tree.set_world_position(root, Some(Point::new(50.0, 75.0)));
+
+        // Verify the world transform translation after commit.
+        let _ = tree.commit();
+        let world_tf = tree.world_transform(root).unwrap();
+        let translation = world_tf.translation();
+        assert_eq!(translation, Vec2::new(50.0, 75.0));
+    }
+
+    #[test]
+    fn set_world_position_with_parent() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_transform: Affine::translate(Vec2::new(10.0, 20.0)),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 50.0, 50.0),
+                local_transform: Affine::translate(Vec2::new(5.0, 7.0)),
+                ..Default::default()
+            },
+        );
+
+        // Set child's world translation to (100, 100)
+        tree.set_world_position(child, Some(Point::new(100.0, 100.0)));
+
+        // Verify world position is correct.
+        let _ = tree.commit();
+        let world_tf = tree.world_transform(child).unwrap();
+        let translation = world_tf.translation();
+        assert_eq!(translation, Vec2::new(100.0, 100.0));
+
+        // Local transform remains unchanged; world-position override is resolved at commit time.
+        let local_tf = tree.local_transform(child).unwrap();
+        let local_translation = local_tf.translation();
+        assert_eq!(local_translation, Vec2::new(5.0, 7.0));
+    }
+
+    #[test]
+    fn set_world_position_preserves_rotation() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_transform: Affine::rotate(45_f64.to_radians()),
+                ..Default::default()
+            },
+        );
+
+        // Set world translation.
+        tree.set_world_position(root, Some(Point::new(50.0, 50.0)));
+
+        // Verify rotation is preserved after commit.
+        let _ = tree.commit();
+        let world_tf = tree.world_transform(root).unwrap();
+        let coeffs = world_tf.as_coeffs();
+
+        // Check that rotation coefficients are preserved (approximately, due to floating point).
+        let angle = 45_f64.to_radians();
+        let cos_angle = angle.cos();
+        let sin_angle = angle.sin();
+        assert!((coeffs[0] - cos_angle).abs() < 1e-10);
+        assert!((coeffs[1] - sin_angle).abs() < 1e-10);
+        assert!((coeffs[2] + sin_angle).abs() < 1e-10);
+        assert!((coeffs[3] - cos_angle).abs() < 1e-10);
+
+        // Translation should be as set.
+        assert_eq!(world_tf.translation(), Vec2::new(50.0, 50.0));
+    }
+
+    #[test]
+    fn set_world_position_with_scaled_parent() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_transform: Affine::scale(2.0),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 50.0, 50.0),
+                ..Default::default()
+            },
+        );
+
+        // Set child's world position.
+        tree.set_world_position(child, Some(Point::new(100.0, 100.0)));
+
+        // Verify world position after commit.
+        let _ = tree.commit();
+        let world_tf = tree.world_transform(child).unwrap();
+        assert_eq!(world_tf.translation(), Vec2::new(100.0, 100.0));
+
+        // Local transform remains unchanged while world-position override is active.
+        let local_tf = tree.local_transform(child).unwrap();
+        assert_eq!(local_tf.translation(), Vec2::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn set_world_position_stale_id() {
+        let mut tree = Tree::new();
+        let node = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                ..Default::default()
+            },
+        );
+
+        assert!(tree.set_world_position(node, Some(Point::new(10.0, 10.0))));
+
+        tree.remove(node);
+
+        assert!(!tree.set_world_position(node, Some(Point::new(10.0, 10.0))));
+    }
+
+    #[test]
+    fn set_world_position_overrides_until_cleared() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                local_transform: Affine::translate(Vec2::new(1.0, 2.0)),
+                ..Default::default()
+            },
+        );
+
+        let _ = tree.commit();
+
+        assert!(tree.set_world_position(child, Some(Point::new(50.0, 75.0))));
+        let _ = tree.commit();
+        assert_eq!(
+            tree.world_transform(child).unwrap().translation(),
+            Vec2::new(50.0, 75.0)
+        );
+
+        tree.set_local_transform(child, Affine::translate(Vec2::new(3.0, 4.0)));
+        let _ = tree.commit();
+        assert_eq!(
+            tree.world_transform(child).unwrap().translation(),
+            Vec2::new(50.0, 75.0)
+        );
+
+        assert!(tree.set_world_position(child, None));
+        let _ = tree.commit();
+        assert_eq!(
+            tree.world_transform(child).unwrap().translation(),
+            Vec2::new(3.0, 4.0)
+        );
+    }
+
+    #[test]
+    fn set_world_position_moves_descendants() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                local_transform: Affine::translate(Vec2::new(4.0, 5.0)),
+                ..Default::default()
+            },
+        );
+        let grandchild = tree.insert(
+            Some(child),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                local_transform: Affine::translate(Vec2::new(2.0, 3.0)),
+                ..Default::default()
+            },
+        );
+
+        let _ = tree.commit();
+
+        assert!(tree.set_world_position(child, Some(Point::new(50.0, 75.0))));
+        let _ = tree.commit();
+
+        assert_eq!(
+            tree.world_transform(child).unwrap().translation(),
+            Vec2::new(50.0, 75.0)
+        );
+        // Grandchild should move with child by its local offset.
+        assert_eq!(
+            tree.world_transform(grandchild).unwrap().translation(),
+            Vec2::new(52.0, 78.0)
         );
     }
 
