@@ -97,7 +97,7 @@
 //! - `std` (default): enables `std` support for dependencies such as `kurbo`.
 //! - `libm`: enables `no_std` + `alloc` builds that rely on `libm` for floating-point math;
 //!   typically used when integrating into embedded or `no_std` environments.
-//! - `box_tree_adapter`: enables the [`adapters::box_tree`] module and pulls in
+//! - `box_tree_adapter`: enables the `adapters::box_tree` module and pulls in
 //!   `understory_box_tree` and `understory_index` so you can build a [`FocusSpace`] directly
 //!   from an `understory_box_tree::Tree`.
 //!

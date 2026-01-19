@@ -1,2 +1,5 @@
 [target.wasm32-wasip1]
 runner = "wasmtime run --dir ."
+
+[alias]
+xtask = "run --release --package xtask --"
