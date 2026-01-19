@@ -26,7 +26,7 @@ repository = "https://github.com/endoli/understory"
 [workspace.dependencies]
 # Kurbo supports no_std via its `libm` feature. Disable default features here and
 # let member crates opt into `std` or `libm` explicitly via their own features.
-kurbo = { version = "0.12.0", default-features = false }
+kurbo = { version = "0.13.0", default-features = false }
 bitflags = "2.10.0"
 hashbrown = "0.16.1"
 smallvec = { version = "1.13.2", default-features = false }
