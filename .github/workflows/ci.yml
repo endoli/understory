@@ -104,6 +104,9 @@ jobs:
       - name: check understory_box_tree README
         run: cargo rdme --workspace-project=understory_box_tree --heading-base-level=0 --check
 
+      - name: check understory_dirty README
+        run: cargo rdme --workspace-project=understory_dirty --heading-base-level=0 --check
+
       - name: check understory_precise_hit README
         run: cargo rdme --workspace-project=understory_precise_hit --heading-base-level=0 --check
 
