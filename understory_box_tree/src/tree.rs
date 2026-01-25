@@ -140,8 +140,10 @@ impl QueryFilter {
 #[derive(Clone, Debug, Default)]
 struct WorldNode {
     world_transform: Affine,
+    world_transform_inverse: Affine,
     world_bounds: Rect, // AABB of transformed (and clipped) local bounds
     world_clip: Option<Rect>,
+    depth: u16,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -315,26 +317,30 @@ impl<B: Backend<f64>> Tree<B> {
     ///
     /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_transform(&mut self, id: NodeId, tf: Affine) {
-        if let Some(n) = self.node_opt_mut(id)
-            && n.local.local_transform != tf
-        {
-            n.local.local_transform = tf;
-            n.dirty.transform = true;
-            n.dirty.index = true;
+        let Some(n) = self.node_opt_mut(id) else {
+            return;
+        };
+        if n.local.local_transform == tf {
+            return;
         }
+        n.local.local_transform = tf;
+        n.dirty.transform = true;
+        n.dirty.index = true;
     }
 
     /// Update local clip.
     ///
     /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_clip(&mut self, id: NodeId, clip: Option<RoundedRect>) {
-        if let Some(n) = self.node_opt_mut(id)
-            && n.local.local_clip != clip
-        {
-            n.local.local_clip = clip;
-            n.dirty.clip = true;
-            n.dirty.index = true;
+        let Some(n) = self.node_opt_mut(id) else {
+            return;
+        };
+        if n.local.local_clip == clip {
+            return;
         }
+        n.local.local_clip = clip;
+        n.dirty.clip = true;
+        n.dirty.index = true;
     }
 
     /// Update z index.
@@ -353,25 +359,29 @@ impl<B: Backend<f64>> Tree<B> {
     ///
     /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
     pub fn set_local_bounds(&mut self, id: NodeId, bounds: Rect) {
-        if let Some(n) = self.node_opt_mut(id)
-            && n.local.local_bounds != bounds
-        {
-            n.local.local_bounds = bounds;
-            n.dirty.layout = true;
-            n.dirty.index = true;
+        let Some(n) = self.node_opt_mut(id) else {
+            return;
+        };
+        if n.local.local_bounds == bounds {
+            return;
         }
+        n.local.local_bounds = bounds;
+        n.dirty.layout = true;
+        n.dirty.index = true;
     }
 
     /// Update node flags.
     ///
     /// The change takes effect immediately.
     pub fn set_flags(&mut self, id: NodeId, flags: NodeFlags) {
-        if let Some(n) = self.node_opt_mut(id)
-            && n.local.flags != flags
-        {
-            n.local.flags = flags;
-            n.dirty.index = true;
+        let Some(n) = self.node_opt_mut(id) else {
+            return;
+        };
+        if n.local.flags == flags {
+            return;
         }
+        n.local.flags = flags;
+        n.dirty.index = true;
     }
 
     /// Return the world transform for a live node as of the last [`Tree::commit`].
@@ -466,93 +476,67 @@ impl<B: Backend<f64>> Tree<B> {
     /// This tie-break is intentionally deterministic for now. In the future this
     /// may be made configurable (for example via a `TieBreakPolicy`).
     pub fn hit_test_point(&self, point: Point, filter: QueryFilter) -> Option<Hit> {
-        /// Walk the tree upward from the given node (given its `NodeId` and `&Node` data),
-        /// checking whether `point` is within its bounds, its clip, and all its ancestors' clips.
-        ///
-        /// `path` should be empty when calling this function. The path from the node to the root
-        /// of its tree will be contained in `path` (in order from node to root) if and only if the
-        /// point is within all the aforementioned geometry. If `path` is empty after calling this
-        /// function, the point is not within the geometry.
-        fn walk_tree_and_check_geometry<B: Backend<f64>>(
-            tree: &Tree<B>,
-            point: Point,
-            id: NodeId,
-            node: &Node,
-            path: &mut Vec<NodeId>,
-        ) {
-            let local_point = node.world.world_transform.inverse() * point;
-            if !node.local.local_bounds.contains(local_point) {
+        let mut best: Option<(NodeId, i32, u16)> = None;
+        self.index.visit_point(point.x, point.y, |_, id| {
+            // The spatial index provides a coarse world-AABB candidate set. Everything below is
+            // precise filtering in local coordinates (bounds/clips) plus deterministic tie-breaks.
+            let Some(node) = self.nodes.get(id.idx()).and_then(|slot| slot.as_ref()) else {
+                return;
+            };
+            if node.generation != id.1 || !filter.matches(node.local.flags) {
                 return;
             }
 
-            if let Some(local_clip) = node.local.local_clip
-                && !local_clip.contains(local_point)
+            // Finely test whether `point` is within the node's bounds and the node's own clip.
+            let local_point = node.world.world_transform_inverse * point;
+            if !node.local.local_bounds.contains(local_point) {
+                return;
+            }
+            if let Some(clip) = node.local.local_clip
+                && !clip.contains(local_point)
             {
                 return;
             }
 
-            path.push(id);
-
-            // Walk the parents up to this node's tree root node, checking each parent's clip.
+            // Walk ancestors towards the root checking their clips for precise hit filtering.
+            //
+            // This is intentionally only done for candidates that pass the local bounds/clip
+            // checks, since ancestor traversal is comparatively expensive.
             let mut current = node.parent;
             while let Some(parent_id) = current {
-                let Some(parent) = &tree.nodes[parent_id.idx()] else {
-                    unreachable!("parent slot is unoccupied");
-                };
+                let parent = self.node(parent_id);
+                debug_assert_eq!(
+                    parent.generation, parent_id.1,
+                    "parent slot generation mismatch"
+                );
                 if let Some(clip) = parent.local.local_clip {
-                    let parent_local_point = parent.world.world_transform.inverse() * point;
+                    let parent_local_point = parent.world.world_transform_inverse * point;
                     if !clip.contains(parent_local_point) {
-                        path.clear();
                         return;
                     }
                 }
-                path.push(parent_id);
                 current = parent.parent;
             }
-        }
 
-        let mut best: Option<(NodeId, i32, Vec<NodeId>)> = None;
-        let mut path_buf: Vec<NodeId> = Vec::new();
-
-        for id in self.containing_point(point, filter) {
-            let Some(node) = self.nodes[id.idx()].as_ref() else {
-                unreachable!("`self.containing_point` only returns live nodes");
-            };
-
-            walk_tree_and_check_geometry(self, point, id, node, &mut path_buf);
-            if path_buf.is_empty() {
-                // The point is not within the node's geometry (either its bounds, its clip, or its
-                // ancestors' clips).
-                continue;
-            }
-
+            let depth = node.world.depth;
+            let z = node.local.z_index;
             match best {
-                None => {
-                    best = Some((id, node.local.z_index, core::mem::take(&mut path_buf)));
-                }
-                Some((ref mut id_best, ref mut z_best, ref mut path_best)) => {
-                    let z = node.local.z_index;
-                    let depth_best = path_best.len();
-                    let depth = path_buf.len();
-                    if z > *z_best
-                        || (z == *z_best
+                None => best = Some((id, z, depth)),
+                Some((id_best, z_best, depth_best)) => {
+                    if z > z_best
+                        || (z == z_best
                             && (depth > depth_best
-                                || (depth == depth_best && id_is_newer(id, *id_best))))
+                                || (depth == depth_best && id_is_newer(id, id_best))))
                     {
-                        core::mem::swap(&mut path_buf, path_best);
-                        path_buf.clear();
-                        *id_best = id;
-                        *z_best = z;
+                        best = Some((id, z, depth));
                     }
                 }
             }
-        }
+        });
 
-        best.map(|(node, _, mut path)| {
-            // Reverse the path we found earlier, as `Hit::path` paths are from the root to the
-            // node.
-            path.reverse();
-            Hit { node, path }
+        best.map(|(node, _, _)| Hit {
+            node,
+            path: self.path_to_root(node),
         })
     }
 
@@ -773,6 +757,20 @@ impl<B: Backend<f64>> Tree<B> {
         self.node_mut(id).parent = None;
     }
 
+    fn path_to_root(&self, mut id: NodeId) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        loop {
+            out.push(id);
+            let parent = self.node(id).parent;
+            match parent {
+                Some(p) => id = p,
+                None => break,
+            }
+        }
+        out.reverse();
+        out
+    }
+
     fn update_world_recursive(
         &mut self,
         root_id: NodeId,
@@ -782,12 +780,14 @@ impl<B: Backend<f64>> Tree<B> {
     ) {
         // The world is updated by walking the tree depth-first, propagating transforms and clips
         // toward the leaves.
-        let mut stack = vec![(root_id, root_tf, root_clip)];
+        let mut stack = vec![(root_id, root_tf, root_clip, 1_u16)];
 
-        while let Some((id, current_tf, current_clip)) = stack.pop() {
+        while let Some((id, current_tf, current_clip, depth)) = stack.pop() {
             let node = self.node_mut(id);
             let old_world_bounds = node.world.world_bounds;
             node.world.world_transform = current_tf * node.local.local_transform;
+            node.world.world_transform_inverse = node.world.world_transform.inverse();
+            node.world.depth = depth;
             let mut world_bounds =
                 transform_rect_bbox(node.world.world_transform, node.local.local_bounds);
             let local_clip = node
@@ -819,7 +819,12 @@ impl<B: Backend<f64>> Tree<B> {
             // Push all children to the stack. The `.rev()` is not strictly necessary, but means we
             // visit the children in the order they are given in `node.children`.
             for &child in node.children.iter().rev() {
-                stack.push((child, node.world.world_transform, world_clip));
+                stack.push((
+                    child,
+                    node.world.world_transform,
+                    world_clip,
+                    depth.saturating_add(1),
+                ));
             }
 
             if let Some(key) = node.index_key {
