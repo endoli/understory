@@ -513,6 +513,8 @@ dependencies = [
  "understory_box_tree",
  "understory_dirty",
  "understory_index",
+ "understory_property",
+ "understory_style",
 ]
 
 [[package]]
@@ -576,6 +578,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "understory_property"
+version = "0.1.0"
+dependencies = [
+ "hashbrown",
+ "smallvec",
+ "understory_dirty",
+]
+
+[[package]]
 name = "understory_responder"
 version = "0.1.0"
 dependencies = [
@@ -587,6 +598,13 @@ dependencies = [
 [[package]]
 name = "understory_selection"
 version = "0.1.0"
+
+[[package]]
+name = "understory_style"
+version = "0.1.0"
+dependencies = [
+ "understory_property",
+]
 
 [[package]]
 name = "understory_view2d"

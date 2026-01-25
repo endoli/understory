@@ -9,6 +9,8 @@ autobenches = false
 understory_index = { path = "../understory_index" }
 understory_box_tree = { path = "../understory_box_tree" }
 understory_dirty = { path = "../understory_dirty" }
+understory_property = { path = "../understory_property" }
+understory_style = { path = "../understory_style" }
 kurbo.workspace = true
 rstar = { version = "0.11", optional = true }
 
@@ -37,4 +39,8 @@ harness = false
 
 [[bench]]
 name = "dirty"
+harness = false
+
+[[bench]]
+name = "property"
 harness = false
