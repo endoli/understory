@@ -288,6 +288,11 @@ where
     /// - If the previous anchor key is still present, it remains the anchor.
     ///   Otherwise the first unique key becomes the anchor (if any keys are present).
     /// - The primary key defaults to the first unique key (if any keys are present).
+    ///
+    /// This method de-duplicates by scanning the accumulated output, so it is
+    /// quadratic in the number of input keys. If you can guarantee the input has
+    /// no duplicates (for example, a “Select All” operation over a list), prefer
+    /// [`Selection::replace_with_unique`] for linear behavior.
     pub fn replace_with<I>(&mut self, keys: I)
     where
         I: IntoIterator<Item = T>,
@@ -298,28 +303,37 @@ where
                 new_items.push(key);
             }
         }
+        self.replace_with_items(new_items);
+    }
 
-        let new_primary = if new_items.is_empty() { None } else { Some(0) };
-
-        // Preserve the previous anchor if its key is still present in the new set.
-        let mut new_anchor = None;
-        if let Some(old_anchor_idx) = self.anchor
-            && let Some(old_key) = self.items.get(old_anchor_idx)
-        {
-            new_anchor = new_items.iter().position(|k| k == old_key);
+    /// Replaces the current selection with the provided batch of *unique* keys.
+    ///
+    /// This is a faster variant of [`Selection::replace_with`] for callers that can
+    /// guarantee the input has no duplicates. It does **not** perform any de-duplication.
+    /// This makes it a good fit for “Select All” style operations, where the caller
+    /// typically produces one key per item.
+    ///
+    /// If the input may contain duplicates, use [`Selection::replace_with`] instead.
+    /// If you want to grow the selection incrementally, see [`Selection::extend_with`]
+    /// or [`Selection::add`].
+    ///
+    /// # Panics (debug only)
+    ///
+    /// Panics in debug builds if the input contains duplicates.
+    pub fn replace_with_unique<I>(&mut self, keys: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let iter = keys.into_iter();
+        let (lower, _) = iter.size_hint();
+        let mut new_items: Vec<T> = Vec::with_capacity(lower);
+        for key in iter {
+            new_items.push(key);
         }
-        if new_anchor.is_none() {
-            new_anchor = new_primary;
-        }
 
-        if new_items == self.items && self.primary == new_primary && self.anchor == new_anchor {
-            return;
-        }
-
-        self.items = new_items;
-        self.primary = new_primary;
-        self.anchor = new_anchor;
-        self.bump_revision();
+        #[cfg(debug_assertions)]
+        debug_assert_unique(&new_items);
+        self.replace_with_items(new_items);
     }
 
     /// Extends the selection with the provided batch of keys.
@@ -424,6 +438,30 @@ where
         self.items.iter().position(|k| k == key)
     }
 
+    fn replace_with_items(&mut self, new_items: Vec<T>) {
+        let new_primary = if new_items.is_empty() { None } else { Some(0) };
+
+        // Preserve the previous anchor if its key is still present in the new set.
+        let mut new_anchor = None;
+        if let Some(old_anchor_idx) = self.anchor
+            && let Some(old_key) = self.items.get(old_anchor_idx)
+        {
+            new_anchor = new_items.iter().position(|k| k == old_key);
+        }
+        if new_anchor.is_none() {
+            new_anchor = new_primary;
+        }
+
+        if new_items == self.items && self.primary == new_primary && self.anchor == new_anchor {
+            return;
+        }
+
+        self.items = new_items;
+        self.primary = new_primary;
+        self.anchor = new_anchor;
+        self.bump_revision();
+    }
+
     /// Removes the item at `idx`, updating primary and anchor accordingly.
     fn remove_at(&mut self, idx: usize) {
         self.items.remove(idx);
@@ -444,6 +482,105 @@ where
         if self.items.is_empty() {
             self.primary = None;
             self.anchor = None;
+        }
+    }
+}
+
+#[cfg(feature = "hashbrown")]
+impl<T> Selection<T>
+where
+    T: core::hash::Hash + Eq,
+{
+    /// Replaces the current selection with the provided batch of keys, de-duplicating with hashing.
+    ///
+    /// This is an alternative to [`Selection::replace_with`] for larger inputs when `T` supports
+    /// hashing. It preserves first-occurrence order while filtering duplicates.
+    ///
+    /// This can be a good fit when you frequently build selections from sources that may contain
+    /// duplicates (for example, merging multiple streams of keys) and the quadratic behavior of
+    /// [`Selection::replace_with`] becomes a bottleneck.
+    ///
+    /// For “Select All” style operations where you can guarantee uniqueness, prefer
+    /// [`Selection::replace_with_unique`].
+    pub fn replace_with_hashed<I>(&mut self, keys: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        use core::hash::BuildHasher;
+        use hashbrown::hash_map::Entry;
+        use hashbrown::{DefaultHashBuilder, HashMap};
+
+        let iter = keys.into_iter();
+        let (lower, upper) = iter.size_hint();
+        let cap = upper.unwrap_or(lower);
+
+        let build_hasher = DefaultHashBuilder::default();
+        let mut new_items: Vec<T> = Vec::with_capacity(cap);
+        let mut seen: HashMap<u64, Bucket, DefaultHashBuilder> =
+            HashMap::with_capacity_and_hasher(cap, build_hasher.clone());
+
+        enum Bucket {
+            // Most hashes map to a single key; keep this case allocation-free.
+            One(usize),
+            // Hashes can collide. When multiple distinct keys share the same 64-bit hash, we
+            // must track *all* candidate indices and do equality checks against them to avoid
+            // incorrectly treating distinct keys as duplicates (or vice versa).
+            Many(Vec<usize>),
+        }
+
+        for key in iter {
+            // We intentionally preserve *first-occurrence* order:
+            // - `Selection::items()` is a `Vec<T>` with stable order within an instance.
+            // - `primary`/`anchor` default to "first unique item", so order affects semantics.
+            // Using a hash set directly would either scramble ordering or require extra
+            // bookkeeping; instead we keep a `Vec<T>` for order and a hashed "seen" structure
+            // for fast de-duplication.
+            let hash = build_hasher.hash_one(&key);
+
+            match seen.entry(hash) {
+                Entry::Vacant(entry) => {
+                    let idx = new_items.len();
+                    new_items.push(key);
+                    entry.insert(Bucket::One(idx));
+                }
+                Entry::Occupied(mut entry) => match entry.get_mut() {
+                    Bucket::One(existing_idx) => {
+                        if new_items[*existing_idx] == key {
+                            continue;
+                        }
+
+                        let idx = new_items.len();
+                        new_items.push(key);
+                        *entry.get_mut() = Bucket::Many(Vec::from([*existing_idx, idx]));
+                    }
+                    Bucket::Many(existing_idxs) => {
+                        if existing_idxs.iter().any(|&idx| new_items[idx] == key) {
+                            continue;
+                        }
+
+                        let idx = new_items.len();
+                        new_items.push(key);
+                        existing_idxs.push(idx);
+                    }
+                },
+            }
+        }
+
+        self.replace_with_items(new_items);
+    }
+}
+
+#[cfg(debug_assertions)]
+fn debug_assert_unique<T>(items: &[T])
+where
+    T: PartialEq,
+{
+    for i in 0..items.len() {
+        for j in (i + 1)..items.len() {
+            debug_assert!(
+                items[i] != items[j],
+                "duplicate selection key at {i} and {j}"
+            );
         }
     }
 }

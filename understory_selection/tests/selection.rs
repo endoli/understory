@@ -77,6 +77,35 @@ fn replace_with_dedups_and_preserves_anchor_when_possible() {
 }
 
 #[test]
+fn replace_with_unique_matches_replace_with_for_unique_inputs() {
+    let mut a = Selection::new();
+    let mut b = Selection::new();
+
+    a.replace_with([1, 2, 3]);
+    b.replace_with_unique([1, 2, 3]);
+
+    assert_eq!(a.items(), b.items());
+    assert_eq!(a.primary(), b.primary());
+    assert_eq!(a.anchor(), b.anchor());
+    assert_eq!(a.revision(), b.revision());
+}
+
+#[cfg(feature = "hashbrown")]
+#[test]
+fn replace_with_hashed_matches_replace_with_for_mixed_inputs() {
+    let mut a = Selection::new();
+    let mut b = Selection::new();
+
+    a.replace_with([1_u32, 2, 2, 3, 1]);
+    b.replace_with_hashed([1_u32, 2, 2, 3, 1]);
+
+    assert_eq!(a.items(), b.items());
+    assert_eq!(a.primary(), b.primary());
+    assert_eq!(a.anchor(), b.anchor());
+    assert_eq!(a.revision(), b.revision());
+}
+
+#[test]
 fn extend_with_adds_items_and_does_not_move_anchor() {
     let mut sel = Selection::new();
     sel.replace_with([1, 2]);
