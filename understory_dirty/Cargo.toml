@@ -1,0 +1,23 @@
+[package]
+name = "understory_dirty"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Generic dirty-tracking and invalidation primitives"
+keywords = ["dirty", "invalidation", "incremental", "no_std", "understory"]
+categories = ["data-structures"]
+
+[dependencies]
+hashbrown.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = []

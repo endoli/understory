@@ -1,0 +1,748 @@
+// Copyright 2025 the Understory Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Topologically sorted drain iterator.
+
+use alloc::collections::VecDeque;
+use alloc::vec::Vec;
+use core::hash::Hash;
+
+use hashbrown::HashMap;
+use hashbrown::hash_map::Entry;
+
+use crate::channel::Channel;
+use crate::graph::DirtyGraph;
+
+/// Indicates whether a drain finished normally or stalled due to a cycle.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum DrainCompletion {
+    /// All reachable keys were yielded.
+    Complete,
+    /// The drain stalled: some keys remained with non-zero in-degree (cycle).
+    Stalled {
+        /// Number of keys that could not be yielded.
+        remaining: usize,
+    },
+}
+
+/// Iterator that yields dirty keys in topological order.
+///
+/// Uses Kahn's algorithm to yield dependencies before their dependents.
+/// This ensures that when processing the dirty set, a node is only processed
+/// after all of its dependencies have been processed.
+///
+/// # Algorithm
+///
+/// 1. Collect all dirty keys and their in-degrees (within the dirty subset).
+/// 2. Initialize a queue with keys that have no dirty dependencies.
+/// 3. Repeatedly dequeue a key, yield it, and decrement in-degrees of its
+///    dirty dependents. When a dependent's in-degree reaches zero, enqueue it.
+///
+/// # Performance
+///
+/// - Time complexity: O(V + E) where V is the number of dirty keys and E is
+///   the number of edges between them.
+/// - Space complexity: O(V) for the in-degree map and queue.
+///
+/// # Important Notes
+///
+/// - **Duplicates**: If `dirty_keys` contains duplicates, they are deduplicated
+///   internally. Each key is yielded at most once.
+/// - **Cycles**: This iterator assumes the dependency subgraph induced by the
+///   dirty keys is acyclic (a DAG). If cycles exist, keys involved in cycles
+///   will never have their in-degree reach zero and will not be yielded.
+///   You can detect this by exhausting the iterator and then checking
+///   [`is_stalled`](Self::is_stalled) / [`completion`](Self::completion), or by
+///   using [`collect_with_completion`](Self::collect_with_completion).
+///   Use [`CycleHandling::Error`](crate::CycleHandling::Error) when building the graph
+///   to prevent cycles, or ensure cycles are intentional.
+/// - **Nondeterminism**: When multiple keys have in-degree zero simultaneously,
+///   the order among them depends on hash iteration order and is not guaranteed
+///   to be deterministic across runs or platforms.
+///
+/// # Example
+///
+/// ```
+/// use understory_dirty::{Channel, CycleHandling, DirtyGraph, DrainSorted};
+///
+/// const LAYOUT: Channel = Channel::new(0);
+///
+/// let mut graph = DirtyGraph::<u32>::new();
+/// // 1 <- 2 <- 3
+/// graph.add_dependency(2, 1, LAYOUT, CycleHandling::Error).unwrap();
+/// graph.add_dependency(3, 2, LAYOUT, CycleHandling::Error).unwrap();
+///
+/// // All three are dirty
+/// let dirty_keys = vec![1, 2, 3];
+///
+/// let sorted: Vec<_> = DrainSorted::new(&dirty_keys, &graph, LAYOUT).collect();
+/// assert_eq!(sorted, vec![1, 2, 3]); // Dependencies before dependents
+/// ```
+#[derive(Debug)]
+pub struct DrainSorted<'a, K>
+where
+    K: Copy + Eq + Hash,
+{
+    graph: &'a DirtyGraph<K>,
+    channel: Channel,
+    /// Keys with zero in-degree, ready to yield.
+    queue: VecDeque<K>,
+    /// Remaining in-degree for each dirty key (within the dirty subset).
+    in_degree: HashMap<K, usize>,
+    stalled: bool,
+}
+
+impl<'a, K> DrainSorted<'a, K>
+where
+    K: Copy + Eq + Hash,
+{
+    /// Creates a new topologically sorted drain iterator.
+    ///
+    /// # Parameters
+    ///
+    /// - `dirty_keys`: The keys to drain (order does not matter).
+    /// - `graph`: The dependency graph.
+    /// - `channel`: The channel to consider for dependencies.
+    #[must_use]
+    pub fn new(dirty_keys: &[K], graph: &'a DirtyGraph<K>, channel: Channel) -> Self {
+        // Deduplicate input keys via the in-degree map keys.
+        let mut in_degree: HashMap<K, usize> = HashMap::with_capacity(dirty_keys.len());
+        let mut unique_keys = Vec::with_capacity(dirty_keys.len());
+        for &key in dirty_keys {
+            if let Entry::Vacant(e) = in_degree.entry(key) {
+                e.insert(0);
+                unique_keys.push(key);
+            }
+        }
+
+        // Compute in-degrees: for each dirty key, count how many of its
+        // dependencies are also dirty.
+        for &key in &unique_keys {
+            for dep in graph.dependencies(key, channel) {
+                if in_degree.contains_key(&dep) {
+                    *in_degree.get_mut(&key).expect("key is in in_degree") += 1;
+                }
+            }
+        }
+
+        // Initialize queue with keys that have no dirty dependencies
+        let mut queue = VecDeque::with_capacity(in_degree.len());
+        queue.extend(
+            unique_keys
+                .into_iter()
+                .filter(|&k| in_degree.get(&k).is_some_and(|&deg| deg == 0)),
+        );
+
+        Self {
+            graph,
+            channel,
+            queue,
+            in_degree,
+            stalled: false,
+        }
+    }
+
+    /// Returns `true` if there are no more keys to yield.
+    ///
+    /// Note: if this returns `true` while [`remaining`](Self::remaining) is
+    /// non-zero, the drain has stalled due to a cycle; see
+    /// [`is_stalled`](Self::is_stalled).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    /// Returns an upper bound on the remaining keys.
+    #[must_use]
+    pub fn remaining(&self) -> usize {
+        self.in_degree.len()
+    }
+
+    /// Returns `true` if the drain has stalled due to a cycle.
+    ///
+    /// This becomes `true` once `next()` has returned `None` while there were
+    /// still keys remaining.
+    ///
+    /// This is only meaningful after the iterator has been exhausted.
+    #[must_use]
+    pub fn is_stalled(&self) -> bool {
+        self.stalled
+    }
+
+    /// Returns whether the drain completed or stalled due to a cycle.
+    ///
+    /// If the drain stalled, this returns how many keys could not be yielded.
+    ///
+    /// This is only meaningful after the iterator has been exhausted.
+    /// Prefer [`collect_with_completion`](Self::collect_with_completion) to
+    /// avoid accidental early checks.
+    #[must_use]
+    pub fn completion(&self) -> DrainCompletion {
+        if self.stalled {
+            DrainCompletion::Stalled {
+                remaining: self.remaining(),
+            }
+        } else {
+            DrainCompletion::Complete
+        }
+    }
+
+    /// Collects all yielded keys and returns completion status.
+    #[must_use]
+    pub fn collect_with_completion(mut self) -> (Vec<K>, DrainCompletion) {
+        let mut out = Vec::with_capacity(self.in_degree.len());
+        out.extend(&mut self);
+        let completion = self.completion();
+        (out, completion)
+    }
+}
+
+impl<K> Iterator for DrainSorted<'_, K>
+where
+    K: Copy + Eq + Hash,
+{
+    type Item = K;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(key) = self.queue.pop_front() else {
+            if !self.in_degree.is_empty() {
+                self.stalled = true;
+            }
+            return None;
+        };
+
+        // Remove from in_degree to mark as processed
+        self.in_degree.remove(&key);
+
+        // Decrement in-degree of dirty dependents
+        for dependent in self.graph.dependents(key, self.channel) {
+            if let Some(deg) = self.in_degree.get_mut(&dependent) {
+                *deg -= 1;
+                if *deg == 0 {
+                    self.queue.push_back(dependent);
+                }
+            }
+        }
+
+        Some(key)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.in_degree.len();
+        (remaining, Some(remaining))
+    }
+}
+
+/// Creates a topologically sorted drain from a dirty set.
+///
+/// This is a convenience function that collects the dirty keys from a
+/// [`DirtySet`](crate::DirtySet), clears the channel, and returns a
+/// [`DrainSorted`] iterator.
+///
+/// See [`DrainSorted`] for notes on cycles and nondeterministic ordering.
+///
+/// # Example
+///
+/// ```
+/// use understory_dirty::{
+///     Channel, CycleHandling, DirtyGraph, DirtySet, drain_sorted,
+/// };
+///
+/// const LAYOUT: Channel = Channel::new(0);
+///
+/// let mut graph = DirtyGraph::<u32>::new();
+/// graph.add_dependency(2, 1, LAYOUT, CycleHandling::Error).unwrap();
+///
+/// let mut dirty = DirtySet::new();
+/// dirty.mark(1, LAYOUT);
+/// dirty.mark(2, LAYOUT);
+///
+/// // Drain in topological order
+/// let sorted: Vec<_> = drain_sorted(&mut dirty, &graph, LAYOUT).collect();
+/// assert_eq!(sorted, vec![1, 2]);
+///
+/// // Channel is now empty
+/// assert!(!dirty.has_dirty(LAYOUT));
+/// ```
+pub fn drain_sorted<'a, K>(
+    dirty: &mut crate::DirtySet<K>,
+    graph: &'a DirtyGraph<K>,
+    channel: Channel,
+) -> DrainSortedOwned<'a, K>
+where
+    K: Copy + Eq + Hash,
+{
+    // Collect dirty keys and clear the channel
+    let dirty_keys: Vec<K> = dirty.drain(channel).collect();
+    DrainSortedOwned::new(dirty_keys, graph, channel)
+}
+
+/// Creates a topologically sorted drain that includes all affected keys.
+///
+/// Unlike [`drain_sorted`], this function expands the dirty set to include
+/// all transitive dependents of the marked keys before sorting. This is the
+/// correct drain function to use with [`LazyPolicy`](crate::LazyPolicy),
+/// which only marks roots at mark-time.
+///
+/// # Algorithm
+///
+/// 1. Collect all keys currently marked dirty in the channel.
+/// 2. For each dirty key, compute all transitive dependents.
+/// 3. Build the affected set: dirty keys ∪ all transitive dependents.
+/// 4. Return a topologically sorted drain over the affected set.
+///
+/// See [`DrainSorted`] for notes on cycles and nondeterministic ordering.
+///
+/// # Example
+///
+/// ```
+/// use understory_dirty::{
+///     Channel, CycleHandling, DirtyGraph, DirtySet, drain_affected_sorted,
+/// };
+///
+/// const LAYOUT: Channel = Channel::new(0);
+///
+/// let mut graph = DirtyGraph::<u32>::new();
+/// // 1 <- 2 <- 3
+/// graph.add_dependency(2, 1, LAYOUT, CycleHandling::Error).unwrap();
+/// graph.add_dependency(3, 2, LAYOUT, CycleHandling::Error).unwrap();
+///
+/// let mut dirty = DirtySet::new();
+/// // Only mark the root
+/// dirty.mark(1, LAYOUT);
+///
+/// // drain_affected_sorted expands to include all dependents
+/// let sorted: Vec<_> = drain_affected_sorted(&mut dirty, &graph, LAYOUT).collect();
+/// assert_eq!(sorted, vec![1, 2, 3]);
+///
+/// // Channel is now empty
+/// assert!(!dirty.has_dirty(LAYOUT));
+/// ```
+pub fn drain_affected_sorted<'a, K>(
+    dirty: &mut crate::DirtySet<K>,
+    graph: &'a DirtyGraph<K>,
+    channel: Channel,
+) -> DrainSortedOwned<'a, K>
+where
+    K: Copy + Eq + Hash,
+{
+    // Collect dirty keys (roots) and clear the channel
+    let roots: Vec<K> = dirty.drain(channel).collect();
+
+    // Expand to include all transitive dependents
+    let mut affected_keys = Vec::with_capacity(roots.len());
+    affected_keys.extend(roots.iter().copied());
+    for &root in &roots {
+        for dependent in graph.transitive_dependents(root, channel) {
+            affected_keys.push(dependent);
+        }
+    }
+
+    DrainSortedOwned::new(affected_keys, graph, channel)
+}
+
+/// Owned version of [`DrainSorted`] that holds the dirty keys.
+///
+/// This iterator has the same cycle and nondeterminism behavior as
+/// [`DrainSorted`]. Use [`completion`](Self::completion) (or
+/// [`collect_with_completion`](Self::collect_with_completion)) to detect
+/// whether the drain stalled due to a cycle.
+///
+/// # Detecting Cycles
+///
+/// Prefer [`collect_with_completion`](Self::collect_with_completion) to
+/// reliably detect cycle stalls, since it guarantees the iterator is exhausted.
+///
+/// ```
+/// use understory_dirty::{
+///     drain_sorted, Channel, CycleHandling, DirtyGraph, DirtySet, DrainCompletion,
+/// };
+///
+/// const LAYOUT: Channel = Channel::new(0);
+///
+/// let mut graph = DirtyGraph::<u32>::new();
+/// graph.add_dependency(2, 1, LAYOUT, CycleHandling::Error).unwrap();
+///
+/// let mut dirty = DirtySet::new();
+/// dirty.mark(1, LAYOUT);
+/// dirty.mark(2, LAYOUT);
+///
+/// let (keys, completion) = drain_sorted(&mut dirty, &graph, LAYOUT).collect_with_completion();
+/// assert_eq!(keys, vec![1, 2]);
+/// assert_eq!(completion, DrainCompletion::Complete);
+/// ```
+#[derive(Debug)]
+pub struct DrainSortedOwned<'a, K>
+where
+    K: Copy + Eq + Hash,
+{
+    graph: &'a DirtyGraph<K>,
+    channel: Channel,
+    queue: VecDeque<K>,
+    in_degree: HashMap<K, usize>,
+    stalled: bool,
+}
+
+impl<'a, K> DrainSortedOwned<'a, K>
+where
+    K: Copy + Eq + Hash,
+{
+    fn new(dirty_keys: Vec<K>, graph: &'a DirtyGraph<K>, channel: Channel) -> Self {
+        // Deduplicate input keys via the in-degree map keys.
+        let mut in_degree: HashMap<K, usize> = HashMap::with_capacity(dirty_keys.len());
+        let mut unique_keys = Vec::with_capacity(dirty_keys.len());
+        for key in dirty_keys {
+            if let Entry::Vacant(e) = in_degree.entry(key) {
+                e.insert(0);
+                unique_keys.push(key);
+            }
+        }
+
+        for &key in &unique_keys {
+            for dep in graph.dependencies(key, channel) {
+                if in_degree.contains_key(&dep) {
+                    *in_degree.get_mut(&key).expect("key is in in_degree") += 1;
+                }
+            }
+        }
+
+        let mut queue = VecDeque::with_capacity(in_degree.len());
+        queue.extend(
+            unique_keys
+                .into_iter()
+                .filter(|&k| in_degree.get(&k).is_some_and(|&deg| deg == 0)),
+        );
+
+        Self {
+            graph,
+            channel,
+            queue,
+            in_degree,
+            stalled: false,
+        }
+    }
+
+    /// Returns `true` if the drain has stalled due to a cycle.
+    ///
+    /// This becomes `true` once `next()` has returned `None` while there were
+    /// still keys remaining.
+    ///
+    /// This is only meaningful after the iterator has been exhausted.
+    #[must_use]
+    pub fn is_stalled(&self) -> bool {
+        self.stalled
+    }
+
+    /// Returns whether the drain completed or stalled due to a cycle.
+    ///
+    /// If the drain stalled, this returns how many keys could not be yielded.
+    ///
+    /// This is only meaningful after the iterator has been exhausted.
+    /// Prefer [`collect_with_completion`](Self::collect_with_completion) to
+    /// avoid accidental early checks.
+    #[must_use]
+    pub fn completion(&self) -> DrainCompletion {
+        if self.stalled {
+            DrainCompletion::Stalled {
+                remaining: self.in_degree.len(),
+            }
+        } else {
+            DrainCompletion::Complete
+        }
+    }
+
+    /// Collects all yielded keys and returns completion status.
+    #[must_use]
+    pub fn collect_with_completion(mut self) -> (Vec<K>, DrainCompletion) {
+        let mut out = Vec::with_capacity(self.in_degree.len());
+        out.extend(&mut self);
+        let completion = self.completion();
+        (out, completion)
+    }
+}
+
+impl<K> Iterator for DrainSortedOwned<'_, K>
+where
+    K: Copy + Eq + Hash,
+{
+    type Item = K;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(key) = self.queue.pop_front() else {
+            if !self.in_degree.is_empty() {
+                self.stalled = true;
+            }
+            return None;
+        };
+        self.in_degree.remove(&key);
+
+        for dependent in self.graph.dependents(key, self.channel) {
+            if let Some(deg) = self.in_degree.get_mut(&dependent) {
+                *deg -= 1;
+                if *deg == 0 {
+                    self.queue.push_back(dependent);
+                }
+            }
+        }
+
+        Some(key)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.in_degree.len();
+        (remaining, Some(remaining))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    use crate::graph::CycleHandling;
+    use crate::set::DirtySet;
+
+    const LAYOUT: Channel = Channel::new(0);
+
+    #[test]
+    fn topological_order_chain() {
+        let mut graph = DirtyGraph::new();
+        // 1 <- 2 <- 3 <- 4
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(3, 2, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(4, 3, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let dirty_keys = vec![4, 2, 1, 3]; // Out of order
+        let sorted: Vec<_> = DrainSorted::new(&dirty_keys, &graph, LAYOUT).collect();
+
+        // Must be in topological order
+        assert_eq!(sorted, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn topological_order_diamond() {
+        let mut graph = DirtyGraph::new();
+        // 1 <- 2, 1 <- 3, 2 <- 4, 3 <- 4
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(3, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(4, 2, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(4, 3, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let dirty_keys = vec![4, 3, 2, 1];
+        let sorted: Vec<_> = DrainSorted::new(&dirty_keys, &graph, LAYOUT).collect();
+
+        // 1 must come first, 4 must come last, 2 and 3 can be in either order
+        assert_eq!(sorted[0], 1);
+        assert_eq!(sorted[3], 4);
+        assert!(sorted[1] == 2 || sorted[1] == 3);
+        assert!(sorted[2] == 2 || sorted[2] == 3);
+    }
+
+    #[test]
+    fn partial_dirty_set() {
+        let mut graph = DirtyGraph::new();
+        // 1 <- 2 <- 3
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(3, 2, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        // Only 2 and 3 are dirty (not 1)
+        let dirty_keys = vec![3, 2];
+        let sorted: Vec<_> = DrainSorted::new(&dirty_keys, &graph, LAYOUT).collect();
+
+        // 2 should come before 3, but 1 is not in the dirty set
+        assert_eq!(sorted, vec![2, 3]);
+    }
+
+    #[test]
+    fn no_dependencies() {
+        let graph = DirtyGraph::<u32>::new();
+        let dirty_keys = vec![3, 1, 2];
+        let sorted: Vec<_> = DrainSorted::new(&dirty_keys, &graph, LAYOUT).collect();
+
+        // All have in-degree 0, so order is based on iteration order (set-dependent)
+        assert_eq!(sorted.len(), 3);
+    }
+
+    #[test]
+    fn drain_sorted_function() {
+        let mut graph = DirtyGraph::new();
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let mut dirty = DirtySet::new();
+        dirty.mark(1, LAYOUT);
+        dirty.mark(2, LAYOUT);
+
+        let sorted: Vec<_> = drain_sorted(&mut dirty, &graph, LAYOUT).collect();
+        assert_eq!(sorted, vec![1, 2]);
+
+        // Channel should be empty
+        assert!(!dirty.has_dirty(LAYOUT));
+    }
+
+    #[test]
+    fn empty_dirty_set() {
+        let graph = DirtyGraph::<u32>::new();
+        let dirty_keys: Vec<u32> = vec![];
+        let sorted: Vec<_> = DrainSorted::new(&dirty_keys, &graph, LAYOUT).collect();
+        assert!(sorted.is_empty());
+    }
+
+    #[test]
+    fn size_hint_accurate() {
+        let mut graph = DirtyGraph::new();
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let dirty_keys = vec![1, 2];
+        let mut drain = DrainSorted::new(&dirty_keys, &graph, LAYOUT);
+
+        assert_eq!(drain.size_hint(), (2, Some(2)));
+        assert_eq!(drain.remaining(), 2);
+
+        let _ = drain.next();
+        assert_eq!(drain.size_hint(), (1, Some(1)));
+
+        let _ = drain.next();
+        assert_eq!(drain.size_hint(), (0, Some(0)));
+        assert!(drain.is_empty());
+    }
+
+    #[test]
+    fn duplicate_keys_deduplicated() {
+        let mut graph = DirtyGraph::new();
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        // Duplicates in input
+        let dirty_keys = vec![1, 2, 1, 2, 1];
+        let sorted: Vec<_> = DrainSorted::new(&dirty_keys, &graph, LAYOUT).collect();
+
+        // Should deduplicate to just [1, 2]
+        assert_eq!(sorted.len(), 2);
+        assert_eq!(sorted, vec![1, 2]);
+    }
+
+    #[test]
+    fn cycles_stall_drain() {
+        let mut graph = DirtyGraph::new();
+        // Create a cycle: 1 <- 2 <- 3 <- 1 (with Allow)
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Allow)
+            .unwrap();
+        graph
+            .add_dependency(3, 2, LAYOUT, CycleHandling::Allow)
+            .unwrap();
+        graph
+            .add_dependency(1, 3, LAYOUT, CycleHandling::Allow)
+            .unwrap();
+
+        // All three are dirty
+        let dirty_keys = vec![1, 2, 3];
+        let mut drain = DrainSorted::new(&dirty_keys, &graph, LAYOUT);
+        let sorted: Vec<_> = drain.by_ref().collect();
+
+        // All keys are in a cycle, so no key has in-degree 0, nothing is yielded
+        assert!(
+            sorted.is_empty(),
+            "cycle should prevent any keys from being yielded"
+        );
+        assert!(drain.is_stalled());
+        assert_eq!(
+            drain.completion(),
+            DrainCompletion::Stalled { remaining: 3 }
+        );
+    }
+
+    #[test]
+    fn cycles_stall_drain_owned() {
+        let mut graph = DirtyGraph::new();
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Allow)
+            .unwrap();
+        graph
+            .add_dependency(3, 2, LAYOUT, CycleHandling::Allow)
+            .unwrap();
+        graph
+            .add_dependency(1, 3, LAYOUT, CycleHandling::Allow)
+            .unwrap();
+
+        let mut dirty = DirtySet::new();
+        dirty.mark(1, LAYOUT);
+        dirty.mark(2, LAYOUT);
+        dirty.mark(3, LAYOUT);
+
+        let (sorted, completion) =
+            drain_sorted(&mut dirty, &graph, LAYOUT).collect_with_completion();
+        assert!(sorted.is_empty());
+        assert_eq!(completion, DrainCompletion::Stalled { remaining: 3 });
+    }
+
+    #[test]
+    fn drain_affected_sorted_expands_dependents() {
+        let mut graph = DirtyGraph::new();
+        // 1 <- 2 <- 3 <- 4
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(3, 2, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(4, 3, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let mut dirty = DirtySet::new();
+        // Only mark the root
+        dirty.mark(1, LAYOUT);
+
+        // drain_affected_sorted should expand to include all dependents
+        let sorted: Vec<_> = drain_affected_sorted(&mut dirty, &graph, LAYOUT).collect();
+        assert_eq!(sorted, vec![1, 2, 3, 4]);
+
+        // Channel should be empty
+        assert!(!dirty.has_dirty(LAYOUT));
+    }
+
+    #[test]
+    fn drain_affected_sorted_multiple_roots() {
+        let mut graph = DirtyGraph::new();
+        // Two chains: 1 <- 2, 3 <- 4
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(4, 3, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let mut dirty = DirtySet::new();
+        dirty.mark(1, LAYOUT);
+        dirty.mark(3, LAYOUT);
+
+        let sorted: Vec<_> = drain_affected_sorted(&mut dirty, &graph, LAYOUT).collect();
+        // Should include all 4 keys (order between chains is nondeterministic)
+        assert_eq!(sorted.len(), 4);
+    }
+}
