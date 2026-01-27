@@ -8,6 +8,9 @@ autobenches = false
 [dependencies]
 understory_index = { path = "../understory_index" }
 understory_box_tree = { path = "../understory_box_tree" }
+understory_selection = { path = "../understory_selection", features = [
+  "hashbrown",
+] }
 kurbo.workspace = true
 rstar = { version = "0.11", optional = true }
 
@@ -32,4 +35,8 @@ required-features = ["compare_rstar"]
 
 [[bench]]
 name = "ui_box_tree"
+harness = false
+
+[[bench]]
+name = "selection"
 harness = false

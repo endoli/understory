@@ -9,6 +9,7 @@ keywords = ["ui", "selection", "canvas", "no_std", "understory"]
 categories = ["gui", "data-structures", "no-std"]
 
 [dependencies]
+hashbrown = { workspace = true, optional = true }
 
 [lints]
 workspace = true
@@ -19,6 +20,9 @@ default = ["std"]
 # This crate is `no_std` + `alloc` by default; `std` is only needed when
 # dependants prefer to compile with the standard library.
 std = []
+
+# Enables hash-based de-duplication methods (still `no_std` + `alloc`).
+hashbrown = ["dep:hashbrown"]
 
 [package.metadata.docs.rs]
 all-features = true

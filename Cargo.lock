@@ -512,6 +512,7 @@ dependencies = [
  "serde_json",
  "understory_box_tree",
  "understory_index",
+ "understory_selection",
 ]
 
 [[package]]
@@ -579,6 +580,9 @@ dependencies = [
 [[package]]
 name = "understory_selection"
 version = "0.1.0"
+dependencies = [
+ "hashbrown",
+]
 
 [[package]]
 name = "understory_view2d"
