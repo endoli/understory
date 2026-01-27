@@ -105,7 +105,7 @@ pub enum CycleHandling {
 ///
 /// - [`DirtyTracker`](crate::DirtyTracker): Convenience wrapper combining graph + set.
 /// - [`CycleHandling`]: Cycle policy used by [`add_dependency`](Self::add_dependency).
-/// - [`DrainSorted`](crate::DrainSorted) / [`DrainSortedOwned`](crate::DrainSortedOwned): Drains dirty keys in dependency order.
+/// - [`DrainSorted`](crate::DrainSorted): Drains dirty keys in dependency order.
 #[derive(Debug, Clone)]
 pub struct DirtyGraph<K>
 where
