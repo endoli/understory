@@ -139,9 +139,7 @@ mod set;
 mod tracker;
 
 pub use channel::{Channel, ChannelSet, ChannelSetIter};
-pub use drain::{
-    DrainCompletion, DrainSorted, DrainSortedOwned, drain_affected_sorted, drain_sorted,
-};
+pub use drain::{DrainCompletion, DrainSorted, drain_affected_sorted, drain_sorted};
 pub use graph::{CycleError, CycleHandling, DirtyGraph};
 pub use policy::{EagerPolicy, LazyPolicy, PropagationPolicy};
 pub use scratch::TraversalScratch;
