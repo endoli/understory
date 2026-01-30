@@ -3,11 +3,10 @@
 
 //! Combined dirty tracker: graph + set convenience type.
 
-use alloc::vec::Vec;
 use core::hash::Hash;
 
 use crate::channel::Channel;
-use crate::drain::{DrainSorted, DrainSortedOwned};
+use crate::drain::DrainSorted;
 use crate::graph::{CycleError, CycleHandling, DirtyGraph};
 use crate::policy::PropagationPolicy;
 use crate::set::DirtySet;
@@ -235,13 +234,13 @@ where
     /// when processing the dirty set, a node is only processed after all
     /// of its dependencies have been processed.
     ///
-    /// The channel is cleared after the iterator is exhausted.
+    /// The channel is cleared eagerly when this iterator is created.
     ///
     /// Note: if the dependency subgraph induced by the dirty keys contains a
     /// cycle, the drain will stall and some keys will not be yielded. You can
     /// detect this by exhausting the iterator and checking
-    /// [`DrainSortedOwned::completion`], or by using
-    /// [`DrainSortedOwned::collect_with_completion`].
+    /// [`DrainSorted::completion`], or by using
+    /// [`DrainSorted::collect_with_completion`].
     ///
     /// # Example
     ///
@@ -261,7 +260,7 @@ where
     ///     // recompute_layout(key);
     /// }
     /// ```
-    pub fn drain_sorted(&mut self, channel: Channel) -> DrainSortedOwned<'_, K> {
+    pub fn drain_sorted(&mut self, channel: Channel) -> DrainSorted<'_, K> {
         crate::drain::drain_sorted(&mut self.dirty, &self.graph, channel)
     }
 
@@ -299,7 +298,7 @@ where
     /// let order: Vec<_> = tracker.drain_affected_sorted(LAYOUT).collect();
     /// assert_eq!(order, vec![1, 2, 3]);
     /// ```
-    pub fn drain_affected_sorted(&mut self, channel: Channel) -> DrainSortedOwned<'_, K> {
+    pub fn drain_affected_sorted(&mut self, channel: Channel) -> DrainSorted<'_, K> {
         crate::drain::drain_affected_sorted(&mut self.dirty, &self.graph, channel)
     }
 
@@ -310,8 +309,8 @@ where
     /// times or want to keep the dirty state.
     #[must_use]
     pub fn peek_sorted(&self, channel: Channel) -> DrainSorted<'_, K> {
-        let dirty_keys: Vec<K> = self.dirty.iter(channel).collect();
-        DrainSorted::new(&dirty_keys, &self.graph, channel)
+        let cap = self.dirty.len(channel);
+        DrainSorted::from_iter_with_capacity(self.dirty.iter(channel), cap, &self.graph, channel)
     }
 
     /// Clears all dirty keys in the given channel.
