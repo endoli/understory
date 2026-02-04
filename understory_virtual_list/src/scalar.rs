@@ -49,11 +49,15 @@ pub trait Scalar:
         }
     }
 
-    /// Floors the value and converts it to `isize`.
+    /// Converts the value to `isize` by truncating toward zero for index approximation.
     ///
-    /// Implementations may clamp or truncate as needed; callers are expected
-    /// to clamp the result to a valid index range afterwards.
-    fn floor_to_isize(self) -> isize;
+    /// Implementations may truncate as needed (the `f32`/`f64` impls truncate
+    /// toward zero). Callers are expected to clamp the result to a valid index
+    /// range afterwards.
+    ///
+    /// If the value of the scalar does not fit in the range of an `isize`,
+    /// the returned `isize` is saturated as [`isize::MIN`] or [`isize::MAX`].
+    fn truncate_to_isize(self) -> isize;
 }
 
 impl Scalar for f32 {
@@ -81,7 +85,7 @@ impl Scalar for f32 {
         value as Self
     }
 
-    fn floor_to_isize(self) -> isize {
+    fn truncate_to_isize(self) -> isize {
         #[expect(
             clippy::cast_possible_truncation,
             reason = "Used only for index approximation; result is clamped immediately after"
@@ -117,7 +121,7 @@ impl Scalar for f64 {
         value as Self
     }
 
-    fn floor_to_isize(self) -> isize {
+    fn truncate_to_isize(self) -> isize {
         #[expect(
             clippy::cast_possible_truncation,
             reason = "Used only for index approximation; result is clamped immediately after"
