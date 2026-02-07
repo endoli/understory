@@ -6,7 +6,7 @@
 use core::hash::Hash;
 
 use crate::channel::Channel;
-use crate::drain::DrainSorted;
+use crate::drain::{DrainSorted, DrainSortedDeterministic};
 use crate::graph::{CycleError, CycleHandling, DirtyGraph};
 use crate::policy::PropagationPolicy;
 use crate::set::DirtySet;
@@ -322,6 +322,50 @@ where
     /// Clears all dirty keys in all channels.
     pub fn clear_all(&mut self) {
         self.dirty.clear_all();
+    }
+}
+
+impl<K> DirtyTracker<K>
+where
+    K: Copy + Eq + Hash + Ord,
+{
+    /// Drains dirty keys in deterministic topological order.
+    ///
+    /// This is equivalent to [`drain_sorted`](Self::drain_sorted), but when
+    /// multiple keys are simultaneously ready it yields them in ascending key
+    /// order (`Ord`).
+    pub fn drain_sorted_deterministic(
+        &mut self,
+        channel: Channel,
+    ) -> DrainSortedDeterministic<'_, K> {
+        crate::drain::drain_sorted_deterministic(&mut self.dirty, &self.graph, channel)
+    }
+
+    /// Drains all affected keys in deterministic topological order.
+    ///
+    /// This is equivalent to [`drain_affected_sorted`](Self::drain_affected_sorted), but when
+    /// multiple keys are simultaneously ready it yields them in ascending key
+    /// order (`Ord`).
+    pub fn drain_affected_sorted_deterministic(
+        &mut self,
+        channel: Channel,
+    ) -> DrainSortedDeterministic<'_, K> {
+        crate::drain::drain_affected_sorted_deterministic(&mut self.dirty, &self.graph, channel)
+    }
+
+    /// Collects dirty keys and returns a deterministic [`DrainSortedDeterministic`] iterator.
+    ///
+    /// Unlike [`drain_sorted_deterministic`](Self::drain_sorted_deterministic), this method does
+    /// not clear the dirty set.
+    #[must_use]
+    pub fn peek_sorted_deterministic(&self, channel: Channel) -> DrainSortedDeterministic<'_, K> {
+        let cap = self.dirty.len(channel);
+        DrainSortedDeterministic::from_iter_with_capacity(
+            self.dirty.iter(channel),
+            cap,
+            &self.graph,
+            channel,
+        )
     }
 }
 

@@ -3,8 +3,10 @@
 
 //! Topologically sorted drain iterator.
 
+use alloc::collections::BinaryHeap;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
+use core::cmp::Reverse;
 use core::hash::Hash;
 
 use hashbrown::HashMap;
@@ -89,6 +91,24 @@ where
     channel: Channel,
     /// Keys with zero in-degree, ready to yield.
     queue: VecDeque<K>,
+    /// Remaining in-degree for each dirty key (within the dirty subset).
+    in_degree: HashMap<K, usize>,
+    stalled: bool,
+}
+
+/// Deterministic variant of [`DrainSorted`].
+///
+/// When multiple keys are simultaneously ready, this drain yields the smallest
+/// key first (according to `Ord`).
+#[derive(Debug)]
+pub struct DrainSortedDeterministic<'a, K>
+where
+    K: Copy + Eq + Hash + Ord,
+{
+    graph: &'a DirtyGraph<K>,
+    channel: Channel,
+    /// Keys with zero in-degree, ready to yield (min-heap via `Reverse`).
+    ready: BinaryHeap<Reverse<K>>,
     /// Remaining in-degree for each dirty key (within the dirty subset).
     in_degree: HashMap<K, usize>,
     stalled: bool,
@@ -199,6 +219,103 @@ where
     }
 }
 
+impl<'a, K> DrainSortedDeterministic<'a, K>
+where
+    K: Copy + Eq + Hash + Ord,
+{
+    pub(crate) fn from_iter_with_capacity<I>(
+        dirty_keys: I,
+        cap: usize,
+        graph: &'a DirtyGraph<K>,
+        channel: Channel,
+    ) -> Self
+    where
+        I: Iterator<Item = K>,
+    {
+        // Deduplicate input keys via the in-degree map keys.
+        let mut in_degree: HashMap<K, usize> = HashMap::with_capacity(cap);
+        let mut unique_keys = Vec::with_capacity(cap);
+        for key in dirty_keys {
+            if let Entry::Vacant(e) = in_degree.entry(key) {
+                e.insert(0);
+                unique_keys.push(key);
+            }
+        }
+
+        // Compute in-degrees within the dirty subset.
+        for &key in &unique_keys {
+            for dep in graph.dependencies(key, channel) {
+                if in_degree.contains_key(&dep) {
+                    *in_degree.get_mut(&key).expect("key is in in_degree") += 1;
+                }
+            }
+        }
+
+        // Initialize ready set with zero in-degree keys.
+        let mut ready = BinaryHeap::with_capacity(in_degree.len());
+        for key in unique_keys {
+            if in_degree.get(&key).is_some_and(|&deg| deg == 0) {
+                ready.push(Reverse(key));
+            }
+        }
+
+        Self {
+            graph,
+            channel,
+            ready,
+            in_degree,
+            stalled: false,
+        }
+    }
+
+    /// Returns `true` if there are no more keys to yield.
+    ///
+    /// Note: if this returns `true` while [`remaining`](Self::remaining) is
+    /// non-zero, the drain has stalled due to a cycle.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.ready.is_empty()
+    }
+
+    /// Returns an upper bound on the remaining keys.
+    #[must_use]
+    pub fn remaining(&self) -> usize {
+        self.in_degree.len()
+    }
+
+    /// Returns `true` if the drain has stalled due to a cycle.
+    ///
+    /// This becomes `true` once `next()` has returned `None` while there were
+    /// still keys remaining.
+    ///
+    /// This is only meaningful after the iterator has been exhausted.
+    #[must_use]
+    pub fn is_stalled(&self) -> bool {
+        self.stalled
+    }
+
+    /// Returns whether the drain completed or stalled due to a cycle.
+    #[must_use]
+    pub fn completion(&self) -> DrainCompletion {
+        if self.stalled {
+            DrainCompletion::Stalled {
+                remaining: self.remaining(),
+            }
+        } else {
+            DrainCompletion::Complete
+        }
+    }
+
+    /// Collects all yielded keys and returns completion status.
+    #[must_use]
+    pub fn collect_with_completion(mut self) -> (Vec<K>, DrainCompletion) {
+        let mut out = Vec::with_capacity(self.in_degree.len());
+        out.extend(&mut self);
+        let completion = self.completion();
+        (out, completion)
+    }
+}
+
 impl<K> Iterator for DrainSorted<'_, K>
 where
     K: Copy + Eq + Hash,
@@ -222,6 +339,40 @@ where
                 *deg -= 1;
                 if *deg == 0 {
                     self.queue.push_back(dependent);
+                }
+            }
+        }
+
+        Some(key)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.in_degree.len();
+        (remaining, Some(remaining))
+    }
+}
+
+impl<K> Iterator for DrainSortedDeterministic<'_, K>
+where
+    K: Copy + Eq + Hash + Ord,
+{
+    type Item = K;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(Reverse(key)) = self.ready.pop() else {
+            if !self.in_degree.is_empty() {
+                self.stalled = true;
+            }
+            return None;
+        };
+
+        self.in_degree.remove(&key);
+
+        for dependent in self.graph.dependents(key, self.channel) {
+            if let Some(deg) = self.in_degree.get_mut(&dependent) {
+                *deg -= 1;
+                if *deg == 0 {
+                    self.ready.push(Reverse(dependent));
                 }
             }
         }
@@ -283,6 +434,25 @@ where
     dirty_keys.extend(dirty.drain(channel));
 
     DrainSorted::from_iter_with_capacity(dirty_keys.into_iter(), cap, graph, channel)
+}
+
+/// Creates a deterministic, topologically sorted drain from a dirty set.
+///
+/// This is equivalent to [`drain_sorted`], but when multiple keys are ready
+/// simultaneously it yields them in ascending key order (`Ord`).
+pub fn drain_sorted_deterministic<'a, K>(
+    dirty: &mut crate::DirtySet<K>,
+    graph: &'a DirtyGraph<K>,
+    channel: Channel,
+) -> DrainSortedDeterministic<'a, K>
+where
+    K: Copy + Eq + Hash + Ord,
+{
+    let cap = dirty.len(channel);
+    let mut dirty_keys = Vec::with_capacity(cap);
+    dirty_keys.extend(dirty.drain(channel));
+
+    DrainSortedDeterministic::from_iter_with_capacity(dirty_keys.into_iter(), cap, graph, channel)
 }
 
 /// Creates a topologically sorted drain that includes all affected keys.
@@ -351,6 +521,38 @@ where
 
     let cap = affected_keys.len();
     DrainSorted::from_iter_with_capacity(affected_keys.into_iter(), cap, graph, channel)
+}
+
+/// Creates a deterministic, topologically sorted drain that includes all
+/// affected keys.
+///
+/// This is equivalent to [`drain_affected_sorted`], but when multiple keys are
+/// ready simultaneously it yields them in ascending key order (`Ord`).
+pub fn drain_affected_sorted_deterministic<'a, K>(
+    dirty: &mut crate::DirtySet<K>,
+    graph: &'a DirtyGraph<K>,
+    channel: Channel,
+) -> DrainSortedDeterministic<'a, K>
+where
+    K: Copy + Eq + Hash + Ord,
+{
+    let mut affected_keys: Vec<K> = dirty.drain(channel).collect();
+    let roots_len = affected_keys.len();
+
+    for i in 0..roots_len {
+        let root = affected_keys[i];
+        for dependent in graph.transitive_dependents(root, channel) {
+            affected_keys.push(dependent);
+        }
+    }
+
+    let cap = affected_keys.len();
+    DrainSortedDeterministic::from_iter_with_capacity(
+        affected_keys.into_iter(),
+        cap,
+        graph,
+        channel,
+    )
 }
 
 #[cfg(test)]
@@ -625,5 +827,36 @@ mod tests {
         let sorted: Vec<_> = drain_affected_sorted(&mut dirty, &graph, LAYOUT).collect();
         // Should include all 4 keys (order between chains is nondeterministic)
         assert_eq!(sorted.len(), 4);
+    }
+
+    #[test]
+    fn deterministic_topological_order_diamond_is_total() {
+        let mut graph = DirtyGraph::new();
+        // 1 <- 2, 1 <- 3, 2 <- 4, 3 <- 4
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(3, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(4, 2, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(4, 3, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let dirty_keys = vec![4, 3, 2, 1];
+        let cap = dirty_keys.len();
+        let sorted: Vec<_> = DrainSortedDeterministic::from_iter_with_capacity(
+            dirty_keys.into_iter(),
+            cap,
+            &graph,
+            LAYOUT,
+        )
+        .collect();
+
+        // Deterministic tie-breaker yields 2 before 3.
+        assert_eq!(sorted, vec![1, 2, 3, 4]);
     }
 }

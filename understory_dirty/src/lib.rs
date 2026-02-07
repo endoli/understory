@@ -140,7 +140,10 @@ mod set;
 mod tracker;
 
 pub use channel::{Channel, ChannelSet, ChannelSetIter};
-pub use drain::{DrainCompletion, DrainSorted, drain_affected_sorted, drain_sorted};
+pub use drain::{
+    DrainCompletion, DrainSorted, DrainSortedDeterministic, drain_affected_sorted,
+    drain_affected_sorted_deterministic, drain_sorted, drain_sorted_deterministic,
+};
 pub use graph::{CycleError, CycleHandling, DirtyGraph};
 pub use intern::InternId;
 pub use policy::{EagerPolicy, LazyPolicy, PropagationPolicy};
