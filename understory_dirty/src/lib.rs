@@ -132,6 +132,7 @@ extern crate alloc;
 
 mod channel;
 mod drain;
+mod drain_builder;
 mod graph;
 pub mod intern;
 mod policy;
@@ -146,6 +147,7 @@ pub use drain::{
     drain_affected_sorted_deterministic, drain_affected_sorted_with_trace, drain_sorted,
     drain_sorted_deterministic,
 };
+pub use drain_builder::{AnyOrder, DeterministicOrder, DrainBuilder};
 pub use graph::{CycleError, CycleHandling, DirtyGraph};
 pub use intern::InternId;
 pub use policy::{EagerPolicy, LazyPolicy, PropagationPolicy};
