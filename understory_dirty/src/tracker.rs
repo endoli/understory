@@ -186,6 +186,35 @@ where
         self.dirty.remove_key(key);
     }
 
+    /// Replaces all direct dependencies of `from` in `channel`.
+    ///
+    /// This is a convenience wrapper around
+    /// [`DirtyGraph::replace_dependencies`](crate::DirtyGraph::replace_dependencies) that uses the
+    /// tracker's configured cycle handling mode.
+    pub fn replace_dependencies(
+        &mut self,
+        from: K,
+        channel: Channel,
+        to: impl IntoIterator<Item = K>,
+    ) -> Result<bool, CycleError<K>> {
+        self.graph
+            .replace_dependencies(from, channel, to, self.cycle_handling)
+    }
+
+    /// Replaces all direct dependencies of `from` in `channel`, with explicit cycle handling.
+    ///
+    /// See [`DirtyGraph::replace_dependencies`](crate::DirtyGraph::replace_dependencies) for
+    /// behavior and rollback semantics.
+    pub fn replace_dependencies_with(
+        &mut self,
+        from: K,
+        channel: Channel,
+        to: impl IntoIterator<Item = K>,
+        handling: CycleHandling,
+    ) -> Result<bool, CycleError<K>> {
+        self.graph.replace_dependencies(from, channel, to, handling)
+    }
+
     // -------------------------------------------------------------------------
     // Dirty marking
     // -------------------------------------------------------------------------
@@ -438,6 +467,33 @@ mod tests {
 
         assert!(tracker.is_dirty(1, LAYOUT));
         assert!(!tracker.is_dirty(2, LAYOUT));
+    }
+
+    #[test]
+    fn replace_dependencies_forwards_to_graph() {
+        let mut tracker = DirtyTracker::<u32>::with_cycle_handling(CycleHandling::Error);
+
+        tracker.add_dependency(10, 1, LAYOUT).unwrap();
+        tracker.add_dependency(10, 2, LAYOUT).unwrap();
+
+        let changed = tracker.replace_dependencies(10, LAYOUT, [3, 4]).unwrap();
+        assert!(changed);
+
+        let deps: Vec<_> = tracker.graph().dependencies(10, LAYOUT).collect();
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&3));
+        assert!(deps.contains(&4));
+    }
+
+    #[test]
+    fn replace_dependencies_uses_configured_cycle_handling() {
+        let mut tracker = DirtyTracker::<u32>::with_cycle_handling(CycleHandling::Error);
+
+        // Self-dependency is a trivial cycle; this should error when the tracker
+        // is configured with `CycleHandling::Error`.
+        let err = tracker.replace_dependencies(1, LAYOUT, [1]).unwrap_err();
+        assert_eq!(err.from, 1);
+        assert_eq!(err.to, 1);
     }
 
     #[test]

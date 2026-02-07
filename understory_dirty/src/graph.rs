@@ -300,6 +300,72 @@ where
         true
     }
 
+    /// Replaces all direct dependencies of `from` in `channel`.
+    ///
+    /// This is a batch convenience for the common “set all deps” workflow.
+    ///
+    /// - Existing dependencies of `from` in `channel` are removed.
+    /// - Each key in `to` is added as a dependency of `from`.
+    /// - Duplicate keys in `to` are ignored.
+    ///
+    /// # Cycle Handling
+    ///
+    /// Cycle handling is applied while adding new dependencies. If adding a
+    /// dependency returns `Err(CycleError)`, this method rolls back to the
+    /// previous dependency set and returns the error.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(true)` if the dependency set changed.
+    /// - `Ok(false)` if the dependency set was already equal to `to`.
+    /// - `Err(CycleError)` if a cycle would be created and `handling` is `Error`
+    ///   (in which case no changes are retained).
+    pub fn replace_dependencies(
+        &mut self,
+        from: K,
+        channel: Channel,
+        to: impl IntoIterator<Item = K>,
+        handling: CycleHandling,
+    ) -> Result<bool, CycleError<K>> {
+        let old: HashSet<K> = self
+            .forward
+            .get(&(from, channel))
+            .cloned()
+            .unwrap_or_default();
+
+        let new: HashSet<K> = to.into_iter().collect();
+        if old == new {
+            return Ok(false);
+        }
+
+        // Remove previous deps.
+        for dep in old.iter().copied() {
+            let _ = self.remove_dependency(from, dep, channel);
+        }
+
+        // Add new deps, rolling back on error.
+        let mut added: Vec<K> = Vec::new();
+        for dep in new.iter().copied() {
+            match self.add_dependency(from, dep, channel, handling) {
+                Ok(true) => added.push(dep),
+                Ok(false) => {}
+                Err(e) => {
+                    // Remove any deps we just added.
+                    for d in added {
+                        let _ = self.remove_dependency(from, d, channel);
+                    }
+                    // Restore old deps without cycle checks.
+                    for d in old.iter().copied() {
+                        let _ = self.add_dependency(from, d, channel, CycleHandling::Allow);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
     /// Removes a key entirely from the graph.
     ///
     /// This removes all dependencies involving `key`, both as a dependent
@@ -547,6 +613,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
     use alloc::vec::Vec;
 
     const LAYOUT: Channel = Channel::new(0);
@@ -570,6 +637,57 @@ mod tests {
         assert!(graph.dependents(1, LAYOUT).any(|k| k == 2));
         // Node 2 has dependent node 3
         assert!(graph.dependents(2, LAYOUT).any(|k| k == 3));
+    }
+
+    #[test]
+    fn replace_dependencies_updates_in_place() {
+        let mut graph = DirtyGraph::<u32>::new();
+        graph
+            .add_dependency(10, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(10, 2, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let changed = graph
+            .replace_dependencies(10, LAYOUT, [3, 4], CycleHandling::Error)
+            .unwrap();
+        assert!(changed);
+
+        let deps: Vec<_> = graph.dependencies(10, LAYOUT).collect();
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&3));
+        assert!(deps.contains(&4));
+        assert!(!deps.contains(&1));
+        assert!(!deps.contains(&2));
+    }
+
+    #[test]
+    fn replace_dependencies_rolls_back_on_cycle_error() {
+        let mut graph = DirtyGraph::<u32>::new();
+        // 2 depends on 1.
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        // 1 depends on 3 (old dependency set for 1).
+        graph
+            .add_dependency(1, 3, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        // Replacing deps for 1 with [2] would create a 1 <-> 2 cycle.
+        let err = graph
+            .replace_dependencies(1, LAYOUT, [2], CycleHandling::Error)
+            .unwrap_err();
+        assert_eq!(err.from, 1);
+        assert_eq!(err.to, 2);
+
+        // Old deps of 1 are restored.
+        let deps: Vec<_> = graph.dependencies(1, LAYOUT).collect();
+        assert_eq!(deps, vec![3]);
+        assert!(!graph.dependencies(1, LAYOUT).any(|k| k == 2));
+
+        // Unrelated edges are unchanged.
+        assert!(graph.dependencies(2, LAYOUT).any(|k| k == 1));
     }
 
     #[test]
