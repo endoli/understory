@@ -146,6 +146,17 @@ where
         self.channels[channel.index() as usize].drain()
     }
 
+    /// Removes `key` from the given channel.
+    ///
+    /// Returns `true` if `key` was present.
+    pub fn take(&mut self, key: K, channel: Channel) -> bool {
+        let removed = self.channels[channel.index() as usize].remove(&key);
+        if removed {
+            self.generation = self.generation.wrapping_add(1);
+        }
+        removed
+    }
+
     /// Clears all dirty keys in the given channel.
     pub fn clear(&mut self, channel: Channel) {
         self.generation = self.generation.wrapping_add(1);
@@ -237,6 +248,21 @@ mod tests {
         assert_eq!(drained.len(), 2);
         assert!(!dirty.has_dirty(LAYOUT));
         assert!(dirty.has_dirty(PAINT));
+    }
+
+    #[test]
+    fn take_removes_single_key() {
+        let mut dirty = DirtySet::<u32>::new();
+
+        dirty.mark(1, LAYOUT);
+        dirty.mark(2, LAYOUT);
+
+        assert!(dirty.take(1, LAYOUT));
+        assert!(!dirty.is_dirty(1, LAYOUT));
+        assert!(dirty.is_dirty(2, LAYOUT));
+
+        // Taking again returns false.
+        assert!(!dirty.take(1, LAYOUT));
     }
 
     #[test]

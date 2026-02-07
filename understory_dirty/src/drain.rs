@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Topologically sorted drain iterator.
+//!
+//! For more advanced drain workflows (determinism, targeted drains, tracing,
+//! scratch reuse), prefer the builder-based API via
+//! [`DirtyTracker::drain`](crate::DirtyTracker::drain) / [`DrainBuilder`].
 
 use alloc::collections::BinaryHeap;
 use alloc::collections::VecDeque;
@@ -12,6 +16,7 @@ use core::hash::Hash;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
 
+use crate::DrainBuilder;
 use crate::channel::Channel;
 use crate::graph::DirtyGraph;
 use crate::scratch::TraversalScratch;
@@ -427,15 +432,7 @@ pub fn drain_sorted<'a, K>(
 where
     K: Copy + Eq + Hash,
 {
-    // Buffer the drained keys into a `Vec` first. This gives us stable, exact
-    // sizing information and avoids interleaving reads from the source hash
-    // table with writes to the destination maps/queues (which can regress due
-    // to cache locality).
-    let cap = dirty.len(channel);
-    let mut dirty_keys = Vec::with_capacity(cap);
-    dirty_keys.extend(dirty.drain(channel));
-
-    DrainSorted::from_iter_with_capacity(dirty_keys.into_iter(), cap, graph, channel)
+    DrainBuilder::new(dirty, graph, channel).dirty_only().run()
 }
 
 /// Creates a deterministic, topologically sorted drain from a dirty set.
@@ -450,11 +447,10 @@ pub fn drain_sorted_deterministic<'a, K>(
 where
     K: Copy + Eq + Hash + Ord,
 {
-    let cap = dirty.len(channel);
-    let mut dirty_keys = Vec::with_capacity(cap);
-    dirty_keys.extend(dirty.drain(channel));
-
-    DrainSortedDeterministic::from_iter_with_capacity(dirty_keys.into_iter(), cap, graph, channel)
+    DrainBuilder::new(dirty, graph, channel)
+        .dirty_only()
+        .deterministic()
+        .run()
 }
 
 /// Creates a topologically sorted drain that includes all affected keys.
@@ -506,23 +502,7 @@ pub fn drain_affected_sorted<'a, K>(
 where
     K: Copy + Eq + Hash,
 {
-    // Collect dirty keys (roots) and clear the channel.
-    //
-    // Keep a stable view of the roots (the prefix of the vec) while we append
-    // dependents onto the end.
-    let mut affected_keys: Vec<K> = dirty.drain(channel).collect();
-    let roots_len = affected_keys.len();
-
-    // Expand to include all transitive dependents
-    for i in 0..roots_len {
-        let root = affected_keys[i];
-        for dependent in graph.transitive_dependents(root, channel) {
-            affected_keys.push(dependent);
-        }
-    }
-
-    let cap = affected_keys.len();
-    DrainSorted::from_iter_with_capacity(affected_keys.into_iter(), cap, graph, channel)
+    DrainBuilder::new(dirty, graph, channel).affected().run()
 }
 
 /// Creates a topologically sorted drain of all affected keys, while recording a trace.
@@ -546,38 +526,10 @@ where
     K: Copy + Eq + Hash,
     T: DirtyTrace<K>,
 {
-    // Collect dirty keys (roots) and clear the channel.
-    let mut affected_keys: Vec<K> = dirty.drain(channel).collect();
-
-    // Expand to include all transitive dependents, while recording a single
-    // parent edge per discovered key.
-    scratch.reset();
-
-    // Keep a stable view of the roots (the prefix of the vec) while we append
-    // dependents onto the end.
-    let roots_len = affected_keys.len();
-    for i in 0..roots_len {
-        let root = affected_keys[i];
-        let newly_seen = scratch.visited.insert(root);
-        trace.root(root, channel, newly_seen);
-
-        scratch.stack.clear();
-        scratch.stack.push(root);
-
-        while let Some(current) = scratch.stack.pop() {
-            for dependent in graph.dependents(current, channel) {
-                if !scratch.visited.insert(dependent) {
-                    continue;
-                }
-                trace.caused_by(dependent, current, channel, true);
-                affected_keys.push(dependent);
-                scratch.stack.push(dependent);
-            }
-        }
-    }
-
-    let cap = affected_keys.len();
-    DrainSorted::from_iter_with_capacity(affected_keys.into_iter(), cap, graph, channel)
+    DrainBuilder::new(dirty, graph, channel)
+        .affected()
+        .trace(scratch, trace)
+        .run()
 }
 
 /// Creates a deterministic, topologically sorted drain that includes all
@@ -593,23 +545,10 @@ pub fn drain_affected_sorted_deterministic<'a, K>(
 where
     K: Copy + Eq + Hash + Ord,
 {
-    let mut affected_keys: Vec<K> = dirty.drain(channel).collect();
-    let roots_len = affected_keys.len();
-
-    for i in 0..roots_len {
-        let root = affected_keys[i];
-        for dependent in graph.transitive_dependents(root, channel) {
-            affected_keys.push(dependent);
-        }
-    }
-
-    let cap = affected_keys.len();
-    DrainSortedDeterministic::from_iter_with_capacity(
-        affected_keys.into_iter(),
-        cap,
-        graph,
-        channel,
-    )
+    DrainBuilder::new(dirty, graph, channel)
+        .affected()
+        .deterministic()
+        .run()
 }
 
 #[cfg(test)]

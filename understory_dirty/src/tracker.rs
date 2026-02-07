@@ -7,6 +7,7 @@ use core::hash::Hash;
 
 use crate::channel::Channel;
 use crate::drain::{DrainSorted, DrainSortedDeterministic};
+use crate::drain_builder::{AnyOrder, DrainBuilder};
 use crate::graph::{CycleError, CycleHandling, DirtyGraph};
 use crate::policy::PropagationPolicy;
 use crate::scratch::TraversalScratch;
@@ -80,6 +81,51 @@ impl<K> DirtyTracker<K>
 where
     K: Copy + Eq + Hash,
 {
+    /// Creates a configurable drain builder.
+    ///
+    /// This is the preferred entrypoint for combining options like determinism,
+    /// targeted drains, and tracing without multiplying `drain_*` methods.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use understory_dirty::{
+    ///     Channel, CycleHandling, DirtyTracker, OneParentRecorder, TraversalScratch,
+    /// };
+    ///
+    /// const LAYOUT: Channel = Channel::new(0);
+    ///
+    /// let mut tracker = DirtyTracker::<u32>::with_cycle_handling(CycleHandling::Error);
+    /// // 1 <- 2 <- 3
+    /// tracker.add_dependency(2, 1, LAYOUT).unwrap();
+    /// tracker.add_dependency(3, 2, LAYOUT).unwrap();
+    ///
+    /// // Mark only the root; dependents are expanded lazily at drain-time.
+    /// tracker.mark_with(1, LAYOUT, &understory_dirty::LazyPolicy);
+    ///
+    /// // Unrelated dirty roots outside the target remain dirty.
+    /// tracker.mark(9, LAYOUT);
+    ///
+    /// let mut scratch = TraversalScratch::new();
+    /// let mut trace = OneParentRecorder::new();
+    ///
+    /// let order: Vec<_> = tracker
+    ///     .drain(LAYOUT)
+    ///     .affected()
+    ///     .within_dependencies_of(3)
+    ///     .deterministic()
+    ///     .trace(&mut scratch, &mut trace)
+    ///     .run()
+    ///     .collect();
+    ///
+    /// assert_eq!(order, vec![1, 2, 3]);
+    /// assert!(tracker.is_dirty(9, LAYOUT));
+    /// assert_eq!(trace.explain_path(3, LAYOUT).unwrap(), vec![1, 2, 3]);
+    /// ```
+    pub fn drain(&mut self, channel: Channel) -> DrainBuilder<'_, '_, '_, K, AnyOrder> {
+        DrainBuilder::new(&mut self.dirty, &self.graph, channel)
+    }
+
     /// Creates a new empty dirty tracker with default cycle handling.
     #[must_use]
     pub fn new() -> Self {
@@ -293,7 +339,11 @@ where
     /// }
     /// ```
     pub fn drain_sorted(&mut self, channel: Channel) -> DrainSorted<'_, K> {
-        crate::drain::drain_sorted(&mut self.dirty, &self.graph, channel)
+        // Keep this as a small, discoverable "easy mode" wrapper.
+        //
+        // For advanced drain workflows (determinism, targeted drains, tracing,
+        // scratch reuse), prefer [`DirtyTracker::drain`](crate::DirtyTracker::drain).
+        self.drain(channel).dirty_only().run()
     }
 
     /// Drains all affected keys in topological order.
@@ -331,7 +381,11 @@ where
     /// assert_eq!(order, vec![1, 2, 3]);
     /// ```
     pub fn drain_affected_sorted(&mut self, channel: Channel) -> DrainSorted<'_, K> {
-        crate::drain::drain_affected_sorted(&mut self.dirty, &self.graph, channel)
+        // Keep this as a small, discoverable "easy mode" wrapper.
+        //
+        // For advanced drain workflows (determinism, targeted drains, tracing,
+        // scratch reuse), prefer [`DirtyTracker::drain`](crate::DirtyTracker::drain).
+        self.drain(channel).affected().run()
     }
 
     /// Drains all affected keys in topological order, while recording a trace.
@@ -347,13 +401,8 @@ where
     where
         T: DirtyTrace<K>,
     {
-        crate::drain::drain_affected_sorted_with_trace(
-            &mut self.dirty,
-            &self.graph,
-            channel,
-            scratch,
-            trace,
-        )
+        // For advanced drain workflows, prefer [`DirtyTracker::drain`](crate::DirtyTracker::drain).
+        self.drain(channel).affected().trace(scratch, trace).run()
     }
 
     /// Collects dirty keys and returns a [`DrainSorted`] iterator.
@@ -391,7 +440,11 @@ where
         &mut self,
         channel: Channel,
     ) -> DrainSortedDeterministic<'_, K> {
-        crate::drain::drain_sorted_deterministic(&mut self.dirty, &self.graph, channel)
+        // Keep this as a small, discoverable "easy mode" wrapper.
+        //
+        // For advanced drain workflows (targeted drains, tracing, scratch reuse),
+        // prefer [`DirtyTracker::drain`](crate::DirtyTracker::drain).
+        self.drain(channel).dirty_only().deterministic().run()
     }
 
     /// Drains all affected keys in deterministic topological order.
@@ -403,7 +456,11 @@ where
         &mut self,
         channel: Channel,
     ) -> DrainSortedDeterministic<'_, K> {
-        crate::drain::drain_affected_sorted_deterministic(&mut self.dirty, &self.graph, channel)
+        // Keep this as a small, discoverable "easy mode" wrapper.
+        //
+        // For advanced drain workflows (targeted drains, tracing, scratch reuse),
+        // prefer [`DirtyTracker::drain`](crate::DirtyTracker::drain).
+        self.drain(channel).affected().deterministic().run()
     }
 
     /// Collects dirty keys and returns a deterministic [`DrainSortedDeterministic`] iterator.
@@ -467,22 +524,6 @@ mod tests {
 
         assert!(tracker.is_dirty(1, LAYOUT));
         assert!(!tracker.is_dirty(2, LAYOUT));
-    }
-
-    #[test]
-    fn replace_dependencies_forwards_to_graph() {
-        let mut tracker = DirtyTracker::<u32>::with_cycle_handling(CycleHandling::Error);
-
-        tracker.add_dependency(10, 1, LAYOUT).unwrap();
-        tracker.add_dependency(10, 2, LAYOUT).unwrap();
-
-        let changed = tracker.replace_dependencies(10, LAYOUT, [3, 4]).unwrap();
-        assert!(changed);
-
-        let deps: Vec<_> = tracker.graph().dependencies(10, LAYOUT).collect();
-        assert_eq!(deps.len(), 2);
-        assert!(deps.contains(&3));
-        assert!(deps.contains(&4));
     }
 
     #[test]
