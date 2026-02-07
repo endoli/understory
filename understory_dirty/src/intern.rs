@@ -8,7 +8,7 @@
 //! however, naturally have structured/owned keys (strings, compound IDs, etc.).
 //!
 //! This module provides a small, `no_std + alloc` interner that maps owned keys
-//! to a compact [`InternId`] that can be used with [`crate::DirtyTracker`].
+//! to a compact [`InternId`] that can be used with [`DirtyTracker`](crate::DirtyTracker).
 //!
 //! ## Example
 //!

@@ -3,8 +3,6 @@
 
 //! Reusable scratch buffers for graph traversals.
 
-extern crate alloc;
-
 use alloc::vec::Vec;
 use core::hash::Hash;
 
