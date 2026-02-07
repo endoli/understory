@@ -9,7 +9,9 @@ use crate::channel::Channel;
 use crate::drain::{DrainSorted, DrainSortedDeterministic};
 use crate::graph::{CycleError, CycleHandling, DirtyGraph};
 use crate::policy::PropagationPolicy;
+use crate::scratch::TraversalScratch;
 use crate::set::DirtySet;
+use crate::trace::DirtyTrace;
 
 /// Combined dirty tracker with dependency graph and dirty set.
 ///
@@ -301,6 +303,28 @@ where
     /// ```
     pub fn drain_affected_sorted(&mut self, channel: Channel) -> DrainSorted<'_, K> {
         crate::drain::drain_affected_sorted(&mut self.dirty, &self.graph, channel)
+    }
+
+    /// Drains all affected keys in topological order, while recording a trace.
+    ///
+    /// This is a convenience wrapper around
+    /// [`drain_affected_sorted_with_trace`](crate::drain_affected_sorted_with_trace).
+    pub fn drain_affected_sorted_with_trace<T>(
+        &mut self,
+        channel: Channel,
+        scratch: &mut TraversalScratch<K>,
+        trace: &mut T,
+    ) -> DrainSorted<'_, K>
+    where
+        T: DirtyTrace<K>,
+    {
+        crate::drain::drain_affected_sorted_with_trace(
+            &mut self.dirty,
+            &self.graph,
+            channel,
+            scratch,
+            trace,
+        )
     }
 
     /// Collects dirty keys and returns a [`DrainSorted`] iterator.

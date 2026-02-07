@@ -9,6 +9,7 @@ use crate::channel::Channel;
 use crate::graph::DirtyGraph;
 use crate::scratch::TraversalScratch;
 use crate::set::DirtySet;
+use crate::trace::DirtyTrace;
 
 /// Trait for dirty propagation policies.
 ///
@@ -133,6 +134,49 @@ impl EagerPolicy {
         graph.for_each_transitive_dependent(key, channel, scratch, |dependent| {
             dirty.mark(dependent, channel);
         });
+    }
+
+    /// Propagates while recording a best-effort explanation trace.
+    ///
+    /// This performs an eager traversal over transitive dependents (like
+    /// [`PropagationPolicy::propagate`]) while calling `trace` with the explicit
+    /// root and one edge per discovered dependent.
+    ///
+    /// The trace is intended for debugging/explainability (e.g. "why is this key
+    /// dirty?"). It is not a complete provenance system: it records the
+    /// traversal observed by this call.
+    ///
+    /// To avoid per-call allocations in hot loops, this method reuses the given
+    /// [`TraversalScratch`].
+    pub fn propagate_with_trace<K, T>(
+        &self,
+        key: K,
+        channel: Channel,
+        graph: &DirtyGraph<K>,
+        dirty: &mut DirtySet<K>,
+        scratch: &mut TraversalScratch<K>,
+        trace: &mut T,
+    ) where
+        K: Copy + Eq + Hash,
+        T: DirtyTrace<K>,
+    {
+        let newly_dirty = dirty.mark(key, channel);
+        trace.root(key, channel, newly_dirty);
+
+        scratch.reset();
+        scratch.stack.push(key);
+        scratch.visited.insert(key);
+
+        while let Some(current) = scratch.stack.pop() {
+            for dependent in graph.dependents(current, channel) {
+                if !scratch.visited.insert(dependent) {
+                    continue;
+                }
+                let newly_dirty = dirty.mark(dependent, channel);
+                trace.caused_by(dependent, current, channel, newly_dirty);
+                scratch.stack.push(dependent);
+            }
+        }
     }
 }
 

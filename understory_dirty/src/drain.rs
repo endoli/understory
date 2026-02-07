@@ -14,6 +14,8 @@ use hashbrown::hash_map::Entry;
 
 use crate::channel::Channel;
 use crate::graph::DirtyGraph;
+use crate::scratch::TraversalScratch;
+use crate::trace::DirtyTrace;
 
 /// Indicates whether a drain finished normally or stalled due to a cycle.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -523,6 +525,61 @@ where
     DrainSorted::from_iter_with_capacity(affected_keys.into_iter(), cap, graph, channel)
 }
 
+/// Creates a topologically sorted drain of all affected keys, while recording a trace.
+///
+/// This is a lazy-friendly explainability helper: it records one plausible
+/// cause edge for each affected key **during** the drain-time expansion step.
+///
+/// Like [`drain_affected_sorted`], this clears the channel and returns a drain
+/// over: roots ∪ transitive dependents.
+///
+/// The trace is best-effort: when a key is reachable from multiple roots or via
+/// multiple paths, this records the first path discovered by the traversal.
+pub fn drain_affected_sorted_with_trace<'a, K, T>(
+    dirty: &mut crate::DirtySet<K>,
+    graph: &'a DirtyGraph<K>,
+    channel: Channel,
+    scratch: &mut TraversalScratch<K>,
+    trace: &mut T,
+) -> DrainSorted<'a, K>
+where
+    K: Copy + Eq + Hash,
+    T: DirtyTrace<K>,
+{
+    // Collect dirty keys (roots) and clear the channel.
+    let mut affected_keys: Vec<K> = dirty.drain(channel).collect();
+
+    // Expand to include all transitive dependents, while recording a single
+    // parent edge per discovered key.
+    scratch.reset();
+
+    // Keep a stable view of the roots (the prefix of the vec) while we append
+    // dependents onto the end.
+    let roots_len = affected_keys.len();
+    for i in 0..roots_len {
+        let root = affected_keys[i];
+        let newly_seen = scratch.visited.insert(root);
+        trace.root(root, channel, newly_seen);
+
+        scratch.stack.clear();
+        scratch.stack.push(root);
+
+        while let Some(current) = scratch.stack.pop() {
+            for dependent in graph.dependents(current, channel) {
+                if !scratch.visited.insert(dependent) {
+                    continue;
+                }
+                trace.caused_by(dependent, current, channel, true);
+                affected_keys.push(dependent);
+                scratch.stack.push(dependent);
+            }
+        }
+    }
+
+    let cap = affected_keys.len();
+    DrainSorted::from_iter_with_capacity(affected_keys.into_iter(), cap, graph, channel)
+}
+
 /// Creates a deterministic, topologically sorted drain that includes all
 /// affected keys.
 ///
@@ -561,8 +618,10 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
+    use crate::TraversalScratch;
     use crate::graph::CycleHandling;
     use crate::set::DirtySet;
+    use crate::trace::OneParentRecorder;
 
     const LAYOUT: Channel = Channel::new(0);
 
@@ -858,5 +917,29 @@ mod tests {
 
         // Deterministic tie-breaker yields 2 before 3.
         assert_eq!(sorted, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn affected_sorted_with_trace_records_one_path() {
+        let mut graph = DirtyGraph::new();
+        // 1 <- 2 <- 3
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(3, 2, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        let mut dirty = DirtySet::new();
+        dirty.mark(1, LAYOUT);
+
+        let mut scratch = TraversalScratch::new();
+        let mut rec = OneParentRecorder::new();
+        let sorted: Vec<_> =
+            drain_affected_sorted_with_trace(&mut dirty, &graph, LAYOUT, &mut scratch, &mut rec)
+                .collect();
+
+        assert_eq!(sorted, vec![1, 2, 3]);
+        assert_eq!(rec.explain_path(3, LAYOUT).unwrap(), vec![1, 2, 3]);
     }
 }
