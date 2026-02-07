@@ -20,6 +20,7 @@ use crate::set::DirtySet;
 /// # Type Parameters
 ///
 /// - `K`: The key type, typically a node identifier. Must be `Copy + Eq + Hash`.
+///   If your natural key is owned/structured, see [`intern::Interner`](crate::intern::Interner).
 ///
 /// # Example
 ///
