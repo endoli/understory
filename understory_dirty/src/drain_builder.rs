@@ -154,6 +154,9 @@ where
 
     /// Reuses `scratch` for internal traversals (affected expansion, targeted
     /// dependency closure computation).
+    ///
+    /// If you want tracing, prefer [`DrainBuilder::trace`], which also
+    /// configures scratch reuse.
     #[must_use]
     pub fn scratch<'s2>(
         self,
@@ -165,8 +168,13 @@ where
             channel,
             mode,
             within,
+            trace,
             ..
         } = self;
+        debug_assert!(
+            trace.is_none(),
+            "calling `DrainBuilder::scratch` after configuring trace is not supported; call `DrainBuilder::trace` instead",
+        );
         DrainBuilder {
             dirty,
             graph,
@@ -184,6 +192,9 @@ where
     /// This records **one plausible cause path** (a spanning forest): when a
     /// key is reachable via multiple roots or paths, the first discovered path
     /// wins.
+    ///
+    /// This also configures scratch reuse; you do not need to call
+    /// [`DrainBuilder::scratch`] separately.
     #[must_use]
     pub fn trace<'s2, T>(
         self,
