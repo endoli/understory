@@ -131,11 +131,13 @@ impl ChannelSet {
     }
 
     /// Inserts a channel into the set.
+    #[inline]
     pub fn insert(&mut self, channel: Channel) {
         self.0 |= 1_u64 << channel.0;
     }
 
     /// Removes a channel from the set.
+    #[inline]
     pub fn remove(&mut self, channel: Channel) {
         self.0 &= !(1_u64 << channel.0);
     }

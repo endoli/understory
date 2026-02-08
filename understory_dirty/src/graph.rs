@@ -424,6 +424,7 @@ where
     /// `key` should be recomputed).
     ///
     /// The iteration order is not specified and may vary across runs or platforms.
+    #[inline]
     pub fn dependencies(&self, key: K, channel: Channel) -> impl Iterator<Item = K> + '_ {
         self.forward
             .get(&(key, channel))
@@ -437,6 +438,7 @@ where
     /// they should be recomputed).
     ///
     /// The iteration order is not specified and may vary across runs or platforms.
+    #[inline]
     pub fn dependents(&self, key: K, channel: Channel) -> impl Iterator<Item = K> + '_ {
         self.reverse
             .get(&(key, channel))
@@ -502,6 +504,7 @@ where
     }
 
     /// Returns `true` if `key` has any dependencies in the given channel.
+    #[inline]
     #[must_use]
     pub fn has_dependencies(&self, key: K, channel: Channel) -> bool {
         self.forward
