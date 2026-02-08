@@ -93,6 +93,7 @@ where
     /// The generation is incremented on every mutation (mark, clear, drain).
     /// This can be used to detect whether the dirty set has changed since a
     /// previous observation.
+    #[inline]
     #[must_use]
     pub fn generation(&self) -> u64 {
         self.generation
@@ -101,18 +102,21 @@ where
     /// Marks a key as dirty in the given channel.
     ///
     /// Returns `true` if the key was newly inserted, `false` if it was already dirty.
+    #[inline]
     pub fn mark(&mut self, key: K, channel: Channel) -> bool {
         self.generation = self.generation.wrapping_add(1);
         self.channels[channel.index() as usize].insert(key)
     }
 
     /// Returns `true` if the key is dirty in the given channel.
+    #[inline]
     #[must_use]
     pub fn is_dirty(&self, key: K, channel: Channel) -> bool {
         self.channels[channel.index() as usize].contains(&key)
     }
 
     /// Returns `true` if there are any dirty keys in the given channel.
+    #[inline]
     #[must_use]
     pub fn has_dirty(&self, channel: Channel) -> bool {
         !self.channels[channel.index() as usize].is_empty()
@@ -141,6 +145,7 @@ where
     /// Drains and returns the dirty keys for the given channel.
     ///
     /// After this call, the channel will have no dirty keys.
+    #[inline]
     pub fn drain(&mut self, channel: Channel) -> impl Iterator<Item = K> + '_ {
         self.generation = self.generation.wrapping_add(1);
         self.channels[channel.index() as usize].drain()
@@ -149,6 +154,7 @@ where
     /// Removes `key` from the given channel.
     ///
     /// Returns `true` if `key` was present.
+    #[inline]
     pub fn take(&mut self, key: K, channel: Channel) -> bool {
         let removed = self.channels[channel.index() as usize].remove(&key);
         if removed {

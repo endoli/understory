@@ -141,26 +141,29 @@ where
             cycle_handling,
         }
     }
-
     /// Returns a reference to the underlying dependency graph.
+    #[inline]
     #[must_use]
     pub fn graph(&self) -> &DirtyGraph<K> {
         &self.graph
     }
 
     /// Returns a mutable reference to the underlying dependency graph.
+    #[inline]
     #[must_use]
     pub fn graph_mut(&mut self) -> &mut DirtyGraph<K> {
         &mut self.graph
     }
 
     /// Returns a reference to the underlying dirty set.
+    #[inline]
     #[must_use]
     pub fn dirty(&self) -> &DirtySet<K> {
         &self.dirty
     }
 
     /// Returns a mutable reference to the underlying dirty set.
+    #[inline]
     #[must_use]
     pub fn dirty_mut(&mut self) -> &mut DirtySet<K> {
         &mut self.dirty
@@ -169,18 +172,21 @@ where
     /// Returns the current generation of the dirty set.
     ///
     /// See [`DirtySet::generation`] for details.
+    #[inline]
     #[must_use]
     pub fn generation(&self) -> u64 {
         self.dirty.generation()
     }
 
     /// Returns the current cycle handling mode.
+    #[inline]
     #[must_use]
     pub fn cycle_handling(&self) -> CycleHandling {
         self.cycle_handling
     }
 
     /// Sets the cycle handling mode for future operations.
+    #[inline]
     pub fn set_cycle_handling(&mut self, handling: CycleHandling) {
         self.cycle_handling = handling;
     }
@@ -268,6 +274,7 @@ where
     /// Marks a key as dirty without propagation.
     ///
     /// Returns `true` if the key was newly marked dirty.
+    #[inline]
     pub fn mark(&mut self, key: K, channel: Channel) -> bool {
         self.dirty.mark(key, channel)
     }
@@ -284,18 +291,21 @@ where
     }
 
     /// Returns `true` if the key is dirty in the given channel.
+    #[inline]
     #[must_use]
     pub fn is_dirty(&self, key: K, channel: Channel) -> bool {
         self.dirty.is_dirty(key, channel)
     }
 
     /// Returns `true` if there are any dirty keys in the given channel.
+    #[inline]
     #[must_use]
     pub fn has_dirty(&self, channel: Channel) -> bool {
         self.dirty.has_dirty(channel)
     }
 
     /// Returns `true` if there are no dirty keys in any channel.
+    #[inline]
     #[must_use]
     pub fn is_clean(&self) -> bool {
         self.dirty.is_empty()
