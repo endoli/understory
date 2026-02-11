@@ -304,8 +304,9 @@ where
     ///
     /// This is a batch convenience for the common “set all deps” workflow.
     ///
-    /// - Existing dependencies of `from` in `channel` are removed.
-    /// - Each key in `to` is added as a dependency of `from`.
+    /// - Dependencies present in the old set but missing from `to` are removed.
+    /// - Dependencies present in `to` but missing from the old set are added.
+    /// - Dependencies present in both sets are left unchanged.
     /// - Duplicate keys in `to` are ignored.
     ///
     /// # Cycle Handling
@@ -327,35 +328,54 @@ where
         to: impl IntoIterator<Item = K>,
         handling: CycleHandling,
     ) -> Result<bool, CycleError<K>> {
-        let old: HashSet<K> = self
-            .forward
-            .get(&(from, channel))
-            .cloned()
-            .unwrap_or_default();
-
         let new: HashSet<K> = to.into_iter().collect();
-        if old == new {
+        let old_opt = self.forward.get(&(from, channel));
+
+        let unchanged = if let Some(old) = old_opt {
+            old.len() == new.len() && old.iter().all(|dep| new.contains(dep))
+        } else {
+            new.is_empty()
+        };
+        if unchanged {
             return Ok(false);
         }
 
-        // Remove previous deps.
-        for dep in old.iter().copied() {
-            let _ = self.remove_dependency(from, dep, channel);
+        let mut to_remove: Vec<K> = Vec::new();
+        if let Some(old) = old_opt {
+            for dep in old.iter().copied() {
+                if !new.contains(&dep) {
+                    to_remove.push(dep);
+                }
+            }
         }
 
-        // Add new deps, rolling back on error.
-        let mut added: Vec<K> = Vec::new();
+        let mut to_add: Vec<K> = Vec::new();
         for dep in new.iter().copied() {
+            let existed = old_opt.is_some_and(|old| old.contains(&dep));
+            if !existed {
+                to_add.push(dep);
+            }
+        }
+
+        // Remove stale edges first so cycle checks for additions observe the post-update graph.
+        let mut removed: Vec<K> = Vec::new();
+        for dep in to_remove.iter().copied() {
+            if self.remove_dependency(from, dep, channel) {
+                removed.push(dep);
+            }
+        }
+
+        // Add new edges and roll back diff mutations on error.
+        let mut added: Vec<K> = Vec::new();
+        for dep in to_add.iter().copied() {
             match self.add_dependency(from, dep, channel, handling) {
                 Ok(true) => added.push(dep),
                 Ok(false) => {}
                 Err(e) => {
-                    // Remove any deps we just added.
                     for d in added {
                         let _ = self.remove_dependency(from, d, channel);
                     }
-                    // Restore old deps without cycle checks.
-                    for d in old.iter().copied() {
+                    for d in removed {
                         let _ = self.add_dependency(from, d, channel, CycleHandling::Allow);
                     }
                     return Err(e);
@@ -691,6 +711,83 @@ mod tests {
 
         // Unrelated edges are unchanged.
         assert!(graph.dependencies(2, LAYOUT).any(|k| k == 1));
+    }
+
+    #[test]
+    fn replace_dependencies_noop_when_set_unchanged_returns_false() {
+        let mut graph = DirtyGraph::<u32>::new();
+        graph
+            .add_dependency(10, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(10, 2, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        // Duplicates and ordering differences should not count as a change.
+        let changed = graph
+            .replace_dependencies(10, LAYOUT, [2, 1, 2], CycleHandling::Error)
+            .unwrap();
+        assert!(!changed);
+
+        let deps: Vec<_> = graph.dependencies(10, LAYOUT).collect();
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&1));
+        assert!(deps.contains(&2));
+    }
+
+    #[test]
+    fn replace_dependencies_rolls_back_mixed_delta_on_cycle_error() {
+        let mut graph = DirtyGraph::<u32>::new();
+        // Make adding 1 -> 2 a cycle by first adding 2 -> 1.
+        graph
+            .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        // Old deps for 1 are {3, 4}.
+        graph
+            .add_dependency(1, 3, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(1, 4, LAYOUT, CycleHandling::Error)
+            .unwrap();
+
+        // New set would be {4, 2}: remove 3, keep 4, add 2 (cycle).
+        let err = graph
+            .replace_dependencies(1, LAYOUT, [4, 2], CycleHandling::Error)
+            .unwrap_err();
+        assert_eq!(err.from, 1);
+        assert_eq!(err.to, 2);
+
+        // Old set is restored after failed mixed-delta update.
+        let deps: Vec<_> = graph.dependencies(1, LAYOUT).collect();
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&3));
+        assert!(deps.contains(&4));
+        assert!(!deps.contains(&2));
+    }
+
+    #[test]
+    fn replace_dependencies_is_channel_scoped() {
+        let mut graph = DirtyGraph::<u32>::new();
+        graph
+            .add_dependency(7, 1, LAYOUT, CycleHandling::Error)
+            .unwrap();
+        graph
+            .add_dependency(7, 9, PAINT, CycleHandling::Error)
+            .unwrap();
+
+        graph
+            .replace_dependencies(7, LAYOUT, [2, 3], CycleHandling::Error)
+            .unwrap();
+
+        let layout: Vec<_> = graph.dependencies(7, LAYOUT).collect();
+        assert_eq!(layout.len(), 2);
+        assert!(layout.contains(&2));
+        assert!(layout.contains(&3));
+        assert!(!layout.contains(&1));
+
+        // PAINT dependencies are unchanged.
+        let paint: Vec<_> = graph.dependencies(7, PAINT).collect();
+        assert_eq!(paint, vec![9]);
     }
 
     #[test]
