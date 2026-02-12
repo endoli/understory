@@ -162,6 +162,29 @@ fn bench_dirty(c: &mut Criterion) {
             },
         );
 
+        group.bench_function(
+            format!("drain_sorted_deterministic_all_dirty(n={n},e={edges_per_node})"),
+            |b| {
+                b.iter_batched(
+                    || {
+                        let mut tracker =
+                            build_dag_tracker(n, edges_per_node, 0xD1A7_0000_0000_0004);
+                        for k in 0..n {
+                            tracker.mark(k, LAYOUT);
+                        }
+                        tracker
+                    },
+                    |mut tracker| {
+                        let sum: u64 = tracker
+                            .drain_sorted_deterministic(LAYOUT)
+                            .fold(0_u64, |acc, k| acc + u64::from(k));
+                        black_box(sum);
+                    },
+                    BatchSize::LargeInput,
+                );
+            },
+        );
+
         // Measures the non-draining sorted view of dirty keys.
         group.bench_function(
             format!("peek_sorted_all_dirty_sum(n={n},e={edges_per_node})"),
