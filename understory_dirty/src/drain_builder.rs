@@ -20,6 +20,7 @@ use core::marker::PhantomData;
 use hashbrown::HashSet;
 
 use crate::Channel;
+use crate::DenseKey;
 use crate::DirtyGraph;
 use crate::DirtySet;
 use crate::DrainSorted;
@@ -233,7 +234,7 @@ where
     #[must_use]
     pub fn deterministic(self) -> DrainBuilder<'d, 'g, 's, K, DeterministicOrder>
     where
-        K: Ord,
+        K: Ord + DenseKey,
     {
         let DrainBuilder {
             dirty,
@@ -457,7 +458,7 @@ where
 
 impl<'d, 'g, 's, K> DrainBuilder<'d, 'g, 's, K, DeterministicOrder>
 where
-    K: Copy + Eq + Hash + Ord,
+    K: Copy + Eq + Hash + Ord + DenseKey,
 {
     /// Executes the drain and returns an iterator in deterministic topological order.
     pub fn run(self) -> DrainSortedDeterministic<'g, K> {

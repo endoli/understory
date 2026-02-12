@@ -65,6 +65,13 @@ impl InternId {
     }
 }
 
+impl crate::DenseKey for InternId {
+    #[inline]
+    fn index(self) -> usize {
+        self.as_usize()
+    }
+}
+
 /// Interns owned keys into compact [`InternId`] handles.
 ///
 /// Keys are stored once in an internal table. Lookups use a hash-bucket index
