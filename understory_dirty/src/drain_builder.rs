@@ -60,7 +60,7 @@ enum Within<'w, K> {
 /// marked dirty for subsequent drains.
 pub struct DrainBuilder<'d, 'g, 's, K, O = AnyOrder>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     dirty: &'d mut DirtySet<K>,
     graph: &'g DirtyGraph<K>,
@@ -74,7 +74,7 @@ where
 
 impl<K, O> core::fmt::Debug for DrainBuilder<'_, '_, '_, K, O>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("DrainBuilder")
@@ -86,7 +86,7 @@ where
 
 impl<'d, 'g, K> DrainBuilder<'d, 'g, 'd, K, AnyOrder>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     pub(crate) fn new(
         dirty: &'d mut DirtySet<K>,
@@ -108,7 +108,7 @@ where
 
 impl<'d, 'g, 's, K, O> DrainBuilder<'d, 'g, 's, K, O>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     /// Drains exactly the keys currently marked dirty (topologically sorted).
     ///
@@ -228,7 +228,7 @@ where
 
 impl<'d, 'g, 's, K> DrainBuilder<'d, 'g, 's, K, AnyOrder>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     /// Switches the drain to deterministic tie-breaking (`Ord`).
     #[must_use]
@@ -261,7 +261,7 @@ where
 
 impl<'d, 'g, 's, K, O> DrainBuilder<'d, 'g, 's, K, O>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     fn is_allowed(within: &Within<'d, K>, key: K, allowed: Option<&HashSet<K>>) -> bool {
         match *within {
@@ -417,7 +417,7 @@ where
 
 impl<'d, 'g, 's, K> DrainBuilder<'d, 'g, 's, K, AnyOrder>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     /// Executes the drain and returns an iterator in topological order.
     pub fn run(self) -> DrainSorted<'g, K> {

@@ -58,7 +58,7 @@ use crate::trace::DirtyTrace;
 #[derive(Debug, Clone)]
 pub struct DirtyTracker<K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     /// The dependency graph.
     graph: DirtyGraph<K>,
@@ -70,7 +70,7 @@ where
 
 impl<K> Default for DirtyTracker<K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     fn default() -> Self {
         Self::new()
@@ -79,7 +79,7 @@ where
 
 impl<K> DirtyTracker<K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     /// Creates a configurable drain builder.
     ///
@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn cycle_handling_modes() {
-        let mut tracker = DirtyTracker::with_cycle_handling(CycleHandling::Error);
+        let mut tracker = DirtyTracker::<u32>::with_cycle_handling(CycleHandling::Error);
 
         tracker.add_dependency(2, 1, LAYOUT).unwrap();
 

@@ -122,7 +122,7 @@ pub enum DrainCompletion {
 #[derive(Debug)]
 pub struct DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     graph: &'a DirtyGraph<K>,
     channel: Channel,
@@ -159,7 +159,7 @@ where
 
 impl<'a, K> DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     pub(crate) fn from_iter_with_capacity<I>(
         dirty_keys: I,
@@ -369,7 +369,7 @@ where
 
 impl<K> Iterator for DrainSorted<'_, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     type Item = K;
 
@@ -475,7 +475,7 @@ pub fn drain_sorted<'a, K>(
     channel: Channel,
 ) -> DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     DrainBuilder::new(dirty, graph, channel).dirty_only().run()
 }
@@ -545,7 +545,7 @@ pub fn drain_affected_sorted<'a, K>(
     channel: Channel,
 ) -> DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     DrainBuilder::new(dirty, graph, channel).affected().run()
 }
@@ -568,7 +568,7 @@ pub fn drain_affected_sorted_with_trace<'a, K, T>(
     trace: &mut T,
 ) -> DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
     T: DirtyTrace<K>,
 {
     DrainBuilder::new(dirty, graph, channel)
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn topological_order_chain() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2 <- 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -635,7 +635,7 @@ mod tests {
 
     #[test]
     fn topological_order_diamond() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2, 1 <- 3, 2 <- 4, 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -665,7 +665,7 @@ mod tests {
 
     #[test]
     fn partial_dirty_set() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2 <- 3
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -700,7 +700,7 @@ mod tests {
 
     #[test]
     fn drain_sorted_function() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
             .unwrap();
@@ -729,7 +729,7 @@ mod tests {
 
     #[test]
     fn size_hint_accurate() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
             .unwrap();
@@ -752,7 +752,7 @@ mod tests {
 
     #[test]
     fn duplicate_keys_deduplicated() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
             .unwrap();
@@ -771,7 +771,7 @@ mod tests {
 
     #[test]
     fn cycles_stall_drain() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // Create a cycle: 1 <- 2 <- 3 <- 1 (with Allow)
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Allow)
@@ -804,7 +804,7 @@ mod tests {
 
     #[test]
     fn cycles_stall_drain_collect_with_completion() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Allow)
             .unwrap();
@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn drain_affected_sorted_expands_dependents() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2 <- 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -854,7 +854,7 @@ mod tests {
 
     #[test]
     fn drain_affected_sorted_multiple_roots() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // Two chains: 1 <- 2, 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -905,7 +905,7 @@ mod tests {
 
     #[test]
     fn affected_sorted_with_trace_records_one_path() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2 <- 3
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
