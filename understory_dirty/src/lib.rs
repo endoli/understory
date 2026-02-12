@@ -29,6 +29,8 @@
 //! const PAINT: Channel = Channel::new(1);
 //!
 //! let mut tracker = DirtyTracker::<u32>::new();
+//! // `u32` is fine for compact 0-based IDs. Sparse/external IDs should be
+//! // interned first so dense storage grows with node count, not key magnitude.
 //!
 //! // Build dependency graph: 3 depends on 2, 2 depends on 1
 //! tracker.add_dependency(2, 1, LAYOUT).unwrap();
@@ -60,6 +62,8 @@
 //!
 //! // Build the dependency graph
 //! let mut graph = DirtyGraph::<u32>::new();
+//! // Dense storage expects compact key spaces; sparse/owned keys should be
+//! // interned first.
 //! graph.add_dependency(2, 1, LAYOUT, CycleHandling::Error).unwrap();
 //! graph.add_dependency(3, 2, LAYOUT, CycleHandling::Error).unwrap();
 //!

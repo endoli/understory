@@ -6,6 +6,7 @@
 use core::hash::Hash;
 
 use crate::channel::Channel;
+use crate::drain::DenseKey;
 use crate::graph::DirtyGraph;
 use crate::scratch::TraversalScratch;
 use crate::set::DirtySet;
@@ -44,7 +45,7 @@ use crate::trace::DirtyTrace;
 /// ```
 pub trait PropagationPolicy<K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     /// Propagates dirty marks from `key` through the dependency graph.
     ///
@@ -97,7 +98,7 @@ pub struct EagerPolicy;
 
 impl<K> PropagationPolicy<K> for EagerPolicy
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     fn propagate(&self, key: K, channel: Channel, graph: &DirtyGraph<K>, dirty: &mut DirtySet<K>) {
         // Mark the key itself
@@ -128,7 +129,7 @@ impl EagerPolicy {
         dirty: &mut DirtySet<K>,
         scratch: &mut TraversalScratch<K>,
     ) where
-        K: Copy + Eq + Hash,
+        K: Copy + Eq + Hash + DenseKey,
     {
         dirty.mark(key, channel);
         graph.for_each_transitive_dependent(key, channel, scratch, |dependent| {
@@ -157,7 +158,7 @@ impl EagerPolicy {
         scratch: &mut TraversalScratch<K>,
         trace: &mut T,
     ) where
-        K: Copy + Eq + Hash,
+        K: Copy + Eq + Hash + DenseKey,
         T: DirtyTrace<K>,
     {
         let newly_dirty = dirty.mark(key, channel);
@@ -234,7 +235,7 @@ pub struct LazyPolicy;
 
 impl<K> PropagationPolicy<K> for LazyPolicy
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     fn propagate(&self, key: K, channel: Channel, _graph: &DirtyGraph<K>, dirty: &mut DirtySet<K>) {
         // Just mark the key, no propagation
@@ -245,7 +246,7 @@ where
 /// Blanket implementation for boxed policies.
 impl<K, P> PropagationPolicy<K> for &P
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
     P: PropagationPolicy<K> + ?Sized,
 {
     fn propagate(&self, key: K, channel: Channel, graph: &DirtyGraph<K>, dirty: &mut DirtySet<K>) {
@@ -263,7 +264,7 @@ mod tests {
     const LAYOUT: Channel = Channel::new(0);
 
     fn setup_chain_graph() -> DirtyGraph<u32> {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // Chain: 1 <- 2 <- 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -336,7 +337,7 @@ mod tests {
 
     #[test]
     fn eager_handles_diamond() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // Diamond: 1 <- 2, 1 <- 3, 2 <- 4, 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
