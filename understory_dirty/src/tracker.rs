@@ -6,7 +6,7 @@
 use core::hash::Hash;
 
 use crate::channel::Channel;
-use crate::drain::{DrainSorted, DrainSortedDeterministic};
+use crate::drain::{DenseKey, DrainSorted, DrainSortedDeterministic};
 use crate::drain_builder::{AnyOrder, DrainBuilder};
 use crate::graph::{CycleError, CycleHandling, DirtyGraph};
 use crate::policy::PropagationPolicy;
@@ -439,7 +439,7 @@ where
 
 impl<K> DirtyTracker<K>
 where
-    K: Copy + Eq + Hash + Ord,
+    K: Copy + Eq + Hash + Ord + DenseKey,
 {
     /// Drains dirty keys in deterministic topological order.
     ///
