@@ -149,7 +149,7 @@ impl<M: ExtentModel> VirtualList<M> {
     }
 
     /// Convenience iterator over visible indices.
-    pub fn visible_indices(&mut self) -> impl Iterator<Item = usize> {
+    pub fn visible_indices(&mut self) -> impl Iterator<Item = usize> + use<M> {
         let strip = self.visible_strip();
         strip.start..strip.end
     }
