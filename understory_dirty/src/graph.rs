@@ -7,10 +7,14 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::hash::Hash;
 
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashSet;
 
 use crate::channel::{Channel, ChannelSet};
+use crate::drain::DenseKey;
 use crate::scratch::TraversalScratch;
+
+/// Maximum number of channels supported (64).
+const MAX_CHANNELS: usize = 64;
 
 /// Error returned when a cycle would be created by adding a dependency.
 #[derive(Clone, PartialEq, Eq)]
@@ -75,7 +79,7 @@ pub enum CycleHandling {
 ///
 /// # Type Parameters
 ///
-/// - `K`: The key type, typically a node identifier. Must be `Copy + Eq + Hash`.
+/// - `K`: The key type, typically a node identifier. Must be `Copy + Eq + Hash + DenseKey`.
 ///   If your natural key is owned/structured, see [`intern::Interner`](crate::intern::Interner).
 ///
 /// # Example
@@ -110,46 +114,62 @@ pub enum CycleHandling {
 #[derive(Debug, Clone)]
 pub struct DirtyGraph<K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
-    /// Forward edges: (from, channel) -> set of keys `from` depends on.
-    forward: HashMap<(K, Channel), HashSet<K>>,
-    /// Reverse edges: (to, channel) -> set of keys that depend on `to`.
-    reverse: HashMap<(K, Channel), HashSet<K>>,
+    /// Forward edges: forward[channel][key.index()] -> keys that `key` depends on.
+    forward: [Vec<Vec<K>>; MAX_CHANNELS],
+    /// Reverse edges: reverse[channel][key.index()] -> keys that depend on `key`.
+    reverse: [Vec<Vec<K>>; MAX_CHANNELS],
     /// Cached channels where `key` has any dependencies.
-    forward_channels: HashMap<K, ChannelSet>,
+    forward_channels: Vec<ChannelSet>,
     /// Cached channels where `key` has any dependents.
-    reverse_channels: HashMap<K, ChannelSet>,
+    reverse_channels: Vec<ChannelSet>,
 }
 
 impl<K> Default for DirtyGraph<K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
+/// Ensures `vec` has at least `idx + 1` elements, filling with defaults.
+#[inline]
+fn grow<T: Default>(vec: &mut Vec<T>, idx: usize) {
+    if idx >= vec.len() {
+        vec.resize_with(idx + 1, T::default);
+    }
+}
+
+/// Ensures the channel-set vec has at least `idx + 1` elements.
+#[inline]
+fn grow_channels(vec: &mut Vec<ChannelSet>, idx: usize) {
+    if idx >= vec.len() {
+        vec.resize(idx + 1, ChannelSet::EMPTY);
+    }
+}
+
 impl<K> DirtyGraph<K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     /// Creates a new empty dependency graph.
     #[must_use]
     pub fn new() -> Self {
         Self {
-            forward: HashMap::new(),
-            reverse: HashMap::new(),
-            forward_channels: HashMap::new(),
-            reverse_channels: HashMap::new(),
+            forward: core::array::from_fn(|_| Vec::new()),
+            reverse: core::array::from_fn(|_| Vec::new()),
+            forward_channels: Vec::new(),
+            reverse_channels: Vec::new(),
         }
     }
 
     /// Returns `true` if the graph has no dependencies.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.forward.is_empty()
+        self.forward_channels.iter().all(|cs| cs.is_empty())
     }
 
     /// Adds a dependency: `from` depends on `to` in the given channel.
@@ -193,24 +213,33 @@ where
             return self.handle_cycle(from, to, channel, handling);
         }
 
-        // Add forward edge: (from, channel) -> to
-        let inserted = self.forward.entry((from, channel)).or_default().insert(to);
+        let ch = channel.index() as usize;
+        let from_idx = from.index();
+        let to_idx = to.index();
 
-        if inserted {
-            // Add reverse edge: (to, channel) <- from
-            self.reverse.entry((to, channel)).or_default().insert(from);
-
-            self.forward_channels
-                .entry(from)
-                .and_modify(|set| set.insert(channel))
-                .or_insert_with(|| channel.into_set());
-            self.reverse_channels
-                .entry(to)
-                .and_modify(|set| set.insert(channel))
-                .or_insert_with(|| channel.into_set());
+        // Dedup: check if already present
+        let fwd = &mut self.forward[ch];
+        grow(fwd, from_idx);
+        if fwd[from_idx].contains(&to) {
+            return Ok(false);
         }
 
-        Ok(inserted)
+        // Add forward edge
+        fwd[from_idx].push(to);
+
+        // Add reverse edge
+        let rev = &mut self.reverse[ch];
+        grow(rev, to_idx);
+        rev[to_idx].push(from);
+
+        // Update channel sets
+        grow_channels(&mut self.forward_channels, from_idx);
+        self.forward_channels[from_idx].insert(channel);
+
+        grow_channels(&mut self.reverse_channels, to_idx);
+        self.reverse_channels[to_idx].insert(channel);
+
+        Ok(true)
     }
 
     fn handle_cycle(
@@ -249,8 +278,11 @@ where
             }
 
             // Follow forward edges from current
-            if let Some(deps) = self.forward.get(&(current, channel)) {
-                stack.extend(deps.iter().copied());
+            let ch = channel.index() as usize;
+            let fwd = &self.forward[ch];
+            let idx = current.index();
+            if idx < fwd.len() {
+                stack.extend(fwd[idx].iter().copied());
             }
         }
 
@@ -261,40 +293,45 @@ where
     ///
     /// Returns `true` if the dependency existed and was removed.
     pub fn remove_dependency(&mut self, from: K, to: K, channel: Channel) -> bool {
-        let mut removed = false;
-        let mut removed_forward_entry = false;
-        if let Some(deps) = self.forward.get_mut(&(from, channel)) {
-            removed = deps.remove(&to);
-            if removed && deps.is_empty() {
-                self.forward.remove(&(from, channel));
-                removed_forward_entry = true;
+        let ch = channel.index() as usize;
+        let from_idx = from.index();
+        let to_idx = to.index();
+
+        // Remove forward edge
+        let fwd = &mut self.forward[ch];
+        let removed = if from_idx < fwd.len() {
+            if let Some(pos) = fwd[from_idx].iter().position(|&k| k == to) {
+                fwd[from_idx].swap_remove(pos);
+                true
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
 
         if !removed {
             return false;
         }
 
-        let mut removed_reverse_entry = false;
-        if let Some(dependents) = self.reverse.get_mut(&(to, channel)) {
-            dependents.remove(&from);
-            if dependents.is_empty() {
-                self.reverse.remove(&(to, channel));
-                removed_reverse_entry = true;
-            }
+        // Remove reverse edge
+        let rev = &mut self.reverse[ch];
+        if to_idx < rev.len()
+            && let Some(pos) = rev[to_idx].iter().position(|&k| k == from)
+        {
+            rev[to_idx].swap_remove(pos);
         }
 
-        if removed_forward_entry && let Some(set) = self.forward_channels.get_mut(&from) {
-            set.remove(channel);
-            if set.is_empty() {
-                self.forward_channels.remove(&from);
-            }
+        // Update channel sets if the adjacency list became empty
+        if fwd[from_idx].is_empty()
+            && from_idx < self.forward_channels.len()
+        {
+            self.forward_channels[from_idx].remove(channel);
         }
-        if removed_reverse_entry && let Some(set) = self.reverse_channels.get_mut(&to) {
-            set.remove(channel);
-            if set.is_empty() {
-                self.reverse_channels.remove(&to);
-            }
+        if to_idx < rev.len() && rev[to_idx].is_empty()
+            && to_idx < self.reverse_channels.len()
+        {
+            self.reverse_channels[to_idx].remove(channel);
         }
 
         true
@@ -302,7 +339,7 @@ where
 
     /// Replaces all direct dependencies of `from` in `channel`.
     ///
-    /// This is a batch convenience for the common “set all deps” workflow.
+    /// This is a batch convenience for the common "set all deps" workflow.
     ///
     /// - Dependencies present in the old set but missing from `to` are removed.
     /// - Dependencies present in `to` but missing from the old set are added.
@@ -328,31 +365,39 @@ where
         to: impl IntoIterator<Item = K>,
         handling: CycleHandling,
     ) -> Result<bool, CycleError<K>> {
-        let new: HashSet<K> = to.into_iter().collect();
-        let old_opt = self.forward.get(&(from, channel));
+        // Collect new deps, deduplicating.
+        let mut new_set: Vec<K> = Vec::new();
+        for k in to {
+            if !new_set.contains(&k) {
+                new_set.push(k);
+            }
+        }
 
-        let unchanged = if let Some(old) = old_opt {
-            old.len() == new.len() && old.iter().all(|dep| new.contains(dep))
+        let ch = channel.index() as usize;
+        let from_idx = from.index();
+        let fwd = &self.forward[ch];
+        let old = if from_idx < fwd.len() {
+            fwd[from_idx].as_slice()
         } else {
-            new.is_empty()
+            &[]
         };
+
+        let unchanged =
+            old.len() == new_set.len() && old.iter().all(|dep| new_set.contains(dep));
         if unchanged {
             return Ok(false);
         }
 
         let mut to_remove: Vec<K> = Vec::new();
-        if let Some(old) = old_opt {
-            for dep in old.iter().copied() {
-                if !new.contains(&dep) {
-                    to_remove.push(dep);
-                }
+        for &dep in old {
+            if !new_set.contains(&dep) {
+                to_remove.push(dep);
             }
         }
 
         let mut to_add: Vec<K> = Vec::new();
-        for dep in new.iter().copied() {
-            let existed = old_opt.is_some_and(|old| old.contains(&dep));
-            if !existed {
+        for &dep in &new_set {
+            if !old.contains(&dep) {
                 to_add.push(dep);
             }
         }
@@ -391,50 +436,74 @@ where
     /// This removes all dependencies involving `key`, both as a dependent
     /// and as a dependency.
     pub fn remove_key(&mut self, key: K) {
-        // Remove forward edges: (key, channel) -> deps
-        if let Some(channels) = self.forward_channels.remove(&key) {
-            for channel in channels {
-                if let Some(deps) = self.forward.remove(&(key, channel)) {
-                    for dep in deps {
-                        let Some(dependents) = self.reverse.get_mut(&(dep, channel)) else {
-                            continue;
-                        };
-                        dependents.remove(&key);
-                        if dependents.is_empty() {
-                            self.reverse.remove(&(dep, channel));
-                            if let Some(set) = self.reverse_channels.get_mut(&dep) {
-                                set.remove(channel);
-                                if set.is_empty() {
-                                    self.reverse_channels.remove(&dep);
-                                }
-                            }
-                        }
+        let key_idx = key.index();
+
+        // Remove forward edges: for each channel where key has dependencies
+        let fwd_channels = if key_idx < self.forward_channels.len() {
+            self.forward_channels[key_idx]
+        } else {
+            ChannelSet::EMPTY
+        };
+        for channel in fwd_channels {
+            let ch = channel.index() as usize;
+
+            // Collect deps before mutating
+            let deps: Vec<K> = if key_idx < self.forward[ch].len() {
+                core::mem::take(&mut self.forward[ch][key_idx])
+            } else {
+                Vec::new()
+            };
+
+            // Remove reverse entries for each dep
+            for dep in deps {
+                let dep_idx = dep.index();
+                let rev = &mut self.reverse[ch];
+                if dep_idx < rev.len() {
+                    if let Some(pos) = rev[dep_idx].iter().position(|&k| k == key) {
+                        rev[dep_idx].swap_remove(pos);
+                    }
+                    if rev[dep_idx].is_empty() && dep_idx < self.reverse_channels.len() {
+                        self.reverse_channels[dep_idx].remove(channel);
                     }
                 }
             }
         }
+        if key_idx < self.forward_channels.len() {
+            self.forward_channels[key_idx] = ChannelSet::EMPTY;
+        }
 
-        // Remove reverse edges: (key, channel) <- dependents
-        if let Some(channels) = self.reverse_channels.remove(&key) {
-            for channel in channels {
-                if let Some(dependents) = self.reverse.remove(&(key, channel)) {
-                    for dependent in dependents {
-                        let Some(deps) = self.forward.get_mut(&(dependent, channel)) else {
-                            continue;
-                        };
-                        deps.remove(&key);
-                        if deps.is_empty() {
-                            self.forward.remove(&(dependent, channel));
-                            if let Some(set) = self.forward_channels.get_mut(&dependent) {
-                                set.remove(channel);
-                                if set.is_empty() {
-                                    self.forward_channels.remove(&dependent);
-                                }
-                            }
-                        }
+        // Remove reverse edges: for each channel where key has dependents
+        let rev_channels = if key_idx < self.reverse_channels.len() {
+            self.reverse_channels[key_idx]
+        } else {
+            ChannelSet::EMPTY
+        };
+        for channel in rev_channels {
+            let ch = channel.index() as usize;
+
+            // Collect dependents before mutating
+            let dependents: Vec<K> = if key_idx < self.reverse[ch].len() {
+                core::mem::take(&mut self.reverse[ch][key_idx])
+            } else {
+                Vec::new()
+            };
+
+            // Remove forward entries for each dependent
+            for dependent in dependents {
+                let dep_idx = dependent.index();
+                let fwd = &mut self.forward[ch];
+                if dep_idx < fwd.len() {
+                    if let Some(pos) = fwd[dep_idx].iter().position(|&k| k == key) {
+                        fwd[dep_idx].swap_remove(pos);
+                    }
+                    if fwd[dep_idx].is_empty() && dep_idx < self.forward_channels.len() {
+                        self.forward_channels[dep_idx].remove(channel);
                     }
                 }
             }
+        }
+        if key_idx < self.reverse_channels.len() {
+            self.reverse_channels[key_idx] = ChannelSet::EMPTY;
         }
     }
 
@@ -446,10 +515,15 @@ where
     /// The iteration order is not specified and may vary across runs or platforms.
     #[inline]
     pub fn dependencies(&self, key: K, channel: Channel) -> impl Iterator<Item = K> + '_ {
-        self.forward
-            .get(&(key, channel))
-            .into_iter()
-            .flat_map(|deps| deps.iter().copied())
+        let ch = channel.index() as usize;
+        let fwd = &self.forward[ch];
+        let idx = key.index();
+        let slice = if idx < fwd.len() {
+            fwd[idx].as_slice()
+        } else {
+            &[]
+        };
+        slice.iter().copied()
     }
 
     /// Returns an iterator over the direct dependents of `key` in the given channel.
@@ -460,10 +534,15 @@ where
     /// The iteration order is not specified and may vary across runs or platforms.
     #[inline]
     pub fn dependents(&self, key: K, channel: Channel) -> impl Iterator<Item = K> + '_ {
-        self.reverse
-            .get(&(key, channel))
-            .into_iter()
-            .flat_map(|deps| deps.iter().copied())
+        let ch = channel.index() as usize;
+        let rev = &self.reverse[ch];
+        let idx = key.index();
+        let slice = if idx < rev.len() {
+            rev[idx].as_slice()
+        } else {
+            &[]
+        };
+        slice.iter().copied()
     }
 
     /// Returns an iterator over all transitive dependents of `key` in the given channel.
@@ -508,36 +587,42 @@ where
     /// Returns the set of channels in which `key` has any dependencies.
     #[must_use]
     pub fn dependency_channels(&self, key: K) -> ChannelSet {
-        self.forward_channels
-            .get(&key)
-            .copied()
-            .unwrap_or(ChannelSet::EMPTY)
+        let idx = key.index();
+        if idx < self.forward_channels.len() {
+            self.forward_channels[idx]
+        } else {
+            ChannelSet::EMPTY
+        }
     }
 
     /// Returns the set of channels in which `key` has any dependents.
     #[must_use]
     pub fn dependent_channels(&self, key: K) -> ChannelSet {
-        self.reverse_channels
-            .get(&key)
-            .copied()
-            .unwrap_or(ChannelSet::EMPTY)
+        let idx = key.index();
+        if idx < self.reverse_channels.len() {
+            self.reverse_channels[idx]
+        } else {
+            ChannelSet::EMPTY
+        }
     }
 
     /// Returns `true` if `key` has any dependencies in the given channel.
     #[inline]
     #[must_use]
     pub fn has_dependencies(&self, key: K, channel: Channel) -> bool {
-        self.forward
-            .get(&(key, channel))
-            .is_some_and(|deps| !deps.is_empty())
+        let ch = channel.index() as usize;
+        let fwd = &self.forward[ch];
+        let idx = key.index();
+        idx < fwd.len() && !fwd[idx].is_empty()
     }
 
     /// Returns `true` if `key` has any dependents in the given channel.
     #[must_use]
     pub fn has_dependents(&self, key: K, channel: Channel) -> bool {
-        self.reverse
-            .get(&(key, channel))
-            .is_some_and(|deps| !deps.is_empty())
+        let ch = channel.index() as usize;
+        let rev = &self.reverse[ch];
+        let idx = key.index();
+        idx < rev.len() && !rev[idx].is_empty()
     }
 
     /// Returns the in-degree of `key` in the given channel.
@@ -545,10 +630,10 @@ where
     /// The in-degree is the number of keys that `key` depends on.
     #[must_use]
     pub fn in_degree(&self, key: K, channel: Channel) -> usize {
-        self.forward
-            .get(&(key, channel))
-            .map(HashSet::len)
-            .unwrap_or(0)
+        let ch = channel.index() as usize;
+        let fwd = &self.forward[ch];
+        let idx = key.index();
+        if idx < fwd.len() { fwd[idx].len() } else { 0 }
     }
 
     /// Returns the out-degree of `key` in the given channel.
@@ -556,10 +641,10 @@ where
     /// The out-degree is the number of keys that depend on `key`.
     #[must_use]
     pub fn out_degree(&self, key: K, channel: Channel) -> usize {
-        self.reverse
-            .get(&(key, channel))
-            .map(HashSet::len)
-            .unwrap_or(0)
+        let ch = channel.index() as usize;
+        let rev = &self.reverse[ch];
+        let idx = key.index();
+        if idx < rev.len() { rev[idx].len() } else { 0 }
     }
 
     /// Returns an iterator over all unique keys that have dependencies or dependents.
@@ -569,13 +654,42 @@ where
     ///
     /// The iteration order is not specified and may vary across runs or platforms.
     pub fn keys(&self) -> impl Iterator<Item = K> + '_ {
-        // Use a HashSet to deduplicate keys that appear in both maps.
         let mut seen = HashSet::new();
-        self.forward_channels
-            .keys()
-            .chain(self.reverse_channels.keys())
-            .copied()
-            .filter(move |&k| seen.insert(k))
+        let max_len = self.forward_channels.len().max(self.reverse_channels.len());
+        // Iterate both channel vecs looking for non-empty entries.
+        // We need to reconstruct keys from indices — but DenseKey only provides
+        // index(), not from_index(). Instead, walk all adjacency lists.
+        let mut all_keys: Vec<K> = Vec::new();
+        for ch in 0..MAX_CHANNELS {
+            for inner in &self.forward[ch] {
+                for &k in inner {
+                    if seen.insert(k) {
+                        all_keys.push(k);
+                    }
+                }
+            }
+            for inner in &self.reverse[ch] {
+                for &k in inner {
+                    if seen.insert(k) {
+                        all_keys.push(k);
+                    }
+                }
+            }
+        }
+        // Also include keys that appear as "from" or "to" — they are in the
+        // adjacency lists of their counterparts, so the above already covers them.
+        // But keys with forward entries need to include themselves too.
+        // Actually, keys only appear in adjacency lists of other keys, not
+        // themselves. A key with forward edges appears as "from" — we need to
+        // find it. The forward_channels/reverse_channels vecs tell us which
+        // indices have entries, but we can't reconstruct K from an index.
+        //
+        // However, we can collect all K values that appear anywhere in the
+        // adjacency lists. A key with only forward edges (from) appears in
+        // the reverse list of its dependencies, and vice versa. So iterating
+        // all adjacency entries covers all keys.
+        let _ = max_len;
+        all_keys.into_iter()
     }
 
     /// Collects [`keys`](Self::keys) into a `Vec`.
@@ -590,7 +704,7 @@ where
 /// Iterator over transitive dependents using DFS.
 struct TransitiveDependentsIter<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     graph: &'a DirtyGraph<K>,
     channel: Channel,
@@ -600,7 +714,7 @@ where
 
 impl<'a, K> TransitiveDependentsIter<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     fn new(graph: &'a DirtyGraph<K>, start: K, channel: Channel) -> Self {
         let mut iter = Self {
@@ -617,7 +731,7 @@ where
 
 impl<K> Iterator for TransitiveDependentsIter<'_, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     type Item = K;
 

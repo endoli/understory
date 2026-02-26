@@ -22,6 +22,36 @@ use crate::graph::DirtyGraph;
 use crate::scratch::TraversalScratch;
 use crate::trace::DirtyTrace;
 
+/// Trait for keys that can be used as dense `Vec` indices.
+///
+/// This is used by [`DrainSortedDeterministic`] to replace `HashMap`-based
+/// in-degree tracking with a `Vec` indexed by key, eliminating hashing from
+/// the hot path.
+///
+/// Keys must map to sequential `usize` indices (typically starting from 0).
+/// [`InternId`](crate::InternId) and `u32` implement this trait.
+pub trait DenseKey: Copy {
+    /// Returns this key as a `usize` index for dense `Vec` storage.
+    fn index(self) -> usize;
+}
+
+impl DenseKey for u32 {
+    #[inline]
+    fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl DenseKey for usize {
+    #[inline]
+    fn index(self) -> usize {
+        self
+    }
+}
+
+/// Sentinel value indicating a key is not in the dirty set.
+const DENSE_SENTINEL: u32 = u32::MAX;
+
 /// Indicates whether a drain finished normally or stalled due to a cycle.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DrainCompletion {
@@ -92,7 +122,7 @@ pub enum DrainCompletion {
 #[derive(Debug)]
 pub struct DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     graph: &'a DirtyGraph<K>,
     channel: Channel,
@@ -107,23 +137,29 @@ where
 ///
 /// When multiple keys are simultaneously ready, this drain yields the smallest
 /// key first (according to `Ord`).
+///
+/// Uses a dense `Vec<u32>` indexed by [`DenseKey::index`] instead of a
+/// `HashMap` for in-degree tracking, eliminating all hashing from the hot path.
 #[derive(Debug)]
 pub struct DrainSortedDeterministic<'a, K>
 where
-    K: Copy + Eq + Hash + Ord,
+    K: Copy + Eq + Hash + Ord + DenseKey,
 {
     graph: &'a DirtyGraph<K>,
     channel: Channel,
     /// Keys with zero in-degree, ready to yield (min-heap via `Reverse`).
     ready: BinaryHeap<Reverse<K>>,
-    /// Remaining in-degree for each dirty key (within the dirty subset).
-    in_degree: HashMap<K, usize>,
+    /// In-degree for each key, indexed by `key.index()`.
+    /// `DENSE_SENTINEL` means the key is not in the dirty set.
+    in_degree: Vec<u32>,
+    /// Number of keys remaining (replaces `HashMap::len()`).
+    remaining: usize,
     stalled: bool,
 }
 
 impl<'a, K> DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     pub(crate) fn from_iter_with_capacity<I>(
         dirty_keys: I,
@@ -228,7 +264,7 @@ where
 
 impl<'a, K> DrainSortedDeterministic<'a, K>
 where
-    K: Copy + Eq + Hash + Ord,
+    K: Copy + Eq + Hash + Ord + DenseKey,
 {
     pub(crate) fn from_iter_with_capacity<I>(
         dirty_keys: I,
@@ -239,12 +275,16 @@ where
     where
         I: Iterator<Item = K>,
     {
-        // Deduplicate input keys via the in-degree map keys.
-        let mut in_degree: HashMap<K, usize> = HashMap::with_capacity(cap);
+        // Deduplicate input keys via the dense in-degree vec.
+        let mut in_degree: Vec<u32> = Vec::new();
         let mut unique_keys = Vec::with_capacity(cap);
         for key in dirty_keys {
-            if let Entry::Vacant(e) = in_degree.entry(key) {
-                e.insert(0);
+            let idx = key.index();
+            if idx >= in_degree.len() {
+                in_degree.resize(idx + 1, DENSE_SENTINEL);
+            }
+            if in_degree[idx] == DENSE_SENTINEL {
+                in_degree[idx] = 0;
                 unique_keys.push(key);
             }
         }
@@ -252,16 +292,19 @@ where
         // Compute in-degrees within the dirty subset.
         for &key in &unique_keys {
             for dep in graph.dependencies(key, channel) {
-                if in_degree.contains_key(&dep) {
-                    *in_degree.get_mut(&key).expect("key is in in_degree") += 1;
+                let dep_idx = dep.index();
+                if dep_idx < in_degree.len() && in_degree[dep_idx] != DENSE_SENTINEL {
+                    in_degree[key.index()] += 1;
                 }
             }
         }
 
+        let remaining = unique_keys.len();
+
         // Initialize ready set with zero in-degree keys.
-        let mut ready = BinaryHeap::with_capacity(in_degree.len());
+        let mut ready = BinaryHeap::with_capacity(remaining);
         for key in unique_keys {
-            if in_degree.get(&key).is_some_and(|&deg| deg == 0) {
+            if in_degree[key.index()] == 0 {
                 ready.push(Reverse(key));
             }
         }
@@ -271,6 +314,7 @@ where
             channel,
             ready,
             in_degree,
+            remaining,
             stalled: false,
         }
     }
@@ -287,7 +331,7 @@ where
     /// Returns an upper bound on the remaining keys.
     #[must_use]
     pub fn remaining(&self) -> usize {
-        self.in_degree.len()
+        self.remaining
     }
 
     /// Returns `true` if the drain has stalled due to a cycle.
@@ -316,7 +360,7 @@ where
     /// Collects all yielded keys and returns completion status.
     #[must_use]
     pub fn collect_with_completion(mut self) -> (Vec<K>, DrainCompletion) {
-        let mut out = Vec::with_capacity(self.in_degree.len());
+        let mut out = Vec::with_capacity(self.remaining);
         out.extend(&mut self);
         let completion = self.completion();
         (out, completion)
@@ -325,7 +369,7 @@ where
 
 impl<K> Iterator for DrainSorted<'_, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     type Item = K;
 
@@ -361,24 +405,26 @@ where
 
 impl<K> Iterator for DrainSortedDeterministic<'_, K>
 where
-    K: Copy + Eq + Hash + Ord,
+    K: Copy + Eq + Hash + Ord + DenseKey,
 {
     type Item = K;
 
     fn next(&mut self) -> Option<Self::Item> {
         let Some(Reverse(key)) = self.ready.pop() else {
-            if !self.in_degree.is_empty() {
+            if self.remaining > 0 {
                 self.stalled = true;
             }
             return None;
         };
 
-        self.in_degree.remove(&key);
+        self.in_degree[key.index()] = DENSE_SENTINEL;
+        self.remaining -= 1;
 
         for dependent in self.graph.dependents(key, self.channel) {
-            if let Some(deg) = self.in_degree.get_mut(&dependent) {
-                *deg -= 1;
-                if *deg == 0 {
+            let idx = dependent.index();
+            if idx < self.in_degree.len() && self.in_degree[idx] != DENSE_SENTINEL {
+                self.in_degree[idx] -= 1;
+                if self.in_degree[idx] == 0 {
                     self.ready.push(Reverse(dependent));
                 }
             }
@@ -388,8 +434,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.in_degree.len();
-        (remaining, Some(remaining))
+        (self.remaining, Some(self.remaining))
     }
 }
 
@@ -430,7 +475,7 @@ pub fn drain_sorted<'a, K>(
     channel: Channel,
 ) -> DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     DrainBuilder::new(dirty, graph, channel).dirty_only().run()
 }
@@ -445,7 +490,7 @@ pub fn drain_sorted_deterministic<'a, K>(
     channel: Channel,
 ) -> DrainSortedDeterministic<'a, K>
 where
-    K: Copy + Eq + Hash + Ord,
+    K: Copy + Eq + Hash + Ord + DenseKey,
 {
     DrainBuilder::new(dirty, graph, channel)
         .dirty_only()
@@ -500,7 +545,7 @@ pub fn drain_affected_sorted<'a, K>(
     channel: Channel,
 ) -> DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
 {
     DrainBuilder::new(dirty, graph, channel).affected().run()
 }
@@ -523,7 +568,7 @@ pub fn drain_affected_sorted_with_trace<'a, K, T>(
     trace: &mut T,
 ) -> DrainSorted<'a, K>
 where
-    K: Copy + Eq + Hash,
+    K: Copy + Eq + Hash + DenseKey,
     T: DirtyTrace<K>,
 {
     DrainBuilder::new(dirty, graph, channel)
@@ -543,7 +588,7 @@ pub fn drain_affected_sorted_deterministic<'a, K>(
     channel: Channel,
 ) -> DrainSortedDeterministic<'a, K>
 where
-    K: Copy + Eq + Hash + Ord,
+    K: Copy + Eq + Hash + Ord + DenseKey,
 {
     DrainBuilder::new(dirty, graph, channel)
         .affected()
@@ -566,7 +611,7 @@ mod tests {
 
     #[test]
     fn topological_order_chain() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2 <- 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -590,7 +635,7 @@ mod tests {
 
     #[test]
     fn topological_order_diamond() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2, 1 <- 3, 2 <- 4, 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -620,7 +665,7 @@ mod tests {
 
     #[test]
     fn partial_dirty_set() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2 <- 3
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -655,7 +700,7 @@ mod tests {
 
     #[test]
     fn drain_sorted_function() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
             .unwrap();
@@ -684,7 +729,7 @@ mod tests {
 
     #[test]
     fn size_hint_accurate() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
             .unwrap();
@@ -707,7 +752,7 @@ mod tests {
 
     #[test]
     fn duplicate_keys_deduplicated() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
             .unwrap();
@@ -726,7 +771,7 @@ mod tests {
 
     #[test]
     fn cycles_stall_drain() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // Create a cycle: 1 <- 2 <- 3 <- 1 (with Allow)
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Allow)
@@ -759,7 +804,7 @@ mod tests {
 
     #[test]
     fn cycles_stall_drain_collect_with_completion() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Allow)
             .unwrap();
@@ -783,7 +828,7 @@ mod tests {
 
     #[test]
     fn drain_affected_sorted_expands_dependents() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2 <- 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -809,7 +854,7 @@ mod tests {
 
     #[test]
     fn drain_affected_sorted_multiple_roots() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // Two chains: 1 <- 2, 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -829,7 +874,7 @@ mod tests {
 
     #[test]
     fn deterministic_topological_order_diamond_is_total() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2, 1 <- 3, 2 <- 4, 3 <- 4
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)
@@ -844,7 +889,7 @@ mod tests {
             .add_dependency(4, 3, LAYOUT, CycleHandling::Error)
             .unwrap();
 
-        let dirty_keys = vec![4, 3, 2, 1];
+        let dirty_keys: Vec<u32> = vec![4, 3, 2, 1];
         let cap = dirty_keys.len();
         let sorted: Vec<_> = DrainSortedDeterministic::from_iter_with_capacity(
             dirty_keys.into_iter(),
@@ -860,7 +905,7 @@ mod tests {
 
     #[test]
     fn affected_sorted_with_trace_records_one_path() {
-        let mut graph = DirtyGraph::new();
+        let mut graph = DirtyGraph::<u32>::new();
         // 1 <- 2 <- 3
         graph
             .add_dependency(2, 1, LAYOUT, CycleHandling::Error)

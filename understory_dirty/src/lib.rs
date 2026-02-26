@@ -143,7 +143,7 @@ mod tracker;
 
 pub use channel::{Channel, ChannelSet, ChannelSetIter};
 pub use drain::{
-    DrainCompletion, DrainSorted, DrainSortedDeterministic, drain_affected_sorted,
+    DenseKey, DrainCompletion, DrainSorted, DrainSortedDeterministic, drain_affected_sorted,
     drain_affected_sorted_deterministic, drain_affected_sorted_with_trace, drain_sorted,
     drain_sorted_deterministic,
 };
