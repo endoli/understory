@@ -225,18 +225,22 @@ impl<M: ExtentModel> VirtualList<M> {
         self.set_scroll_offset(clamped);
     }
 
-    /// Scrolls so that item `index` is brought into view using the given alignment.
+    /// Computes the scroll offset needed to bring item `index` into view using
+    /// the given alignment, without actually scrolling.
     ///
-    /// - [`ScrollAlign::Start`] aligns the start of the item with the start of the viewport.
-    /// - [`ScrollAlign::End`] aligns the end of the item with the end of the viewport.
-    /// - [`ScrollAlign::Center`] centers the item within the viewport.
-    /// - [`ScrollAlign::Nearest`] moves just enough to make the item fully visible, preferring
-    ///   the smallest change from the current scroll offset.
-    pub fn scroll_to_index(&mut self, index: usize, align: ScrollAlign) {
+    /// Returns `None` when the model is empty.
+    ///
+    /// This is useful for animated/smooth scrolling: query the target, then
+    /// interpolate toward it over time with [`set_scroll_offset`](Self::set_scroll_offset).
+    #[must_use]
+    pub fn target_offset_for_index(
+        &mut self,
+        index: usize,
+        align: ScrollAlign,
+    ) -> Option<M::Scalar> {
         let len = self.model.len();
         if len == 0 {
-            self.set_scroll_offset(M::Scalar::zero());
-            return;
+            return None;
         }
         let idx = index.min(len.saturating_sub(1));
         let offset = self.model.offset_of(idx);
@@ -270,7 +274,25 @@ impl<M: ExtentModel> VirtualList<M> {
             }
         };
 
-        self.set_scroll_offset(new_offset);
+        Some(new_offset)
+    }
+
+    /// Scrolls so that item `index` is brought into view using the given alignment.
+    ///
+    /// Uses [`target_offset_for_index`](Self::target_offset_for_index) to compute the
+    /// destination offset, then applies it via [`set_scroll_offset`](Self::set_scroll_offset).
+    ///
+    /// - [`ScrollAlign::Start`] aligns the start of the item with the start of the viewport.
+    /// - [`ScrollAlign::End`] aligns the end of the item with the end of the viewport.
+    /// - [`ScrollAlign::Center`] centers the item within the viewport.
+    /// - [`ScrollAlign::Nearest`] moves just enough to make the item fully visible, preferring
+    ///   the smallest change from the current scroll offset.
+    pub fn scroll_to_index(&mut self, index: usize, align: ScrollAlign) {
+        if let Some(offset) = self.target_offset_for_index(index, align) {
+            self.set_scroll_offset(offset);
+        } else {
+            self.set_scroll_offset(M::Scalar::zero());
+        }
     }
 }
 
@@ -420,6 +442,16 @@ mod tests {
         // 3 tracks × 3 cells per track = 9 cells (indices 0..9).
         assert_eq!(strip.start, 0);
         assert_eq!(strip.end, 9);
+    }
+
+    #[test]
+    fn target_offset_for_index_returns_none_for_empty_model() {
+        let model = FixedExtentModel::new(0, 10.0_f32);
+        let mut list = VirtualList::new(model, 30.0, 0.0);
+
+        assert_eq!(list.target_offset_for_index(0, ScrollAlign::Start), None);
+        assert_eq!(list.target_offset_for_index(5, ScrollAlign::Center), None);
+        assert_eq!(list.target_offset_for_index(0, ScrollAlign::Nearest), None);
     }
 
     #[test]
