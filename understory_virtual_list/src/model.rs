@@ -29,6 +29,21 @@ impl<S: Scalar> VisibleStrip<S> {
     pub const fn is_empty(&self) -> bool {
         self.start == self.end
     }
+
+    /// Returns the number of visible items in this strip.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.end - self.start
+    }
+
+    /// Returns the total extent of the visible items in this strip.
+    ///
+    /// This is `content_extent - before_extent - after_extent`, clamped to
+    /// zero to guard against floating-point rounding.
+    #[must_use]
+    pub fn visible_extent(&self) -> S {
+        (self.content_extent - self.before_extent - self.after_extent).max(S::zero())
+    }
 }
 
 /// A 1D model over a dense strip of items, indexed `0..len`.
@@ -287,6 +302,22 @@ mod tests {
         assert_eq!(strip.before_extent, 0.0);
         assert_eq!(strip.after_extent, 10.0);
         assert_eq!(strip.content_extent, 30.0);
+    }
+
+    #[test]
+    fn visible_strip_len_and_visible_extent() {
+        // Three items of 10 each, viewport at offset 5 with size 10 → items 0..2 visible.
+        let mut model = SimpleModel::new(&[10.0, 10.0, 10.0]);
+        let strip = compute_visible_strip(&mut model, 5.0, 10.0, 0.0, 0.0);
+        assert_eq!(strip.len(), 2);
+        assert!((strip.visible_extent() - 20.0_f32).abs() < 1e-5);
+
+        // Empty model → len 0, visible_extent 0.
+        let mut model = SimpleModel::new(&[]);
+        let strip = compute_visible_strip(&mut model, 0.0, 100.0, 0.0, 0.0);
+        assert_eq!(strip.len(), 0);
+        assert!(strip.is_empty());
+        assert!((strip.visible_extent() - 0.0_f32).abs() < 1e-5);
     }
 
     #[test]

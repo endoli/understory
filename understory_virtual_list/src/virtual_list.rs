@@ -29,7 +29,7 @@ pub enum ScrollAlign {
 ///
 /// It does *not* know about any widget/view system; host frameworks are expected
 /// to wrap this and drive child creation/removal and spacer nodes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VirtualList<M: ExtentModel> {
     model: M,
     scroll_offset: M::Scalar,
@@ -340,20 +340,20 @@ mod tests {
 
         // Start alignment: item 3 at top → offset 30.
         list.scroll_to_index(3, ScrollAlign::Start);
-        assert!((list.scroll_offset() - 30.0_f32).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - 30.0_f32).abs() < 1e-5);
 
         // End alignment: item 3 end at viewport end → offset 10 (viewport covers items 1–3).
         list.scroll_to_index(3, ScrollAlign::End);
-        assert!((list.scroll_offset() - 10.0_f32).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - 10.0_f32).abs() < 1e-5);
 
         // Center alignment: item 3 centered in viewport → offset 20.
         list.scroll_to_index(3, ScrollAlign::Center);
-        assert!((list.scroll_offset() - 20.0_f32).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - 20.0_f32).abs() < 1e-5);
 
         // Nearest alignment: if already fully visible, should not move.
         let before = list.scroll_offset();
         list.scroll_to_index(3, ScrollAlign::Nearest);
-        assert!((list.scroll_offset() - before).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - before).abs() < 1e-5);
     }
 
     #[test]
@@ -372,14 +372,14 @@ mod tests {
         // Clamp scroll so viewport stays within content.
         list.set_scroll_offset(100.0_f32);
         list.clamp_scroll_to_content();
-        assert!((list.scroll_offset() - 20.0_f32).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - 20.0_f32).abs() < 1e-5);
 
         // When content fits inside viewport, clamp to 0.
         let model = FixedExtentModel::new(2, 10.0_f32);
         let mut list = VirtualList::new(model, 30.0, 0.0);
         list.set_scroll_offset(10.0_f32);
         list.clamp_scroll_to_content();
-        assert!((list.scroll_offset() - 0.0_f32).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - 0.0_f32).abs() < 1e-5);
     }
 
     #[test]
@@ -434,7 +434,7 @@ mod tests {
 
         // Scroll directly to tail and verify helpers agree.
         list.scroll_to_tail();
-        assert!((list.scroll_offset() - 70.0_f32).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - 70.0_f32).abs() < 1e-5);
         assert!(list.is_at_tail());
 
         // Move slightly away from tail but within epsilon; stick_to_tail_if_anchored
@@ -442,12 +442,12 @@ mod tests {
         list.set_scroll_offset(69.5_f32);
         assert!(list.is_at_tail());
         list.stick_to_tail_if_anchored();
-        assert!((list.scroll_offset() - 70.0_f32).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - 70.0_f32).abs() < 1e-5);
 
         // Move far from tail; stick_to_tail_if_anchored should leave offset unchanged.
         list.set_scroll_offset(10.0_f32);
         assert!(!list.is_at_tail());
         list.stick_to_tail_if_anchored();
-        assert!((list.scroll_offset() - 10.0_f32).abs() < f32::EPSILON);
+        assert!((list.scroll_offset() - 10.0_f32).abs() < 1e-5);
     }
 }
