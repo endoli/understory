@@ -80,7 +80,7 @@ impl<S: Scalar> ExtentModel for FixedExtentModel<S> {
             return 0;
         }
         let ratio = offset / self.extent;
-        let i = ratio.floor_to_isize();
+        let i = ratio.truncate_to_isize();
         i.clamp(0, self.len as isize - 1) as usize
     }
 }
