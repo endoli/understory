@@ -650,7 +650,7 @@ impl<B: Backend<f64>> Tree<B> {
 
 #[inline]
 fn id_is_newer(a: NodeId, b: NodeId) -> bool {
-    (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
+    (a.generation() > b.generation()) || (a.generation() == b.generation() && a.idx() > b.idx())
 }
 
 impl<B: Backend<f64>> Tree<B> {
@@ -665,7 +665,7 @@ impl<B: Backend<f64>> Tree<B> {
         self.nodes
             .get(id.idx())
             .and_then(|n| n.as_ref())
-            .map(|n| n.generation == id.1)
+            .map(|n| n.generation == id.generation())
             .unwrap_or(false)
     }
 
@@ -795,7 +795,7 @@ impl<B: Backend<f64>> Tree<B> {
 
     fn node_opt_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         let n = self.nodes.get_mut(id.idx())?.as_mut()?;
-        if n.generation != id.1 {
+        if n.generation != id.generation() {
             return None;
         }
         Some(n)
@@ -1487,8 +1487,11 @@ mod tests {
         assert!(tree.is_alive(b));
         assert!(!tree.is_alive(a));
         // Sanity: either same slot or different, but if same slot, generation must be greater.
-        if a.0 == b.0 {
-            assert!(b.1 > a.1, "generation must increase on reuse");
+        if a.idx() == b.idx() {
+            assert!(
+                b.generation() > a.generation(),
+                "generation must increase on reuse"
+            );
         }
     }
 
