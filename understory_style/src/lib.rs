@@ -66,7 +66,10 @@
 //! to resolution functions.
 //!
 //! ```rust
-//! use understory_style::{ResolveCx, Style, Theme, ThemeBuilder, StyleBuilder};
+//! use understory_style::{
+//!     ClassId, IdSet, PseudoClassId, ResolveCx, Selector, SelectorInputs, StyleCascade,
+//!     StyleCascadeBuilder, StyleBuilder, StyleOrigin, StyleSheetBuilder, ThemeBuilder,
+//! };
 //! use understory_property::{
 //!     DependencyObject, PropertyMetadataBuilder, PropertyRegistry, PropertyStore,
 //! };
@@ -74,14 +77,36 @@
 //! let mut registry = PropertyRegistry::new();
 //! let width = registry.register("Width", PropertyMetadataBuilder::new(0.0_f64).build());
 //!
-//! let style = StyleBuilder::new().set(width, 100.0).build();
 //! let theme = ThemeBuilder::new().build();
+//!
+//! const PRIMARY: ClassId = ClassId(1);
+//! const HOVER: PseudoClassId = PseudoClassId(1);
+//!
+//! // Base style for a "button"
+//! let base = StyleBuilder::new().set(width, 100.0).build();
+//! // Hover style when PRIMARY + HOVER
+//! let hover = StyleBuilder::new().set(width, 120.0).build();
+//!
+//! let hover_selector = Selector {
+//!     type_tag: None,
+//!     required_classes: IdSet::from_ids([PRIMARY]),
+//!     required_pseudos: IdSet::from_ids([HOVER]),
+//! };
+//!
+//! let sheet = StyleSheetBuilder::new()
+//!     .rule(hover_selector, hover)
+//!     .build();
+//!
+//! let style: StyleCascade = StyleCascadeBuilder::new()
+//!     .push_style(StyleOrigin::Base, base)
+//!     .push_sheet(StyleOrigin::Sheet, sheet)
+//!     .build();
 //!
 //! struct Element {
 //!     key: u32,
 //!     parent: Option<u32>,
 //!     store: PropertyStore<u32>,
-//!     style: Option<Style>,
+//!     style: Option<StyleCascade>,
 //! }
 //!
 //! impl DependencyObject<u32> for Element {
@@ -101,9 +126,15 @@
 //! // Create resolution context
 //! let cx = ResolveCx::new(&registry, &theme, |_key| None);
 //!
-//! // Resolve with style
-//! let value = cx.get_value(&element, width, element.style.as_ref());
+//! // Resolve with style (no hover)
+//! let inputs = SelectorInputs::new(None, &[PRIMARY], &[]);
+//! let value = cx.get_value(&element, &inputs, width, element.style.as_ref());
 //! assert_eq!(value, 100.0);
+//!
+//! // Resolve with style (hovered)
+//! let hovered = SelectorInputs::new(None, &[PRIMARY], &[HOVER]);
+//! let value = cx.get_value(&element, &hovered, width, element.style.as_ref());
+//! assert_eq!(value, 120.0);
 //! ```
 //!
 //! ## `no_std` Support
@@ -115,9 +146,16 @@
 extern crate alloc;
 
 mod resolve;
+mod selector;
 mod style;
+mod stylesheet;
 mod theme;
 
 pub use resolve::ResolveCx;
+pub use selector::{ClassId, IdSet, PseudoClassId, Selector, SelectorInputs, Specificity, TypeTag};
 pub use style::{Style, StyleBuilder};
+pub use stylesheet::{
+    StyleCascade, StyleCascadeBuilder, StyleOrigin, StyleRule, StyleSheet, StyleSheetBuilder,
+    StyleSource,
+};
 pub use theme::{ResourceKey, Theme, ThemeBuilder};

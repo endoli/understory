@@ -10,7 +10,8 @@ use understory_property::{
     DependencyObject, ParentLookup, Property, PropertyRegistry, walk_inherited_ref,
 };
 
-use crate::style::Style;
+use crate::selector::SelectorInputs;
+use crate::stylesheet::StyleCascade;
 use crate::theme::Theme;
 
 /// Resolution context bundling registry, theme, and parent lookup.
@@ -28,7 +29,9 @@ use crate::theme::Theme;
 /// # Example
 ///
 /// ```rust
-/// use understory_style::{ResolveCx, Style, StyleBuilder, ThemeBuilder};
+/// use understory_style::{
+///     ResolveCx, SelectorInputs, StyleCascadeBuilder, StyleBuilder, StyleOrigin, ThemeBuilder,
+/// };
 /// use understory_property::{
 ///     DependencyObject, PropertyMetadataBuilder, PropertyRegistry, PropertyStore,
 /// };
@@ -37,6 +40,10 @@ use crate::theme::Theme;
 /// let width = registry.register("Width", PropertyMetadataBuilder::new(0.0_f64).build());
 ///
 /// let theme = ThemeBuilder::new().build();
+/// let style = StyleBuilder::new().set(width, 80.0).build();
+/// let cascade = StyleCascadeBuilder::new()
+///     .push_style(StyleOrigin::Override, style)
+///     .build();
 ///
 /// // Create context with no parent lookup (flat tree)
 /// let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
@@ -62,8 +69,10 @@ use crate::theme::Theme;
 ///
 /// element.store.set_local(width, 100.0);
 ///
-/// // Resolve value through precedence chain
-/// let value = cx.get_value(&element, width, None);
+/// let inputs = SelectorInputs::EMPTY;
+///
+/// // Local still wins over style
+/// let value = cx.get_value(&element, &inputs, width, Some(&cascade));
 /// assert_eq!(value, 100.0);
 /// ```
 pub struct ResolveCx<'a, K, F>
@@ -147,8 +156,9 @@ where
     pub fn get_value_ref<'cx, T, O>(
         &'cx self,
         object: &'cx O,
+        inputs: &SelectorInputs<'_>,
         property: Property<T>,
-        style: Option<&'cx Style>,
+        style: Option<&'cx StyleCascade>,
     ) -> &'cx T
     where
         T: Clone + 'static,
@@ -164,9 +174,9 @@ where
             return value;
         }
 
-        // 3. Style value
+        // 3. Style-layer value
         if let Some(style) = style
-            && let Some(value) = style.get(property)
+            && let Some(value) = style.get_value_ref(inputs, property)
         {
             return value;
         }
@@ -204,12 +214,18 @@ where
     /// # Panics
     ///
     /// Panics if the property is not registered in the registry.
-    pub fn get_value<T, O>(&self, object: &O, property: Property<T>, style: Option<&Style>) -> T
+    pub fn get_value<T, O>(
+        &self,
+        object: &O,
+        inputs: &SelectorInputs<'_>,
+        property: Property<T>,
+        style: Option<&StyleCascade>,
+    ) -> T
     where
         T: Clone + 'static,
         O: DependencyObject<K>,
     {
-        self.get_value_ref(object, property, style).clone()
+        self.get_value_ref(object, inputs, property, style).clone()
     }
 
     /// Resolves a property value with a resource key fallback, borrowed.
@@ -222,8 +238,9 @@ where
     pub fn get_value_with_theme_ref<'cx, T, O>(
         &'cx self,
         object: &'cx O,
+        inputs: &SelectorInputs<'_>,
         property: Property<T>,
-        style: Option<&'cx Style>,
+        style: Option<&'cx StyleCascade>,
         resource_key: Option<crate::theme::ResourceKey>,
     ) -> &'cx T
     where
@@ -240,9 +257,9 @@ where
             return value;
         }
 
-        // 3. Style value
+        // 3. Style-layer value
         if let Some(style) = style
-            && let Some(value) = style.get(property)
+            && let Some(value) = style.get_value_ref(inputs, property)
         {
             return value;
         }
@@ -294,15 +311,16 @@ where
     pub fn get_value_with_theme<T, O>(
         &self,
         object: &O,
+        inputs: &SelectorInputs<'_>,
         property: Property<T>,
-        style: Option<&Style>,
+        style: Option<&StyleCascade>,
         resource_key: Option<crate::theme::ResourceKey>,
     ) -> T
     where
         T: Clone + 'static,
         O: DependencyObject<K>,
     {
-        self.get_value_with_theme_ref(object, property, style, resource_key)
+        self.get_value_with_theme_ref(object, inputs, property, style, resource_key)
             .clone()
     }
 }
@@ -311,6 +329,7 @@ where
 mod tests {
     use super::*;
     use crate::{StyleBuilder, ThemeBuilder};
+    use crate::{StyleCascadeBuilder, StyleOrigin};
     use alloc::collections::BTreeMap;
     use alloc::string::String;
     use understory_property::PropertyMetadataBuilder;
@@ -361,7 +380,7 @@ mod tests {
         element.store.set_local(width, 100.0);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value = cx.get_value(&element, width, None);
+        let value = cx.get_value(&element, &SelectorInputs::EMPTY, width, None);
         assert_eq!(value, 100.0);
     }
 
@@ -376,7 +395,7 @@ mod tests {
         element.store.set_local(width, 100.0);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value_ref = cx.get_value_ref(&element, width, None);
+        let value_ref = cx.get_value_ref(&element, &SelectorInputs::EMPTY, width, None);
         assert!(core::ptr::eq(
             value_ref,
             element.property_store().get_local(width).unwrap()
@@ -396,7 +415,7 @@ mod tests {
         element.store.set_animation(width, 200.0);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value = cx.get_value(&element, width, None);
+        let value = cx.get_value(&element, &SelectorInputs::EMPTY, width, None);
         assert_eq!(value, 200.0);
     }
 
@@ -407,12 +426,15 @@ mod tests {
 
         let theme = ThemeBuilder::new().build();
         let style = StyleBuilder::new().set(width, 50.0).build();
+        let style = StyleCascadeBuilder::new()
+            .push_style(StyleOrigin::Override, style)
+            .build();
 
         let mut element = TestElement::new(1, None);
         element.store.set_local(width, 100.0);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value = cx.get_value(&element, width, Some(&style));
+        let value = cx.get_value(&element, &SelectorInputs::EMPTY, width, Some(&style));
         assert_eq!(value, 100.0);
     }
 
@@ -423,11 +445,14 @@ mod tests {
 
         let theme = ThemeBuilder::new().build();
         let style = StyleBuilder::new().set(width, 50.0).build();
+        let style = StyleCascadeBuilder::new()
+            .push_style(StyleOrigin::Override, style)
+            .build();
 
         let element = TestElement::new(1, None);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value = cx.get_value(&element, width, Some(&style));
+        let value = cx.get_value(&element, &SelectorInputs::EMPTY, width, Some(&style));
         assert_eq!(value, 50.0);
     }
 
@@ -440,7 +465,7 @@ mod tests {
         let element = TestElement::new(1, None);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value = cx.get_value(&element, width, None);
+        let value = cx.get_value(&element, &SelectorInputs::EMPTY, width, None);
         assert_eq!(value, 42.0);
     }
 
@@ -470,7 +495,7 @@ mod tests {
                 .map(|e| (e.property_store(), e.parent_key()))
         });
 
-        let value = cx.get_value(&child, font_size, None);
+        let value = cx.get_value(&child, &SelectorInputs::EMPTY, font_size, None);
         assert_eq!(value, 16.0);
     }
 
@@ -501,7 +526,7 @@ mod tests {
                 .map(|e| (e.property_store(), e.parent_key()))
         });
 
-        let value = cx.get_value(&child, font_size, None);
+        let value = cx.get_value(&child, &SelectorInputs::EMPTY, font_size, None);
         assert_eq!(value, 20.0);
     }
 
@@ -517,6 +542,9 @@ mod tests {
 
         let theme = ThemeBuilder::new().build();
         let style = StyleBuilder::new().set(font_size, 18.0).build();
+        let style = StyleCascadeBuilder::new()
+            .push_style(StyleOrigin::Override, style)
+            .build();
 
         let mut parent = TestElement::new(1, None);
         parent.store.set_local(font_size, 16.0);
@@ -532,7 +560,7 @@ mod tests {
                 .map(|e| (e.property_store(), e.parent_key()))
         });
 
-        let value = cx.get_value(&child, font_size, Some(&style));
+        let value = cx.get_value(&child, &SelectorInputs::EMPTY, font_size, Some(&style));
         assert_eq!(value, 18.0);
     }
 
@@ -549,7 +577,13 @@ mod tests {
         let element = TestElement::new(1, None);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value = cx.get_value_with_theme(&element, width, None, Some(ACCENT_WIDTH));
+        let value = cx.get_value_with_theme(
+            &element,
+            &SelectorInputs::EMPTY,
+            width,
+            None,
+            Some(ACCENT_WIDTH),
+        );
         assert_eq!(value, 75.0);
     }
 
@@ -566,7 +600,13 @@ mod tests {
         let element = TestElement::new(1, None);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value_ref = cx.get_value_with_theme_ref(&element, width, None, Some(ACCENT_WIDTH));
+        let value_ref = cx.get_value_with_theme_ref(
+            &element,
+            &SelectorInputs::EMPTY,
+            width,
+            None,
+            Some(ACCENT_WIDTH),
+        );
         assert!(core::ptr::eq(
             value_ref,
             theme.get::<f64>(ACCENT_WIDTH).unwrap()
@@ -588,7 +628,13 @@ mod tests {
         element.store.set_local(width, 100.0);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value = cx.get_value_with_theme(&element, width, None, Some(ACCENT_WIDTH));
+        let value = cx.get_value_with_theme(
+            &element,
+            &SelectorInputs::EMPTY,
+            width,
+            None,
+            Some(ACCENT_WIDTH),
+        );
         assert_eq!(value, 100.0);
     }
 
@@ -603,10 +649,19 @@ mod tests {
 
         let theme = ThemeBuilder::new().set(ACCENT_WIDTH, 75.0_f64).build();
         let style = StyleBuilder::new().set(width, 50.0).build();
+        let style = StyleCascadeBuilder::new()
+            .push_style(StyleOrigin::Override, style)
+            .build();
         let element = TestElement::new(1, None);
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value = cx.get_value_with_theme(&element, width, Some(&style), Some(ACCENT_WIDTH));
+        let value = cx.get_value_with_theme(
+            &element,
+            &SelectorInputs::EMPTY,
+            width,
+            Some(&style),
+            Some(ACCENT_WIDTH),
+        );
         assert_eq!(value, 50.0);
     }
 
@@ -640,7 +695,13 @@ mod tests {
                 .map(|e| (e.property_store(), e.parent_key()))
         });
 
-        let value = cx.get_value_with_theme(&child, font_size, None, Some(ACCENT_SIZE));
+        let value = cx.get_value_with_theme(
+            &child,
+            &SelectorInputs::EMPTY,
+            font_size,
+            None,
+            Some(ACCENT_SIZE),
+        );
         assert_eq!(value, 18.0);
     }
 
@@ -667,7 +728,7 @@ mod tests {
         element.store.set_local(text, String::from("hello world"));
 
         let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
-        let value_ref = cx.get_value_ref(&element, text, None);
+        let value_ref = cx.get_value_ref(&element, &SelectorInputs::EMPTY, text, None);
         assert!(core::ptr::eq(
             value_ref,
             element.property_store().get_local(text).unwrap()
@@ -713,7 +774,7 @@ mod tests {
 
         // ResolveCx::get_value with no style
         let cx = ResolveCx::new(&registry, &theme, store_lookup);
-        let cx_value = cx.get_value(&child, font_size, None);
+        let cx_value = cx.get_value(&child, &SelectorInputs::EMPTY, font_size, None);
 
         // DependencyObjectExt::get_inherited
         let ext_value = child.get_inherited(font_size, &registry, &|key| {
