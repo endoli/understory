@@ -70,6 +70,8 @@
 //! - [`Tree::flags`](Tree::flags) returns the [`NodeFlags`] of a live [`NodeId`].
 //! - [`Tree::world_transform`](Tree::world_transform) / [`Tree::world_bounds`](Tree::world_bounds)
 //!   expose the local→world transform and world-space AABB for a live [`NodeId`].
+//! - [`Tree::clipped_local_clip`](Tree::clipped_local_clip) returns the node's local clip after
+//!   ancestor clipping projected into local space.
 //! - [`Tree::children_of`](Tree::children_of) returns the children of a live [`NodeId`].
 //! - [`Tree::next_depth_first`](Tree::next_depth_first) and [`Tree::prev_depth_first`](Tree::prev_depth_first) provide depth-first tree traversal.
 //!
