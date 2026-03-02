@@ -30,7 +30,7 @@
 //!     Some(root),
 //!     LocalNode {
 //!         local_bounds: Rect::new(20.0, 20.0, 80.0, 60.0),
-//!         flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+//!         flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
 //!         ..LocalNode::default()
 //!     },
 //! );
@@ -74,7 +74,8 @@ where
 /// - Traverses the box tree in depth-first order starting at `scope_root`.
 /// - Includes only nodes that are:
 ///   - Live in the tree.
-///   - Marked focusable via [`NodeFlags::FOCUSABLE`].
+///   - Marked keyboard-navigable via [`NodeFlags::KEYBOARD_NAVIGABLE`].
+///     (`NodeFlags::FOCUSABLE` may still be used separately by higher-level focus state.)
 ///   - Marked visible via [`NodeFlags::VISIBLE`] (to avoid focusing hidden nodes).
 ///   - Enabled according to [`FocusProps::enabled`].
 /// - Uses [`Tree::world_bounds`](Tree::world_bounds) to populate `rect` and
@@ -111,9 +112,9 @@ where
 
         if let (Some(flags), Some(bounds)) = (tree.flags(id), tree.world_bounds(id)) {
             let fp = props_lookup.props(&id);
-            let focusable = flags.contains(NodeFlags::FOCUSABLE);
+            let keyboard_navigable = flags.contains(NodeFlags::KEYBOARD_NAVIGABLE);
             let visible = flags.contains(NodeFlags::VISIBLE);
-            if focusable && visible && fp.enabled {
+            if keyboard_navigable && visible && fp.enabled {
                 out.push(FocusEntry {
                     id,
                     rect: bounds,
@@ -161,7 +162,7 @@ mod tests {
         let a = tree.insert(
             Some(root),
             LocalNode {
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );
@@ -191,14 +192,14 @@ mod tests {
         let root = tree.insert(
             None,
             LocalNode {
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );
         let disabled_child = tree.insert(
             Some(root),
             LocalNode {
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );
@@ -250,7 +251,7 @@ mod tests {
             Some(root),
             LocalNode {
                 local_bounds: Rect::new(10.0, 10.0, 40.0, 40.0),
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );
@@ -258,7 +259,7 @@ mod tests {
             Some(root),
             LocalNode {
                 local_bounds: Rect::new(80.0, 10.0, 110.0, 40.0),
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );

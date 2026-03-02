@@ -70,11 +70,12 @@ for details.
 
 - [`Tree`]: container managing nodes and the spatial index synchronization.
 - [`LocalNode`]: per-node local data (bounds, transform, optional clip, z, flags).
-  See [`LocalNode::flags`] for visibility/picking/focusable controls.
-- [`NodeFlags`]: visibility, picking, and focusable controls.
+  See [`LocalNode::flags`] for visibility/picking/focus semantics.
+- [`NodeFlags`]: visibility, picking, logical-focus, and keyboard-navigation controls.
 - [`NodeId`]: generational handle of a node.
-- [`QueryFilter`]: restricts hit/intersect results (visible/pickable/focusable).
-  See [`NodeFlags::VISIBLE`], [`NodeFlags::PICKABLE`], and [`NodeFlags::FOCUSABLE`].
+- [`QueryFilter`]: restricts hit/intersect results (visible/pickable/focusable/keyboard-navigable).
+  See [`NodeFlags::VISIBLE`], [`NodeFlags::PICKABLE`], [`NodeFlags::FOCUSABLE`], and
+  [`NodeFlags::KEYBOARD_NAVIGABLE`].
 
 Key operations:
 - [`Tree::insert`](Tree::insert) → [`NodeId`]
