@@ -16,7 +16,7 @@
 //! use understory_focus::adapters::box_tree::build_focus_space_for_scope;
 //! use understory_focus::{DefaultPolicy, FocusPolicy, Navigation, WrapMode};
 //!
-//! // Build a tiny box tree: root with a single focusable child.
+//! // Build a tiny box tree: root with a single keyboard-navigable child.
 //! let mut tree = Tree::new();
 //! let root = tree.insert(
 //!     None,
@@ -30,7 +30,7 @@
 //!     Some(root),
 //!     LocalNode {
 //!         local_bounds: Rect::new(20.0, 20.0, 80.0, 60.0),
-//!         flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+//!         flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
 //!         ..LocalNode::default()
 //!     },
 //! );
@@ -41,7 +41,7 @@
 //! let space = build_focus_space_for_scope(&tree, root, &(), &mut buf);
 //! let policy = DefaultPolicy { wrap: WrapMode::Scope };
 //!
-//! // In this trivial case, "next" from the only focusable node just wraps.
+//! // In this trivial case, "next" from the only keyboard-navigable node just wraps.
 //! assert_eq!(policy.next(button, Navigation::Next, &space), Some(button));
 //! ```
 
@@ -74,7 +74,8 @@ where
 /// - Traverses the box tree in depth-first order starting at `scope_root`.
 /// - Includes only nodes that are:
 ///   - Live in the tree.
-///   - Marked focusable via [`NodeFlags::FOCUSABLE`].
+///   - Marked keyboard-navigable via [`NodeFlags::KEYBOARD_NAVIGABLE`], which semantically
+///     implies focusability.
 ///   - Marked visible via [`NodeFlags::VISIBLE`] (to avoid focusing hidden nodes).
 ///   - Enabled according to [`FocusProps::enabled`].
 /// - Uses [`Tree::world_bounds`](Tree::world_bounds) to populate `rect` and
@@ -111,9 +112,9 @@ where
 
         if let (Some(flags), Some(bounds)) = (tree.flags(id), tree.world_bounds(id)) {
             let fp = props_lookup.props(&id);
-            let focusable = flags.contains(NodeFlags::FOCUSABLE);
+            let keyboard_navigable = flags.contains(NodeFlags::KEYBOARD_NAVIGABLE);
             let visible = flags.contains(NodeFlags::VISIBLE);
-            if focusable && visible && fp.enabled {
+            if keyboard_navigable && visible && fp.enabled {
                 out.push(FocusEntry {
                     id,
                     rect: bounds,
@@ -146,10 +147,10 @@ mod tests {
     use understory_box_tree::LocalNode;
 
     #[test]
-    fn builds_focus_space_for_focusable_nodes() {
+    fn builds_focus_space_for_keyboard_navigable_nodes() {
         let mut tree = Tree::new();
 
-        // Root: visible but not focusable.
+        // Root: visible but not keyboard-navigable.
         let root = tree.insert(
             None,
             LocalNode {
@@ -157,11 +158,11 @@ mod tests {
                 ..LocalNode::default()
             },
         );
-        // Child A: visible + focusable.
+        // Child A: visible + keyboard-navigable.
         let a = tree.insert(
             Some(root),
             LocalNode {
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );
@@ -191,14 +192,14 @@ mod tests {
         let root = tree.insert(
             None,
             LocalNode {
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );
         let disabled_child = tree.insert(
             Some(root),
             LocalNode {
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );
@@ -226,9 +227,61 @@ mod tests {
         let mut buf = Vec::new();
         let space = build_focus_space_for_scope(&tree, root, &lookup, &mut buf);
 
-        // Root is focusable and enabled; disabled_child should be skipped.
+        // Root is keyboard-navigable and enabled; disabled_child should be skipped.
         assert_eq!(space.nodes.len(), 1);
         assert_eq!(space.nodes[0].id, root);
+    }
+
+    #[test]
+    fn treats_keyboard_navigable_as_implying_focusable() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                flags: NodeFlags::VISIBLE,
+                ..LocalNode::default()
+            },
+        );
+        let keyboard_only = tree.insert(
+            Some(root),
+            LocalNode {
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
+                ..LocalNode::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let mut buf = Vec::new();
+        let space = build_focus_space_for_scope(&tree, root, &(), &mut buf);
+
+        assert_eq!(space.nodes.len(), 1);
+        assert_eq!(space.nodes[0].id, keyboard_only);
+    }
+
+    #[test]
+    fn includes_node_with_explicit_focusable_and_keyboard_navigable_flags() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                flags: NodeFlags::VISIBLE,
+                ..LocalNode::default()
+            },
+        );
+        let fully_flagged = tree.insert(
+            Some(root),
+            LocalNode {
+                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE | NodeFlags::KEYBOARD_NAVIGABLE,
+                ..LocalNode::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let mut buf = Vec::new();
+        let space = build_focus_space_for_scope(&tree, root, &(), &mut buf);
+
+        assert_eq!(space.nodes.len(), 1);
+        assert_eq!(space.nodes[0].id, fully_flagged);
     }
 
     #[test]
@@ -237,7 +290,7 @@ mod tests {
 
         let mut tree = Tree::new();
 
-        // Root is visible but not focusable; children are visible + focusable.
+        // Root is visible but not keyboard-navigable; children are visible + keyboard-navigable.
         let root = tree.insert(
             None,
             LocalNode {
@@ -250,7 +303,7 @@ mod tests {
             Some(root),
             LocalNode {
                 local_bounds: Rect::new(10.0, 10.0, 40.0, 40.0),
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );
@@ -258,7 +311,7 @@ mod tests {
             Some(root),
             LocalNode {
                 local_bounds: Rect::new(80.0, 10.0, 110.0, 40.0),
-                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                flags: NodeFlags::VISIBLE | NodeFlags::KEYBOARD_NAVIGABLE,
                 ..LocalNode::default()
             },
         );

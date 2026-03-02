@@ -54,8 +54,22 @@ bitflags::bitflags! {
         const VISIBLE  = 0b0000_0001;
         /// Node is pickable (participates in hit testing).
         const PICKABLE = 0b0000_0010;
-        /// Node is focusable (can receive keyboard focus).
+        /// Node can own logical focus state.
+        ///
+        /// This represents "can be focused" semantics and may be used by higher-level focus state,
+        /// even when the node should not participate in keyboard traversal.
+        ///
+        /// [`Self::KEYBOARD_NAVIGABLE`] implies this capability semantically, even if callers do
+        /// not also set this bit explicitly.
         const FOCUSABLE = 0b0000_0100;
+        /// Node participates in keyboard navigation traversal.
+        ///
+        /// This flag implies that the node is focusable and should be included in keyboard
+        /// navigation traversal.
+        ///
+        /// It remains separate from [`Self::FOCUSABLE`] so apps can distinguish "focusable in
+        /// principle" from "reachable via keyboard navigation policies".
+        const KEYBOARD_NAVIGABLE = 0b0000_1000;
     }
 }
 
@@ -109,7 +123,9 @@ pub struct LocalNode {
     ///
     /// - [`NodeFlags::VISIBLE`] controls participation in visibility queries and hit testing.
     /// - [`NodeFlags::PICKABLE`] is consulted by hit testing.
-    /// - [`NodeFlags::FOCUSABLE`] is consulted by focus/navigation layers.
+    /// - [`NodeFlags::FOCUSABLE`] marks nodes that can own logical focus state.
+    /// - [`NodeFlags::KEYBOARD_NAVIGABLE`] marks nodes included in keyboard navigation traversal
+    ///   and semantically implies [`NodeFlags::FOCUSABLE`].
     ///
     /// Flags do not affect layout; they only influence queries and higher-level behavior.
     pub flags: NodeFlags,
