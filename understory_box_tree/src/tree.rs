@@ -166,6 +166,7 @@ pub(crate) struct Node {
     world: WorldNode,
     dirty: Dirty,
     index_key: Option<AabbKey>,
+    indexed_aabb: Option<understory_index::Aabb2D<f64>>,
 }
 
 impl Node {
@@ -183,6 +184,7 @@ impl Node {
                 index: true,
             },
             index_key: None,
+            indexed_aabb: None,
         }
     }
 }
@@ -326,7 +328,14 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update local transform.
     ///
-    /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
+    /// This marks the node as dirty for transform and index updates and sets
+    /// [`Tree::needs_commit`] to `true`.
+    ///
+    /// - [`Tree::get_or_compute_world_transform`] and [`Tree::get_or_compute_world_bounds`] can
+    ///   compute this node's world data independently of [`Tree::commit`].
+    /// - [`Tree::commit`] is what synchronizes world bounds into the spatial index.
+    /// - Hit testing and other spatial-index-backed queries rely on that index sync, so they
+    ///   require [`Tree::commit`] after geometry changes.
     pub fn set_local_transform(&mut self, id: NodeId, tf: Affine) {
         let changed = match self.node_opt_mut(id) {
             Some(n) if n.local.local_transform != tf => {
@@ -344,7 +353,14 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update local clip.
     ///
-    /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
+    /// This marks the node as dirty for clip and index updates and sets
+    /// [`Tree::needs_commit`] to `true`.
+    ///
+    /// - [`Tree::get_or_compute_world_transform`] and [`Tree::get_or_compute_world_bounds`] can
+    ///   compute this node's world data independently of [`Tree::commit`].
+    /// - [`Tree::commit`] is what synchronizes world bounds into the spatial index.
+    /// - Hit testing and other spatial-index-backed queries rely on that index sync, so they
+    ///   require [`Tree::commit`] after geometry changes.
     pub fn set_local_clip(&mut self, id: NodeId, clip: Option<RoundedRect>) {
         let changed = match self.node_opt_mut(id) {
             Some(n) if n.local.local_clip != clip => {
@@ -373,7 +389,14 @@ impl<B: Backend<f64>> Tree<B> {
 
     /// Update local bounds.
     ///
-    /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
+    /// This marks the node as dirty for layout and index updates and sets
+    /// [`Tree::needs_commit`] to `true`.
+    ///
+    /// - [`Tree::get_or_compute_world_transform`] and [`Tree::get_or_compute_world_bounds`] can
+    ///   compute this node's world data independently of [`Tree::commit`].
+    /// - [`Tree::commit`] is what synchronizes world bounds into the spatial index.
+    /// - Hit testing and other spatial-index-backed queries rely on that index sync, so they
+    ///   require [`Tree::commit`] after geometry changes.
     pub fn set_local_bounds(&mut self, id: NodeId, bounds: Rect) {
         let changed = match self.node_opt_mut(id) {
             Some(n) if n.local.local_bounds != bounds => {
@@ -734,6 +757,192 @@ impl<B: Backend<f64>> Tree<B> {
         &self.node(id).children
     }
 
+    /// Get the world transform for a live node, computing and caching it if needed.
+    ///
+    /// This returns cached data when the target path is already up to date,
+    /// even if unrelated parts of the tree are dirty. If the node (or an
+    /// ancestor that affects its world transform) is dirty, this computes
+    /// on-demand by composing ancestor local transforms so it reflects
+    /// uncommitted local changes.
+    ///
+    /// This updates cached world values for the target node but does not touch
+    /// the spatial index and does not modify [`Tree::needs_commit`].
+    ///
+    /// Returns `None` if the node ID is stale.
+    pub fn get_or_compute_world_transform(&mut self, id: NodeId) -> Option<Affine> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        if !self.needs_world_transform_recompute(id) {
+            return Some(self.node(id).world.world_transform);
+        }
+        self.compute_world_node(id)?;
+        Some(self.node(id).world.world_transform)
+    }
+
+    /// Get world-space bounds for a node, computing and caching them if needed.
+    ///
+    /// This returns cached data when the target path is already up to date,
+    /// even if unrelated parts of the tree are dirty. If the node (or an
+    /// ancestor that affects its world bounds) is dirty, this computes the
+    /// world transform by walking up the tree, transforms local bounds, and
+    /// applies clips (both local and ancestor) to produce the final
+    /// world-space AABB.
+    ///
+    /// Like [`Tree::get_or_compute_world_transform`], this updates cached world values
+    /// for the target node only. It does not touch the spatial index and does
+    /// not modify [`Tree::needs_commit`].
+    ///
+    /// Returns `None` if the node ID is stale or the node has been removed.
+    ///
+    /// This is useful when you need to know the world bounds immediately after making changes,
+    /// without waiting for the next [`Tree::commit`]. For example, when computing layout constraints
+    /// or checking bounds after moving a node.
+    ///
+    /// # Example
+    /// ```
+    /// use understory_box_tree::{Tree, LocalNode};
+    /// use kurbo::{Rect, Affine, Vec2};
+    ///
+    /// let mut tree = Tree::new();
+    /// let root = tree.insert(
+    ///     None,
+    ///     LocalNode {
+    ///         local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+    ///         local_transform: Affine::translate(Vec2::new(50.0, 50.0)),
+    ///         ..Default::default()
+    ///     },
+    /// );
+    ///
+    /// // Compute bounds without committing
+    /// let bounds = tree.get_or_compute_world_bounds(root).unwrap();
+    /// assert_eq!(bounds, Rect::new(50.0, 50.0, 150.0, 150.0));
+    /// ```
+    pub fn get_or_compute_world_bounds(&mut self, id: NodeId) -> Option<Rect> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        if !self.needs_world_bounds_recompute(id) {
+            return Some(self.node(id).world.world_bounds);
+        }
+        self.compute_world_node(id)?;
+        Some(self.node(id).world.world_bounds)
+    }
+
+    fn needs_world_transform_recompute(&self, id: NodeId) -> bool {
+        if !self.needs_commit {
+            return false;
+        }
+
+        let mut current = Some(id);
+        let mut is_target = true;
+        while let Some(node_id) = current {
+            let node = self.node(node_id);
+            let needs = if is_target {
+                node.dirty.transform
+            } else {
+                node.dirty.transform || node.dirty.clip
+            };
+            if needs {
+                return true;
+            }
+            current = node.parent;
+            is_target = false;
+        }
+        false
+    }
+
+    fn needs_world_bounds_recompute(&self, id: NodeId) -> bool {
+        if !self.needs_commit {
+            return false;
+        }
+
+        let mut current = Some(id);
+        let mut is_target = true;
+        while let Some(node_id) = current {
+            let node = self.node(node_id);
+            let needs = if is_target {
+                node.dirty.layout || node.dirty.transform || node.dirty.clip
+            } else {
+                node.dirty.transform || node.dirty.clip
+            };
+            if needs {
+                return true;
+            }
+            current = node.parent;
+            is_target = false;
+        }
+        false
+    }
+
+    fn compute_world_node(&mut self, id: NodeId) -> Option<()> {
+        if !self.is_alive(id) {
+            return None;
+        }
+
+        // Walk up to the root, then process root -> node.
+        let path = self.path_to_root(id);
+        let mut parent_tf = Affine::IDENTITY;
+        let mut parent_clip: Option<Rect> = None;
+        let mut depth = 0_u16;
+        let mut world: Option<WorldNode> = None;
+
+        for node_id in path {
+            depth = depth.saturating_add(1);
+            let computed = {
+                let node = self.node(node_id);
+                Self::compute_world_from_parent(&node.local, parent_tf, parent_clip, depth)
+            };
+            parent_tf = computed.world_transform;
+            parent_clip = computed.world_clip;
+            if node_id == id {
+                world = Some(computed);
+            }
+        }
+
+        let world = world?;
+        let node = self.node_mut(id);
+        node.world = world;
+        // On-demand world recompute makes world-space values current for this node.
+        // Keep dirty flags intact so `commit` still performs the required spatial-index sync
+        // and descendant propagation when ancestor transform/clip changes are pending.
+
+        Some(())
+    }
+
+    fn compute_world_from_parent(
+        local: &LocalNode,
+        parent_tf: Affine,
+        parent_clip: Option<Rect>,
+        depth: u16,
+    ) -> WorldNode {
+        let world_transform = parent_tf * local.local_transform;
+        let world_transform_inverse = world_transform.inverse();
+
+        let local_clip = local
+            .local_clip
+            .map(|rr| transform_rect_bbox(world_transform, rr.rect()));
+        let world_clip = match (local_clip, parent_clip) {
+            (Some(local), Some(parent)) => Some(local.intersect(parent)),
+            (Some(local), None) => Some(local),
+            (None, Some(parent)) => Some(parent),
+            (None, None) => None,
+        };
+
+        let mut world_bounds = transform_rect_bbox(world_transform, local.local_bounds);
+        if let Some(clip) = world_clip {
+            world_bounds = world_bounds.intersect(clip);
+        }
+
+        WorldNode {
+            world_transform,
+            world_transform_inverse,
+            world_bounds,
+            world_clip,
+            depth,
+        }
+    }
+
     fn next_in_order(&self, current: NodeId) -> Option<NodeId> {
         let children = &self.node(current).children;
         if let Some(&first_child) = children.first()
@@ -860,28 +1069,12 @@ impl<B: Backend<f64>> Tree<B> {
 
                 if needs_update_world {
                     let old_world_bounds = node.world.world_bounds;
-
-                    node.world.world_transform = current_tf * node.local.local_transform;
-                    node.world.world_transform_inverse = node.world.world_transform.inverse();
-                    node.world.depth = depth;
-
-                    let mut world_bounds =
-                        transform_rect_bbox(node.world.world_transform, node.local.local_bounds);
-                    let local_clip = node
-                        .local
-                        .local_clip
-                        .map(|rr| transform_rect_bbox(node.world.world_transform, rr.rect()));
-                    let world_clip = match (local_clip, current_clip) {
-                        (Some(local), Some(parent)) => Some(local.intersect(parent)),
-                        (Some(local), None) => Some(local),
-                        (None, Some(parent)) => Some(parent),
-                        (None, None) => None,
-                    };
-                    if let Some(c) = world_clip {
-                        world_bounds = world_bounds.intersect(c);
-                    }
-                    node.world.world_bounds = world_bounds;
-                    node.world.world_clip = world_clip;
+                    node.world = Self::compute_world_from_parent(
+                        &node.local,
+                        current_tf,
+                        current_clip,
+                        depth,
+                    );
 
                     let bounds_changed = old_world_bounds != node.world.world_bounds;
                     if bounds_changed {
@@ -895,9 +1088,10 @@ impl<B: Backend<f64>> Tree<B> {
                         }
                     }
 
-                    // Only touch the spatial index when the AABB changes (or for new nodes).
-                    if bounds_changed || node.index_key.is_none() {
-                        let aabb = rect_to_aabb(node.world.world_bounds);
+                    // Use the last synchronized AABB as the source of truth for index changes.
+                    // Cached world values can be updated via get_or_compute_* before commit.
+                    let aabb = rect_to_aabb(node.world.world_bounds);
+                    if node.index_key.is_none() || node.indexed_aabb != Some(aabb) {
                         index_op = Some(if let Some(key) = node.index_key {
                             IndexOp::Update(key, aabb)
                         } else {
@@ -925,10 +1119,15 @@ impl<B: Backend<f64>> Tree<B> {
 
             if let Some(op) = index_op {
                 match op {
-                    IndexOp::Update(key, aabb) => self.index.update(key, aabb),
+                    IndexOp::Update(key, aabb) => {
+                        self.index.update(key, aabb);
+                        self.node_mut(id).indexed_aabb = Some(aabb);
+                    }
                     IndexOp::Insert(aabb) => {
                         let key = self.index.insert(aabb, id);
-                        self.node_mut(id).index_key = Some(key);
+                        let node = self.node_mut(id);
+                        node.index_key = Some(key);
+                        node.indexed_aabb = Some(aabb);
                     }
                 }
             }
@@ -2236,5 +2435,366 @@ mod tests {
 
         let prev = tree.prev_depth_first(a).unwrap();
         assert_eq!(prev, root);
+    }
+
+    #[test]
+    fn get_or_compute_world_transform_without_commit() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_transform: Affine::translate(Vec2::new(10.0, 20.0)),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 50.0, 50.0),
+                local_transform: Affine::translate(Vec2::new(5.0, 7.0)),
+                ..Default::default()
+            },
+        );
+
+        // Compute world transform without committing
+        let world_tf = tree.get_or_compute_world_transform(child).unwrap();
+        let expected =
+            Affine::translate(Vec2::new(10.0, 20.0)) * Affine::translate(Vec2::new(5.0, 7.0));
+        assert_eq!(world_tf, expected);
+
+        // Now commit and verify the cached value matches
+        let _ = tree.commit();
+        let cached_tf = tree.world_transform(child).unwrap();
+        assert_eq!(cached_tf, expected);
+
+        // Modify local transform without committing
+        tree.set_local_transform(child, Affine::translate(Vec2::new(15.0, 25.0)));
+
+        // Compute should reflect the new transform
+        let new_world_tf = tree.get_or_compute_world_transform(child).unwrap();
+        let new_expected =
+            Affine::translate(Vec2::new(10.0, 20.0)) * Affine::translate(Vec2::new(15.0, 25.0));
+        assert_eq!(new_world_tf, new_expected);
+
+        // Cache is updated by compute_* without touching commit requirements.
+        assert_eq!(tree.node(child).world.world_transform, new_expected);
+        assert!(tree.node(child).dirty.transform);
+        assert!(!tree.node(child).dirty.clip);
+        assert!(!tree.node(child).dirty.layout);
+        assert!(tree.node(child).dirty.index);
+        assert!(tree.needs_commit());
+    }
+
+    #[test]
+    fn get_or_compute_world_transform_stale_id() {
+        let mut tree = Tree::new();
+        let node = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                ..Default::default()
+            },
+        );
+
+        assert!(tree.get_or_compute_world_transform(node).is_some());
+
+        tree.remove(node);
+
+        assert!(tree.get_or_compute_world_transform(node).is_none());
+    }
+
+    #[test]
+    fn get_or_compute_world_bounds_without_commit() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_transform: Affine::translate(Vec2::new(10.0, 20.0)),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 50.0, 50.0),
+                local_transform: Affine::translate(Vec2::new(5.0, 7.0)),
+                ..Default::default()
+            },
+        );
+
+        // Compute bounds without committing
+        let world_bounds = tree.get_or_compute_world_bounds(child).unwrap();
+        let expected = Rect::new(15.0, 27.0, 65.0, 77.0); // child at (5,7) + parent at (10,20)
+        assert_eq!(world_bounds, expected);
+
+        // Now commit and verify the cached value matches
+        let _ = tree.commit();
+        let cached_bounds = tree.world_bounds(child).unwrap();
+        assert_eq!(cached_bounds, expected);
+
+        // Modify local transform without committing
+        tree.set_local_transform(child, Affine::translate(Vec2::new(15.0, 25.0)));
+
+        let new_world_bounds = tree.get_or_compute_world_bounds(child).unwrap();
+        let new_expected = Rect::new(25.0, 45.0, 75.0, 95.0); // child at (15,25) + parent at (10,20)
+        assert_eq!(new_world_bounds, new_expected);
+
+        // Cache is updated by compute_* without touching commit requirements.
+        assert_eq!(tree.node(child).world.world_bounds, new_expected);
+        assert!(tree.node(child).dirty.transform);
+        assert!(!tree.node(child).dirty.clip);
+        assert!(!tree.node(child).dirty.layout);
+        assert!(tree.node(child).dirty.index);
+        assert!(tree.needs_commit());
+    }
+
+    #[test]
+    fn compute_world_does_not_touch_spatial_index_or_commit_flag() {
+        let counts = Arc::new(BackendCounts::default());
+        let backend = CountingBackend::new(FlatVec::<f64>::default(), counts.clone());
+        let mut tree: Tree<CountingBackend<FlatVec<f64>>> = Tree::with_backend(backend);
+
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 25.0, 25.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        tree.set_local_transform(child, Affine::translate(Vec2::new(10.0, 5.0)));
+        let needs_commit_before = tree.needs_commit();
+        let inserts_before = counts.inserts.load(Ordering::Relaxed);
+        let updates_before = counts.updates.load(Ordering::Relaxed);
+        let removes_before = counts.removes.load(Ordering::Relaxed);
+        let clears_before = counts.clears.load(Ordering::Relaxed);
+
+        let _ = tree.get_or_compute_world_transform(child);
+        let _ = tree.get_or_compute_world_bounds(child);
+
+        assert_eq!(tree.needs_commit(), needs_commit_before);
+        assert_eq!(counts.inserts.load(Ordering::Relaxed), inserts_before);
+        assert_eq!(counts.updates.load(Ordering::Relaxed), updates_before);
+        assert_eq!(counts.removes.load(Ordering::Relaxed), removes_before);
+        assert_eq!(counts.clears.load(Ordering::Relaxed), clears_before);
+    }
+
+    #[test]
+    fn commit_after_compute_world_bounds_still_updates_spatial_index() {
+        let mut tree = Tree::new();
+        let child = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let initial_hit = tree
+            .hit_test_point(Point::new(5.0, 5.0), QueryFilter::new())
+            .unwrap();
+        assert_eq!(initial_hit.node, child);
+
+        tree.set_local_transform(child, Affine::translate(Vec2::new(100.0, 0.0)));
+
+        // This should not prevent commit from synchronizing the index.
+        let _ = tree.get_or_compute_world_bounds(child);
+        let _ = tree.commit();
+
+        let moved_hit = tree
+            .hit_test_point(Point::new(105.0, 5.0), QueryFilter::new())
+            .unwrap();
+        assert_eq!(moved_hit.node, child);
+        assert!(
+            tree.hit_test_point(Point::new(5.0, 5.0), QueryFilter::new())
+                .is_none(),
+            "old location should not be in the index after commit"
+        );
+    }
+
+    #[test]
+    fn get_or_compute_world_bounds_with_clips() {
+        use kurbo::RoundedRect;
+
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_transform: Affine::IDENTITY,
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 150.0, 150.0),
+                local_transform: Affine::translate(Vec2::new(50.0, 50.0)),
+                ..Default::default()
+            },
+        );
+
+        // Child bounds should be clipped by parent's clip region
+        let world_bounds = tree.get_or_compute_world_bounds(child).unwrap();
+        // Child is at (50,50) with size (150,150), so would be (50,50,200,200)
+        // But parent clips at (0,0,100,100), so result is (50,50,100,100)
+        let expected = Rect::new(50.0, 50.0, 100.0, 100.0);
+        assert_eq!(world_bounds, expected);
+
+        // Verify it matches cached value after commit
+        let _ = tree.commit();
+        let cached_bounds = tree.world_bounds(child).unwrap();
+        assert_eq!(cached_bounds, expected);
+    }
+
+    #[test]
+    fn get_or_compute_world_bounds_with_scale() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                local_transform: Affine::scale(2.0),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 50.0, 50.0),
+                local_transform: Affine::translate(Vec2::new(10.0, 10.0)),
+                ..Default::default()
+            },
+        );
+
+        // Child's local bounds (0,0,50,50) at local position (10,10) in parent space
+        // Parent has 2x scale, so world bounds should be (20,20,120,120)
+        let world_bounds = tree.get_or_compute_world_bounds(child).unwrap();
+        let expected = Rect::new(20.0, 20.0, 120.0, 120.0);
+        assert_eq!(world_bounds, expected);
+    }
+
+    #[test]
+    fn get_or_compute_world_bounds_stale_id() {
+        let mut tree = Tree::new();
+        let node = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+                ..Default::default()
+            },
+        );
+
+        assert!(tree.get_or_compute_world_bounds(node).is_some());
+
+        tree.remove(node);
+
+        assert!(tree.get_or_compute_world_bounds(node).is_none());
+    }
+
+    #[test]
+    fn get_or_compute_world_transform_ignores_unrelated_dirty_nodes() {
+        let mut tree = Tree::new();
+        let root = tree.insert(None, LocalNode::default());
+        let target = tree.insert(Some(root), LocalNode::default());
+        let sibling = tree.insert(Some(root), LocalNode::default());
+        let _ = tree.commit();
+
+        let sentinel = Affine::translate(Vec2::new(123.0, 456.0));
+        tree.node_mut(target).world.world_transform = sentinel;
+
+        tree.set_local_transform(sibling, Affine::translate(Vec2::new(9.0, 8.0)));
+        assert!(tree.needs_commit());
+        assert!(!tree.node(target).dirty.transform);
+        assert!(!tree.node(root).dirty.transform);
+        assert!(!tree.node(root).dirty.clip);
+
+        let world_tf = tree.get_or_compute_world_transform(target).unwrap();
+        assert_eq!(world_tf, sentinel);
+    }
+
+    #[test]
+    fn get_or_compute_world_bounds_ignores_unrelated_dirty_nodes() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let target = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(1.0, 1.0, 4.0, 4.0),
+                ..Default::default()
+            },
+        );
+        let sibling = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 5.0, 5.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let sentinel = Rect::new(50.0, 60.0, 70.0, 80.0);
+        tree.node_mut(target).world.world_bounds = sentinel;
+
+        tree.set_local_transform(sibling, Affine::translate(Vec2::new(3.0, 2.0)));
+        assert!(tree.needs_commit());
+        assert!(!tree.node(target).dirty.layout);
+        assert!(!tree.node(target).dirty.transform);
+        assert!(!tree.node(target).dirty.clip);
+        assert!(!tree.node(root).dirty.transform);
+        assert!(!tree.node(root).dirty.clip);
+
+        let world_bounds = tree.get_or_compute_world_bounds(target).unwrap();
+        assert_eq!(world_bounds, sentinel);
+    }
+
+    #[test]
+    fn get_or_compute_dirty_ancestor_still_propagates_descendant_commit() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(1.0, 1.0, 3.0, 3.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        tree.set_local_transform(root, Affine::translate(Vec2::new(10.0, 0.0)));
+        let _ = tree.get_or_compute_world_bounds(root);
+        let _ = tree.commit();
+
+        assert_eq!(
+            tree.world_bounds(child),
+            Some(Rect::new(11.0, 1.0, 13.0, 3.0))
+        );
     }
 }
