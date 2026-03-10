@@ -46,9 +46,9 @@ use crate::util::{rect_to_aabb, transform_rect_bbox};
 /// let world = tree.world_bounds(root).unwrap();
 /// assert_eq!(world, Rect::new(0.0, 0.0, 100.0, 100.0));
 /// ```
-pub struct Tree<B: Backend<f64> = FlatVec<f64>> {
+pub struct Tree<B: Backend<f64> = FlatVec<f64>, M = ()> {
     /// slots
-    nodes: Vec<Option<Node>>,
+    nodes: Vec<Option<Node<M>>>,
     /// last generation per slot (persists across frees)
     generations: Vec<u32>,
     pub(crate) free_list: Vec<usize>,
@@ -58,7 +58,7 @@ pub struct Tree<B: Backend<f64> = FlatVec<f64>> {
     dirty_roots: Vec<NodeId>,
 }
 
-impl<B: Backend<f64> + core::fmt::Debug> core::fmt::Debug for Tree<B> {
+impl<B: Backend<f64> + core::fmt::Debug, M> core::fmt::Debug for Tree<B, M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let total = self.nodes.len();
         let alive = self.nodes.iter().filter(|n| n.is_some()).count();
@@ -74,7 +74,7 @@ impl<B: Backend<f64> + core::fmt::Debug> core::fmt::Debug for Tree<B> {
     }
 }
 
-impl<B> Default for Tree<B>
+impl<B, M: Clone> Default for Tree<B, M>
 where
     B: Backend<f64> + Default,
 {
@@ -158,7 +158,7 @@ struct Dirty {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Node {
+pub(crate) struct Node<M> {
     generation: u32,
     parent: Option<NodeId>,
     children: Vec<NodeId>,
@@ -166,9 +166,10 @@ pub(crate) struct Node {
     world: WorldNode,
     dirty: Dirty,
     index_key: Option<AabbKey>,
+    meta: Option<M>,
 }
 
-impl Node {
+impl<M> Node<M> {
     fn new(generation: u32, local: LocalNode) -> Self {
         Self {
             generation,
@@ -183,6 +184,7 @@ impl Node {
                 index: true,
             },
             index_key: None,
+            meta: None,
         }
     }
 }
@@ -206,7 +208,7 @@ impl Tree {
     }
 }
 
-impl<B: Backend<f64>> Tree<B> {
+impl<B: Backend<f64>, M: Clone> Tree<B, M> {
     /// Create a new tree with a specific backend.
     pub fn with_backend(backend: B) -> Self {
         Self {
@@ -371,6 +373,33 @@ impl<B: Backend<f64>> Tree<B> {
         }
     }
 
+    /// Attach or clear metadata for a live node.
+    ///
+    /// This is useful for keeping caller-owned data (for example widget IDs or
+    /// cache handles) keyed to tree nodes without maintaining a separate map.
+    /// Stale identifiers are ignored.
+    pub fn set_meta(&mut self, id: NodeId, meta: Option<M>) {
+        if let Some(n) = self.node_opt_mut(id) {
+            n.meta = meta;
+        }
+    }
+
+    /// Return metadata for a node if the identifier is live.
+    ///
+    /// The outer [`Option`] is `None` when `id` is stale. The inner
+    /// [`Option`] is the stored metadata value and is `None` when no metadata
+    /// has been set. This is useful when callers need to distinguish "node not
+    /// found" from "node found, but no metadata".
+    pub fn meta(&self, id: NodeId) -> Option<Option<M>> {
+        if !self.is_alive(id) {
+            return None;
+        }
+        self.nodes
+            .get(id.idx())
+            .and_then(|slot| slot.as_ref())
+            .map(|node| node.meta.clone())
+    }
+
     /// Update local bounds.
     ///
     /// This dirties the tree. The changes are propagated on the next call to [`Tree::commit`].
@@ -436,12 +465,12 @@ impl<B: Backend<f64>> Tree<B> {
     }
 
     /// Access a node for debugging; panics if `id` is stale.
-    pub(crate) fn node(&self, id: NodeId) -> &Node {
+    pub(crate) fn node(&self, id: NodeId) -> &Node<M> {
         self.nodes[id.idx()].as_ref().expect("dangling NodeId")
     }
 
     /// Access a node mutably for debugging; panics if `id` is stale.
-    pub(crate) fn node_mut(&mut self, id: NodeId) -> &mut Node {
+    pub(crate) fn node_mut(&mut self, id: NodeId) -> &mut Node<M> {
         self.nodes[id.idx()].as_mut().expect("dangling NodeId")
     }
 
@@ -653,7 +682,7 @@ fn id_is_newer(a: NodeId, b: NodeId) -> bool {
     (a.1 > b.1) || (a.1 == b.1 && a.0 > b.0)
 }
 
-impl<B: Backend<f64>> Tree<B> {
+impl<B: Backend<f64>, M: Clone> Tree<B, M> {
     // --- internals ---
 
     /// Returns true if `id` refers to a live node.
@@ -793,7 +822,7 @@ impl<B: Backend<f64>> Tree<B> {
         None
     }
 
-    fn node_opt_mut(&mut self, id: NodeId) -> Option<&mut Node> {
+    fn node_opt_mut(&mut self, id: NodeId) -> Option<&mut Node<M>> {
         let n = self.nodes.get_mut(id.idx())?.as_mut()?;
         if n.generation != id.1 {
             return None;
