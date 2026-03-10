@@ -22,8 +22,9 @@ Full documentation at https://github.com/orium/cargo-rdme -->
 
 Understory Event State: Common event state managers for UI interactions.
 
-This crate provides small, focused state machines for common UI interactions that require stateful
-tracking across multiple events. Each module handles a specific interaction pattern:
+This crate provides small, focused state machines for common UI interactions
+that require stateful tracking across multiple events. Each module handles a
+specific interaction pattern:
 
 - [`hover`]: Track enter/leave transitions as the pointer moves across UI elements
 - [`focus`]: Manage keyboard focus state and focus transitions
@@ -39,17 +40,17 @@ Each state manager is designed to be:
 - **Integration-friendly**: Work with any event routing or spatial query system
 - **Generic**: Accept application-specific node/widget ID types
 
-The crate does not assume any particular UI framework, event system, or scene graph structure.
-Instead, these managers accept pre-computed information (like root→target paths from
-`understory_responder` or raw pointer positions) and produce transition events or state queries that
-applications can interpret.
+The crate does not assume any particular UI framework, event system, or scene
+graph structure. Instead, these managers accept pre-computed information (like
+root→target paths from `understory_responder` or raw pointer positions) and
+produce transition events or state queries that applications can interpret.
 
 ### Usage Patterns
 
 #### Hover Tracking
 
-Use [`hover::HoverState`] to compute enter/leave transitions when the pointer moves between UI
-elements:
+Use [`hover::HoverState`] to compute enter/leave transitions when the pointer
+moves between UI elements:
 
 ```rust
 use understory_event_state::hover::{HoverState, HoverEvent};
@@ -74,20 +75,26 @@ assert_eq!(events, vec![
 
 #### Focus Management
 
-Use [`focus::FocusState`] to track which element has keyboard focus:
+Use [`focus::FocusState`] to track keyboard focus transitions:
 
 ```rust
 use understory_event_state::focus::{FocusState, FocusEvent};
 
 let mut focus = FocusState::new();
 
-// Focus an element
-let event = focus.set_focus(Some(42));
-assert_eq!(event, Some(FocusEvent::Gained(42)));
+// Focus moves to element 42 (with path from root)
+let events = focus.update_path(&[1, 42]);
+assert_eq!(events, vec![
+    FocusEvent::Enter(1),
+    FocusEvent::Enter(42)
+]);
 
-// Change focus to another element
-let event = focus.set_focus(Some(100));
-assert_eq!(event, Some(FocusEvent::Changed { lost: 42, gained: 100 }));
+// Focus moves to different element 100 (different branch)
+let events = focus.update_path(&[1, 100]);
+assert_eq!(events, vec![
+    FocusEvent::Leave(42),
+    FocusEvent::Enter(100)
+]);
 ```
 
 #### Transform-Aware Click Recognition
@@ -139,8 +146,9 @@ These state managers integrate naturally with other Understory crates:
 - Use `understory_box_tree` hit testing to determine click/drag targets
 - Combine with `understory_selection` to handle selection interactions
 
-Each manager is designed to be a focused building block that handles one interaction pattern well,
-allowing applications to compose them as needed for their specific UI requirements.
+Each manager is designed to be a focused building block that handles one
+interaction pattern well, allowing applications to compose them as needed
+for their specific UI requirements.
 
 ### Features
 

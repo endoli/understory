@@ -342,10 +342,10 @@ impl<K: PartialEq + Clone> ClickState<K> {
     /// * `pointer_id` - Pointer to cancel, defaults to 1 if None
     ///
     /// # Returns
-    /// `true` if a press was canceled, `false` if no press was active
-    pub fn cancel(&mut self, pointer_id: Option<PointerId>) -> bool {
+    /// The removed press if one was active for that pointer, otherwise `None`
+    pub fn cancel(&mut self, pointer_id: Option<PointerId>) -> Option<Press<K>> {
         let pointer_id = pointer_id.unwrap_or(NonZeroU64::new(1).expect("1 is valid non-zero"));
-        self.presses.remove(&pointer_id).is_some()
+        self.presses.remove(&pointer_id)
     }
 
     /// Check if a pointer has an active press.
@@ -626,13 +626,13 @@ mod tests {
 
         // Cancel pointer1
         let canceled = state.cancel(Some(pointer1));
-        assert!(canceled);
+        assert_eq!(canceled.as_ref().map(|press| press.target), Some(42));
         assert!(!state.is_pressed(Some(pointer1)));
         assert!(state.is_pressed(Some(pointer2)));
 
         // Try to cancel pointer1 again
         let canceled_again = state.cancel(Some(pointer1));
-        assert!(!canceled_again);
+        assert!(canceled_again.is_none());
 
         // pointer2 should still work normally
         let result = state.on_up(Some(pointer2), None, &99, Point::new(52.0, 62.0), 1080);
