@@ -4,7 +4,7 @@
 //! Core tree implementation: structure, updates, queries.
 
 use alloc::{vec, vec::Vec};
-use kurbo::{Affine, Point, Rect, RoundedRect, Shape};
+use kurbo::{Affine, Point, Rect, RoundedRect, RoundedRectRadii, Shape};
 use understory_index::{Backend, IndexGeneric, Key as AabbKey, backends::FlatVec};
 
 use crate::damage::Damage;
@@ -357,6 +357,34 @@ impl<B: Backend<f64>> Tree<B> {
         };
         if changed {
             self.mark_dirty(id);
+        }
+    }
+
+    /// Return the node's own local clip after parent clipping, in local space.
+    ///
+    /// This only reports clipping when the node defines a `local_clip` itself.
+    /// If the node has no local clip, this returns `None` even when ancestors clip it.
+    /// When a local clip exists, ancestor clipping is projected into this node's local
+    /// space and intersected with that local clip.
+    pub fn clipped_local_clip(&self, id: NodeId) -> Option<RoundedRect> {
+        if !self.is_alive(id) {
+            return None;
+        }
+
+        let node = self.node(id);
+        let parent_local_clip_rect = node.parent.and_then(|parent_id| {
+            self.node(parent_id)
+                .world
+                .world_clip
+                .map(|clip| transform_rect_bbox(node.world.world_transform_inverse, clip))
+        });
+
+        match (node.local.local_clip, parent_local_clip_rect) {
+            (Some(local), Some(parent_clip_rect)) => {
+                intersect_rounded_rect_with_rect_preserve_corners(local, parent_clip_rect)
+            }
+            (Some(local), None) => Some(local),
+            (None, _) => None,
         }
     }
 
@@ -936,6 +964,59 @@ impl<B: Backend<f64>> Tree<B> {
     }
 }
 
+#[inline]
+fn intersect_rounded_rect_with_rect_preserve_corners(
+    rounded_rect: RoundedRect,
+    clip_rect: Rect,
+) -> Option<RoundedRect> {
+    let base_rect = rounded_rect.rect();
+    let intersection = base_rect.intersect(clip_rect);
+    if intersection.width() <= 0.0 || intersection.height() <= 0.0 {
+        return None;
+    }
+
+    let radii = rounded_rect.radii();
+    let preserve_top_left =
+        approx_eq(intersection.x0, base_rect.x0) && approx_eq(intersection.y0, base_rect.y0);
+    let preserve_top_right =
+        approx_eq(intersection.x1, base_rect.x1) && approx_eq(intersection.y0, base_rect.y0);
+    let preserve_bottom_right =
+        approx_eq(intersection.x1, base_rect.x1) && approx_eq(intersection.y1, base_rect.y1);
+    let preserve_bottom_left =
+        approx_eq(intersection.x0, base_rect.x0) && approx_eq(intersection.y1, base_rect.y1);
+
+    Some(RoundedRect::from_rect(
+        intersection,
+        RoundedRectRadii::new(
+            if preserve_top_left {
+                radii.top_left
+            } else {
+                0.0
+            },
+            if preserve_top_right {
+                radii.top_right
+            } else {
+                0.0
+            },
+            if preserve_bottom_right {
+                radii.bottom_right
+            } else {
+                0.0
+            },
+            if preserve_bottom_left {
+                radii.bottom_left
+            } else {
+                0.0
+            },
+        ),
+    ))
+}
+
+#[inline]
+fn approx_eq(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-9
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::sync::Arc;
@@ -1413,6 +1494,68 @@ mod tests {
         // A point outside the parent's clip must not hit the child.
         let miss = tree.hit_test_point(Point::new(150.0, 150.0), QueryFilter::new());
         assert!(miss.is_none());
+    }
+
+    #[test]
+    fn clipped_local_clip_is_none_when_no_local_clip_even_with_parent_clip() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        assert_eq!(tree.clipped_local_clip(child), None);
+    }
+
+    #[test]
+    fn clipped_local_clip_preserves_only_intact_corners() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(25.0, 0.0, 100.0, 100.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    RoundedRectRadii::new(10.0, 20.0, 30.0, 40.0),
+                )),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let clip = tree.clipped_local_clip(child).unwrap();
+        assert_eq!(clip.rect(), Rect::new(25.0, 0.0, 100.0, 100.0));
+        assert_eq!(
+            clip.radii(),
+            RoundedRectRadii::new(0.0, 20.0, 30.0, 0.0),
+            "left corners are clipped away, right corners remain intact",
+        );
     }
 
     #[test]
