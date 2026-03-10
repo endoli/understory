@@ -128,9 +128,18 @@ impl QueryFilter {
         self
     }
 
-    /// Filter to only focusable nodes.
+    /// Filter to nodes that can own logical focus state.
+    ///
+    /// This requires [`NodeFlags::FOCUSABLE`]. For keyboard traversal, use
+    /// [`Self::keyboard_navigable`].
     pub fn focusable(mut self) -> Self {
         self.required_flags |= NodeFlags::FOCUSABLE;
+        self
+    }
+
+    /// Filter to nodes included in keyboard navigation traversal.
+    pub fn keyboard_navigable(mut self) -> Self {
+        self.required_flags |= NodeFlags::KEYBOARD_NAVIGABLE;
         self
     }
 
@@ -1863,6 +1872,48 @@ mod tests {
         // nothing, as the only focusable child is `focusable_child`, and we're testing a point
         // outside it
         assert!(set_equality(&focusable_containing, &[]));
+    }
+
+    #[test]
+    fn query_filter_keyboard_navigable_only() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                flags: NodeFlags::VISIBLE | NodeFlags::PICKABLE | NodeFlags::FOCUSABLE,
+                ..Default::default()
+            },
+        );
+        let keyboard_nav_child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(10.0, 10.0, 60.0, 60.0),
+                flags: NodeFlags::VISIBLE | NodeFlags::PICKABLE | NodeFlags::KEYBOARD_NAVIGABLE,
+                ..Default::default()
+            },
+        );
+        let _non_keyboard_nav_child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(70.0, 10.0, 120.0, 60.0),
+                flags: NodeFlags::VISIBLE | NodeFlags::PICKABLE | NodeFlags::FOCUSABLE,
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let hit_keyboard_nav = tree.hit_test_point(
+            Point::new(30.0, 30.0),
+            QueryFilter::new().visible().pickable().keyboard_navigable(),
+        );
+        assert_eq!(hit_keyboard_nav.unwrap().node, keyboard_nav_child);
+
+        let hit_non_keyboard_nav = tree.hit_test_point(
+            Point::new(90.0, 30.0),
+            QueryFilter::new().visible().pickable().keyboard_navigable(),
+        );
+        assert!(hit_non_keyboard_nav.is_none());
     }
 
     #[test]
