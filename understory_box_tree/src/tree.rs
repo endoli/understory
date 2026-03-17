@@ -1613,6 +1613,68 @@ mod tests {
     }
 
     #[test]
+    fn clipped_local_clip_tolerance_preserves_almost_aligned_corners() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    0.0,
+                )),
+                ..Default::default()
+            },
+        );
+        let child = tree.insert(
+            Some(root),
+            LocalNode {
+                local_bounds: Rect::new(0.0, 0.0, 200.0, 200.0),
+                local_transform: Affine::translate(Vec2::new(5e-10, 0.0)),
+                local_clip: Some(RoundedRect::from_rect(
+                    Rect::new(0.0, 0.0, 100.0, 100.0),
+                    RoundedRectRadii::new(10.0, 20.0, 30.0, 40.0),
+                )),
+                ..Default::default()
+            },
+        );
+        let _ = tree.commit();
+
+        let clip = tree.clipped_local_clip(child).unwrap();
+        assert_eq!(clip.rect(), Rect::new(0.0, 0.0, 99.999_999_999_5, 100.0));
+        assert_eq!(
+            clip.radii(),
+            RoundedRectRadii::new(10.0, 20.0, 30.0, 40.0),
+            "a nearly aligned ancestor boundary should preserve the untouched corners",
+        );
+    }
+
+    #[test]
+    fn clipped_local_clip_clamps_preserved_radii_after_ancestor_shrink() {
+        let local_clip = RoundedRect::from_rect(
+            Rect::new(0.0, 0.0, 100.0, 20.0),
+            RoundedRectRadii::new(4.0, 18.0, 18.0, 4.0),
+        );
+
+        let clipped = intersect_rounded_rect_with_rect_preserve_corners(
+            local_clip,
+            Rect::new(95.0, 0.0, 100.0, 20.0),
+        )
+        .unwrap();
+        let expected = RoundedRect::from_rect(
+            Rect::new(95.0, 0.0, 100.0, 20.0),
+            RoundedRectRadii::new(0.0, 18.0, 18.0, 0.0),
+        );
+
+        assert_eq!(clipped, expected);
+        assert_eq!(
+            clipped.radii(),
+            expected.radii(),
+            "preserved radii should follow Kurbo's clamping for the shrunken rect",
+        );
+    }
+
+    #[test]
     #[cfg(debug_assertions)]
     #[should_panic(expected = "Tree queries require calling `Tree::commit()`")]
     fn clipped_local_clip_without_commit_panics_in_debug() {
