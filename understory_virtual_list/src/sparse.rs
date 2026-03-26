@@ -82,7 +82,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
             let mut extent = size_fn(&item);
             debug_assert!(
                 extent.is_finite(),
-                "SpasrePrefixSumExtentModel extents must be finite; got {extent:?}"
+                "SparsePrefixSumExtentModel extents must be finite; got {extent:?}"
             );
             if extent.is_sign_negative() {
                 extent = S::zero();
@@ -97,7 +97,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
         // debug builds so misuse does not go unnoticed.
         debug_assert!(
             extent.is_finite(),
-            "PrefixSumExtentModel extents must be finite; got {extent:?}"
+            "SparsePrefixSumExtentModel extents must be finite; got {extent:?}"
         );
         // Clamp finite negative values to `0.0`.
         self.extents_and_prefixes.insert(
