@@ -106,6 +106,7 @@ mod grid_track;
 mod model;
 mod prefix_sum;
 mod scalar;
+mod sparse;
 mod tail_anchored;
 mod virtual_list;
 
@@ -114,5 +115,6 @@ pub use grid_track::GridTrackModel;
 pub use model::{ExtentModel, ResizableExtentModel, VisibleStrip, compute_visible_strip};
 pub use prefix_sum::PrefixSumExtentModel;
 pub use scalar::Scalar;
+pub use sparse::SparsePrefixSumExtentModel;
 pub use tail_anchored::TailAnchoredExtentModel;
 pub use virtual_list::{ScrollAlign, VirtualList};
