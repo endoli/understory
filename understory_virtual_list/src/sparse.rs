@@ -20,7 +20,7 @@ use crate::{ExtentModel, Scalar};
 pub struct SparsePrefixSumExtentModel<S: Scalar> {
     default_extent: S,
     len: usize,
-    extents_and_prefices: BTreeMap<usize, (S, S)>,
+    extents_and_prefixes: BTreeMap<usize, (S, S)>,
     last_valid: Option<usize>,
 }
 
@@ -31,7 +31,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
         Self {
             default_extent,
             len,
-            extents_and_prefices: BTreeMap::new(),
+            extents_and_prefixes: BTreeMap::new(),
             last_valid: None,
         }
     }
@@ -58,13 +58,13 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
 
     /// Updates the total number of items.
     pub fn set_len(&mut self, len: usize) {
-        self.extents_and_prefices.retain(|i, _| *i <= len);
+        self.extents_and_prefixes.retain(|i, _| *i <= len);
         self.len = len;
     }
 
     /// Clears all materialized items.
     pub fn clear(&mut self) {
-        self.extents_and_prefices.clear();
+        self.extents_and_prefixes.clear();
     }
 
     /// Rebuilds the extents from a sequence of items and a size function.
@@ -75,7 +75,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
     where
         I: IntoIterator<Item = (usize, T)>,
     {
-        self.extents_and_prefices.clear();
+        self.extents_and_prefixes.clear();
         self.last_valid = Some(0);
 
         for (index, item) in items {
@@ -87,7 +87,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
             if extent.is_sign_negative() {
                 extent = S::zero();
             }
-            self.extents_and_prefices.insert(index, (extent, S::zero()));
+            self.extents_and_prefixes.insert(index, (extent, S::zero()));
         }
     }
 
@@ -100,7 +100,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
             "PrefixSumExtentModel extents must be finite; got {extent:?}"
         );
         // Clamp finite negative values to `0.0`.
-        self.extents_and_prefices.insert(
+        self.extents_and_prefixes.insert(
             index,
             if extent.is_sign_negative() {
                 (S::zero(), S::zero())
@@ -115,7 +115,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
 
     /// Clears the materialized item at index.
     pub fn clear_extent(&mut self, index: usize) {
-        if self.extents_and_prefices.remove(&index).is_some() {
+        if self.extents_and_prefixes.remove(&index).is_some() {
             self.last_valid = Some(self.last_valid.unwrap_or(index).min(index));
         }
     }
@@ -129,7 +129,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
             };
             (
                 last_valid + 1,
-                self.extents_and_prefices
+                self.extents_and_prefixes
                     .range(..=last_valid)
                     .last()
                     .map_or_else(S::zero, |(_, (_, p))| *p),
@@ -138,7 +138,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
             (0, S::zero())
         };
 
-        for (_, (extent, prefix)) in self.extents_and_prefices.range_mut(start_from..=through) {
+        for (_, (extent, prefix)) in self.extents_and_prefixes.range_mut(start_from..=through) {
             last_prefix = last_prefix + *extent;
             *prefix = last_prefix;
         }
@@ -152,15 +152,15 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
         }
         self.ensure_prefix_through(index);
         let from_default = self.default_extent
-            * S::from_usize(index - self.extents_and_prefices.range(..index).count());
-        let last = self.extents_and_prefices.range(..index).last();
+            * S::from_usize(index - self.extents_and_prefixes.range(..index).count());
+        let last = self.extents_and_prefixes.range(..index).last();
         let from_prefix = last.map_or_else(S::zero, |(_, (_, p))| *p);
         // dbg!(last, from_default, from_prefix);
         from_default + from_prefix
     }
 
     fn extent_at_inner(&self, index: usize) -> S {
-        self.extents_and_prefices
+        self.extents_and_prefixes
             .get(&index)
             .map_or(self.default_extent, |(e, _)| *e)
     }
@@ -205,7 +205,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
         if len == 0 {
             return 0;
         }
-        // let len = len.min(self.extents_and_prefices.len());
+        // let len = len.min(self.extents_and_prefixes.len());
 
         self.ensure_prefix_through(len);
 
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn bofore_set_offsets() {
+    fn before_set_offsets() {
         let mut model = SparsePrefixSumExtentModel::new(10., 30);
         model.set_extent(11, 25.);
         model.set_extent(17, 45.);
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn bofore_set_extents() {
+    fn before_set_extents() {
         let mut model = SparsePrefixSumExtentModel::new(10., 30);
         model.set_extent(11, 25.);
         model.set_extent(17, 45.);
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn bofore_set_indices() {
+    fn before_set_indices() {
         let mut model = SparsePrefixSumExtentModel::new(10., 30);
         model.set_extent(11, 25.);
         model.set_extent(17, 45.);
