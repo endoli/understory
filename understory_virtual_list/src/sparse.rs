@@ -184,7 +184,6 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
     /// This is a convenience wrapper around the internal prefix-sum cache and
     /// is useful when callers want direct access to offsets for a specific item.
     pub fn offset_at(&mut self, index: usize) -> S {
-        let index = index;
         if index == 0 || self.len == 0 {
             return S::zero();
         }
@@ -239,8 +238,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
             let result = self
                 .extents_and_prefixes
                 .iter()
-                .take_while(|(_, (extent, prefix))| *prefix - *extent <= target)
-                .last();
+                .rfind(|(_, (extent, prefix))| *prefix - *extent <= target);
             return result.map_or(0, |(index, _)| *index);
         }
 
@@ -289,7 +287,7 @@ impl<S: Scalar> ExtentModel for SparsePrefixSumExtentModel<S> {
 
 impl<S: Scalar> ResizableExtentModel for SparsePrefixSumExtentModel<S> {
     fn set_len(&mut self, len: usize) {
-        self.set_len(len)
+        self.set_len(len);
     }
 }
 
