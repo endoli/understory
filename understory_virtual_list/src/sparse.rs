@@ -231,40 +231,22 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
             return 0;
         }
 
-        self.ensure_prefix_through(len);
         let target = offset.max(S::zero());
 
-        if self.default_extent == S::zero() {
-            let result = self
-                .extents_and_prefixes
-                .iter()
-                .rfind(|(_, (extent, prefix))| *prefix - *extent <= target);
-            return if result == self.extents_and_prefixes.last_key_value() {
-                result
-                    .and_then(|(index, (_, prefix))| (target < *prefix).then_some(*index))
-                    .unwrap_or(len - 1)
+        // Find the greatest index whose start offset is <= target.
+        let mut lo = 0;
+        let mut hi = len - 1;
+
+        while lo < hi {
+            let mid = lo + (hi - lo + 1) / 2;
+            if self.offset_at(mid) <= target {
+                lo = mid;
             } else {
-                result.map_or(len - 1, |(index, _)| *index)
-            };
+                hi = mid - 1;
+            }
         }
 
-        let mut result = (target / self.default_extent)
-            .truncate_to_isize()
-            .cast_unsigned()
-            .min(len - 1);
-        loop {
-            let offset_at = self.offset_at(result);
-            let offset_past = offset_at + self.extent_at(result);
-            if offset_at == offset_past {
-                break result.min(len - 1);
-            }
-            result = match (offset_at <= target, target < offset_past) {
-                (true, true) => break result.min(len - 1),
-                (true, false) => result.saturating_add(1),
-                (false, true) => result.saturating_sub(1),
-                (false, false) => unreachable!(),
-            };
-        }
+        lo
     }
 }
 
