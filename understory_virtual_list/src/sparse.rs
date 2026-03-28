@@ -239,12 +239,19 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
                 .extents_and_prefixes
                 .iter()
                 .rfind(|(_, (extent, prefix))| *prefix - *extent <= target);
-            return result.map_or(0, |(index, _)| *index);
+            return if result == self.extents_and_prefixes.last_key_value() {
+                result
+                    .and_then(|(index, (_, prefix))| (target < *prefix).then_some(*index))
+                    .unwrap_or(len - 1)
+            } else {
+                result.map_or(len - 1, |(index, _)| *index)
+            };
         }
 
         let mut result = (target / self.default_extent)
             .truncate_to_isize()
-            .cast_unsigned();
+            .cast_unsigned()
+            .min(len - 1);
         loop {
             let offset_at = self.offset_at(result);
             let offset_past = offset_at + self.extent_at(result);
