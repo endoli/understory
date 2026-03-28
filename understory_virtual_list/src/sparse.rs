@@ -6,10 +6,10 @@
 
 use alloc::collections::BTreeMap;
 
-use crate::{ExtentModel, ResizableExtentModel, Scalar};
+use crate::{ExtentModel, Scalar};
 
-/// An [`ExtentModel`] backed by per-item extents and a lazily-maintained prefix-sum cache.
-/// with fixed-sized placeholders for un-materialized items.
+/// An [`ExtentModel`] backed by per-item extents and a lazily-maintained prefix-sum cache with
+/// fixed-sized placeholders for un-materialized items.
 ///
 /// This is suitable for lists with non-uniform item sizes and incremental measurement:
 /// callers can start with a default estimated extent and update extents as real layout information

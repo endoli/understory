@@ -61,8 +61,7 @@
 //!
 //! For non-uniform item sizes, use either [`PrefixSumExtentModel`] if all items are readily
 //! available and it is feasible to load them up-front, or [`SparsePrefixSumExtentModel`] if there
-//! are too many items to keep loaded at all-times and feed measured extents back into it after
-//! layout.
+//! are too many items to keep loaded at once and feed measured extents back into it after layout.
 //! A typical pattern is:
 //! - start with a rough estimate for all items,
 //! - measure actual extents after layout and call [`PrefixSumExtentModel::set_extent`] /
