@@ -238,7 +238,7 @@ impl<S: Scalar> SparsePrefixSumExtentModel<S> {
         let mut hi = len - 1;
 
         while lo < hi {
-            let mid = lo + (hi - lo + 1) / 2;
+            let mid = lo + (hi - lo).div_ceil(2);
             if self.offset_at(mid) <= target {
                 lo = mid;
             } else {
