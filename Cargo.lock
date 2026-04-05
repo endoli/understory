@@ -520,7 +520,6 @@ dependencies = [
  "serde",
  "serde_json",
  "understory_box_tree",
- "understory_dirty",
  "understory_index",
  "understory_property",
  "understory_style",
@@ -533,13 +532,6 @@ dependencies = [
  "bitflags",
  "kurbo",
  "understory_index",
-]
-
-[[package]]
-name = "understory_dirty"
-version = "0.1.0"
-dependencies = [
- "hashbrown",
 ]
 
 [[package]]

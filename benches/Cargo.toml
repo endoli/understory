@@ -8,7 +8,6 @@ autobenches = false
 [dependencies]
 understory_index = { path = "../understory_index" }
 understory_box_tree = { path = "../understory_box_tree" }
-understory_dirty = { path = "../understory_dirty" }
 understory_property = { path = "../understory_property" }
 understory_style = { path = "../understory_style" }
 kurbo.workspace = true
@@ -35,10 +34,6 @@ required-features = ["compare_rstar"]
 
 [[bench]]
 name = "ui_box_tree"
-harness = false
-
-[[bench]]
-name = "dirty"
 harness = false
 
 [[bench]]
