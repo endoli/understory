@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::any::{Any, TypeId};
 use hashbrown::HashMap;
-use understory_dirty::ChannelSet;
+use invalidation::ChannelSet;
 
 use crate::id::{Property, PropertyId};
 use crate::metadata::PropertyMetadata;
@@ -74,7 +74,7 @@ impl core::fmt::Debug for PropertyRegistration {
 ///
 /// ```rust
 /// use understory_property::{PropertyRegistry, PropertyMetadataBuilder};
-/// use understory_dirty::Channel;
+/// use invalidation::Channel;
 ///
 /// const LAYOUT: Channel = Channel::new(0);
 ///
@@ -251,7 +251,7 @@ mod tests {
     use super::*;
     use crate::metadata::PropertyMetadataBuilder;
     use alloc::{format, vec, vec::Vec};
-    use understory_dirty::Channel;
+    use invalidation::Channel;
 
     const LAYOUT: Channel = Channel::new(0);
     const PAINT: Channel = Channel::new(1);

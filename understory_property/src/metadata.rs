@@ -7,7 +7,7 @@
 //! and [`PropertyMetadataBuilder`] for ergonomic construction.
 
 use alloc::boxed::Box;
-use understory_dirty::ChannelSet;
+use invalidation::ChannelSet;
 
 /// Callback invoked when a property value changes.
 ///
@@ -29,7 +29,7 @@ pub type CoerceValueCallback<T> = Box<dyn Fn(T) -> T + Send + Sync>;
 ///
 /// ```rust
 /// use understory_property::PropertyMetadataBuilder;
-/// use understory_dirty::Channel;
+/// use invalidation::Channel;
 ///
 /// const LAYOUT: Channel = Channel::new(0);
 ///
@@ -141,7 +141,7 @@ impl<T: Clone + core::fmt::Debug + 'static> core::fmt::Debug for PropertyMetadat
 ///
 /// ```rust
 /// use understory_property::PropertyMetadataBuilder;
-/// use understory_dirty::Channel;
+/// use invalidation::Channel;
 ///
 /// const LAYOUT: Channel = Channel::new(0);
 /// const PAINT: Channel = Channel::new(1);
@@ -246,7 +246,7 @@ mod tests {
     use alloc::format;
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicBool, Ordering};
-    use understory_dirty::Channel;
+    use invalidation::Channel;
 
     const LAYOUT: Channel = Channel::new(0);
     const PAINT: Channel = Channel::new(1);

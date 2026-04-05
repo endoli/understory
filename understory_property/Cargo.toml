@@ -9,8 +9,8 @@ keywords = ["property", "dependency", "ui", "framework", "no_std"]
 categories = ["data-structures", "no-std"]
 
 [dependencies]
-understory_dirty = { path = "../understory_dirty" }
 hashbrown.workspace = true
+invalidation.workspace = true
 smallvec.workspace = true
 
 [lints]

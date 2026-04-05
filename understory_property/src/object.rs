@@ -7,7 +7,7 @@
 //! have dependency properties, and [`DependencyObjectExt`] for convenient
 //! property access methods including inheritance resolution.
 
-use understory_dirty::ChannelSet;
+use invalidation::ChannelSet;
 
 use crate::id::Property;
 use crate::registry::PropertyRegistry;
@@ -378,7 +378,7 @@ pub trait DependencyObjectExt<K: Copy + Eq>: DependencyObject<K> {
     ///     DependencyObject, DependencyObjectExt, PropertyStore,
     ///     PropertyMetadataBuilder, PropertyRegistry,
     /// };
-    /// use understory_dirty::Channel;
+    /// use invalidation::Channel;
     ///
     /// const LAYOUT: Channel = Channel::new(0);
     ///
@@ -704,7 +704,7 @@ mod tests {
 
     #[test]
     fn ext_set_local_notifying() {
-        use understory_dirty::Channel;
+        use invalidation::Channel;
 
         const LAYOUT: Channel = Channel::new(0);
 

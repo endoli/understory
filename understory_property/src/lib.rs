@@ -31,7 +31,7 @@
 //! use understory_property::{
 //!     Property, PropertyMetadataBuilder, PropertyRegistry, PropertyStore,
 //! };
-//! use understory_dirty::Channel;
+//! use invalidation::Channel;
 //!
 //! const LAYOUT: Channel = Channel::new(0);
 //!

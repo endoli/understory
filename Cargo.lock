@@ -236,6 +236,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
+name = "invalidation"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f67508d5f48cfefd99f534c87837a755edd94c60f87d8cfc3b14e521a7f07a6"
+dependencies = [
+ "hashbrown",
+]
+
+[[package]]
 name = "is-terminal"
 version = "0.4.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -582,8 +591,8 @@ name = "understory_property"
 version = "0.1.0"
 dependencies = [
  "hashbrown",
+ "invalidation",
  "smallvec",
- "understory_dirty",
 ]
 
 [[package]]
