@@ -8,6 +8,8 @@ autobenches = false
 [dependencies]
 understory_index = { path = "../understory_index" }
 understory_box_tree = { path = "../understory_box_tree" }
+understory_inspector = { path = "../understory_inspector" }
+understory_outline = { path = "../understory_outline" }
 understory_property = { path = "../understory_property" }
 understory_style = { path = "../understory_style" }
 kurbo.workspace = true
@@ -38,4 +40,8 @@ harness = false
 
 [[bench]]
 name = "property"
+harness = false
+
+[[bench]]
+name = "outline_inspector"
 harness = false

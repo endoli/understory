@@ -34,6 +34,18 @@ These examples form a short, progressive walkthrough from routing basics to inte
   - Use `intersect_rect` to compute a simple visible window (like a virtualized list) using `understory_box_tree`.
   - Run: `cargo run -p understory_examples --example box_tree_visible_list`
 
+- outline_property_grid
+  - Build a grouped property-grid-style outline, expand/collapse groups, and inspect the visible row projection.
+  - Run: `cargo run -p understory_examples --example outline_property_grid`
+
+- outline_virtual_list
+  - Compose `understory_outline` with `understory_virtual_list` by virtualizing the visible rows of an expanded outline.
+  - Run: `cargo run -p understory_examples --example outline_virtual_list`
+
+- outline_inspector
+  - Drive `understory_inspector` over a property-grid-style domain model, then inspect expansion sync, visible-row focus, range selection, and collapse pruning.
+  - Run: `cargo run -p understory_examples --example outline_inspector`
+
 Notes
 - Examples live in a separate crate (`understory_examples`) so that published crates stay free of example-only dependencies.
 - Output is formatted with section headers to make sequences easy to follow.

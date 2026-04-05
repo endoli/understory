@@ -521,6 +521,8 @@ dependencies = [
  "serde_json",
  "understory_box_tree",
  "understory_index",
+ "understory_inspector",
+ "understory_outline",
  "understory_property",
  "understory_style",
 ]
@@ -550,8 +552,11 @@ dependencies = [
  "understory_event_state",
  "understory_focus",
  "understory_index",
+ "understory_inspector",
+ "understory_outline",
  "understory_precise_hit",
  "understory_responder",
+ "understory_virtual_list",
 ]
 
 [[package]]
@@ -569,6 +574,22 @@ version = "0.0.1"
 dependencies = [
  "hashbrown",
  "smallvec",
+]
+
+[[package]]
+name = "understory_inspector"
+version = "0.1.0"
+dependencies = [
+ "understory_outline",
+ "understory_selection",
+ "understory_virtual_list",
+]
+
+[[package]]
+name = "understory_outline"
+version = "0.1.0"
+dependencies = [
+ "hashbrown",
 ]
 
 [[package]]

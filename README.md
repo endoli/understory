@@ -30,6 +30,16 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Provides pluggable policies for directional and ordered navigation, and an optional adapter for integrating with `understory_box_tree`.
   - Designed to be independent of any particular widget toolkit or event system.
 
+- `understory_inspector`
+  - Host-side controller for hierarchical inspection UIs built on top of outline projection, fixed-row virtualization, and selection.
+  - Owns expansion/focus/selection synchronization over visible rows without taking on rendering, icons, badges, or columns.
+  - Designed to sit above `understory_outline` and below any actual inspector widget or host UI.
+
+- `understory_outline`
+  - Hierarchical visible-row projection primitives for expandable tree views, grouped property grids, and disclosure lists over existing domain models.
+  - Defines an `OutlineModel` trait, explicit expansion state, a cached visible-row projection controller, and a dense slice-backed reference model when data already exists in that form.
+  - Designed to compose with `understory_virtual_list` rather than replace it.
+
 - `understory_precise_hit`
   - Geometry‑level, narrow‑phase hit testing for shapes in local 2D coordinates, built on `kurbo`.
   - Provides a small `PreciseHitTest` trait with `HitParams`/`HitScore` helpers and default impls for `Rect`, `Circle`, `RoundedRect`, and fill‑only `BezPath`.
@@ -104,12 +114,17 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
   - `understory_box_tree/README.md` has usage, hit‑testing, and visible‑set examples.
   - `understory_responder/README.md` explains routing, capture, and how to integrate with a picker.
   - `understory_focus/README.md` covers focus navigation policies and adapters.
+  - `understory_inspector/README.md` documents the host-side controller for outline-backed inspection UIs.
+  - `understory_outline/README.md` documents hierarchical visible-row projection, expansion state, and grouped/tree-style usage.
   - `understory_selection/README.md` documents the selection container, anchor/revision semantics, and click helpers.
   - `understory_view2d/README.md` documents the 2D and 1D viewport types, clamping/fit modes, and examples of using visible regions for culling.
 - Run examples.
   - `cargo run -p understory_examples --example index_basics`
   - `cargo run -p understory_examples --example box_tree_basics`
   - `cargo run -p understory_examples --example box_tree_visible_list`
+  - `cargo run -p understory_examples --example outline_property_grid`
+  - `cargo run -p understory_examples --example outline_virtual_list`
+  - `cargo run -p understory_examples --example outline_inspector`
   - `cargo run -p understory_examples --example responder_basics`
   - `cargo run -p understory_examples --example responder_hover`
   - `cargo run -p understory_examples --example responder_box_tree`
