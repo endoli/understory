@@ -10,6 +10,7 @@
 //! - major / medium / minor tick selection
 //! - 1-2-5 step sizing
 //! - label eligibility decisions based on spacing thresholds
+//! - spacing metadata for callers that need consistent axis-derived policy
 //!
 //! It does not own:
 //! - domain-specific label formatting
@@ -36,7 +37,7 @@
 //!     },
 //! );
 //!
-//! let ticks = scale.ticks_in_range(0.0..100.0);
+//! let ticks: std::vec::Vec<_> = scale.iter_ticks_in_range(0.0..100.0).collect();
 //! assert!(ticks.iter().any(|tick| tick.kind == AxisTickKind::Major && tick.labeled));
 //! ```
 //!
@@ -95,6 +96,7 @@ impl Default for AxisScaleOptions {
 /// A derived 1D axis scale over a continuous numeric domain.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct AxisScale1D {
+    world_units_per_pixel: f64,
     major_step: f64,
     minor_step: f64,
     subdivisions: usize,
@@ -112,7 +114,8 @@ impl AxisScale1D {
     /// Derive a scale from a world-units-per-pixel ratio and explicit options.
     #[must_use]
     pub fn with_options(world_units_per_pixel: f64, options: AxisScaleOptions) -> Self {
-        let target_major_step = world_units_per_pixel.abs() * options.target_major_spacing_px;
+        let world_units_per_pixel = world_units_per_pixel.abs().max(f64::MIN_POSITIVE);
+        let target_major_step = world_units_per_pixel * options.target_major_spacing_px;
         let major_step = choose_step(target_major_step.max(options.min_major_step).max(1e-12));
         let subdivisions = subdivisions_for_step(major_step);
         let minor_step = major_step / subdivisions as f64;
@@ -121,10 +124,11 @@ impl AxisScale1D {
         } else {
             None
         };
-        let major_spacing_px = major_step / world_units_per_pixel.abs().max(f64::MIN_POSITIVE);
+        let major_spacing_px = major_step / world_units_per_pixel;
         let medium_labels = major_spacing_px >= options.medium_label_min_spacing_px;
 
         Self {
+            world_units_per_pixel,
             major_step,
             minor_step,
             subdivisions,
@@ -133,10 +137,23 @@ impl AxisScale1D {
         }
     }
 
+    /// Returns the world-units-per-pixel ratio used to derive this axis scale.
+    #[must_use]
+    pub fn world_units_per_pixel(&self) -> f64 {
+        self.world_units_per_pixel
+    }
+
     /// Returns the derived major step in world units.
     #[must_use]
     pub fn major_step(&self) -> f64 {
         self.major_step
+    }
+
+    /// Returns the derived medium step in world units when the scale has one.
+    #[must_use]
+    pub fn medium_step(&self) -> Option<f64> {
+        self.medium_interval
+            .map(|interval| self.minor_step * interval as f64)
     }
 
     /// Returns the derived minor step in world units.
@@ -145,38 +162,94 @@ impl AxisScale1D {
         self.minor_step
     }
 
+    /// Returns the spacing in pixels between major ticks.
+    #[must_use]
+    pub fn major_spacing_px(&self) -> f64 {
+        self.major_step / self.world_units_per_pixel
+    }
+
+    /// Returns the spacing in pixels between medium ticks when the scale has one.
+    #[must_use]
+    pub fn medium_spacing_px(&self) -> Option<f64> {
+        self.medium_step()
+            .map(|step| step / self.world_units_per_pixel)
+    }
+
+    /// Returns the spacing in pixels between minor ticks.
+    #[must_use]
+    pub fn minor_spacing_px(&self) -> f64 {
+        self.minor_step / self.world_units_per_pixel
+    }
+
+    /// Returns whether medium ticks are eligible for labeling under this scale.
+    #[must_use]
+    pub fn medium_ticks_are_labeled(&self) -> bool {
+        self.medium_labels
+    }
+
+    /// Iterates ticks covering the provided visible range plus one minor step on each side.
+    #[must_use]
+    pub fn iter_ticks_in_range(&self, visible: Range<f64>) -> AxisTicksIter {
+        AxisTicksIter {
+            scale: *self,
+            visible_start: visible.start,
+            visible_end: visible.end,
+            next_index: floor_to_i64(visible.start / self.minor_step) - 1,
+            end_index: ceil_to_i64(visible.end / self.minor_step) + 1,
+        }
+    }
+
     /// Returns ticks covering the provided visible range plus one minor step on each side.
     #[must_use]
     pub fn ticks_in_range(&self, visible: Range<f64>) -> Vec<AxisTick> {
-        let start_index = floor_to_i64(visible.start / self.minor_step) - 1;
-        let end_index = ceil_to_i64(visible.end / self.minor_step) + 1;
-        let mut ticks = Vec::new();
+        self.iter_ticks_in_range(visible).collect()
+    }
+}
 
-        for index in start_index..=end_index {
-            let value = index as f64 * self.minor_step;
-            if value < visible.start - self.minor_step || value > visible.end + self.minor_step {
+/// Iterator over ticks produced by an [`AxisScale1D`] for a visible numeric range.
+#[derive(Clone, Debug)]
+pub struct AxisTicksIter {
+    scale: AxisScale1D,
+    visible_start: f64,
+    visible_end: f64,
+    next_index: i64,
+    end_index: i64,
+}
+
+impl Iterator for AxisTicksIter {
+    type Item = AxisTick;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.next_index <= self.end_index {
+            let index = self.next_index;
+            self.next_index += 1;
+            let value = index as f64 * self.scale.minor_step;
+            if value < self.visible_start - self.scale.minor_step
+                || value > self.visible_end + self.scale.minor_step
+            {
                 continue;
             }
-            let sub_index = usize::try_from(index.rem_euclid(self.subdivisions as i64))
+            let sub_index = usize::try_from(index.rem_euclid(self.scale.subdivisions as i64))
                 .expect("rem_euclid stays within subdivision count");
             let (kind, labeled) = if sub_index == 0 {
                 (AxisTickKind::Major, true)
             } else if self
+                .scale
                 .medium_interval
                 .is_some_and(|interval| sub_index.is_multiple_of(interval))
             {
-                (AxisTickKind::Medium, self.medium_labels)
+                (AxisTickKind::Medium, self.scale.medium_labels)
             } else {
                 (AxisTickKind::Minor, false)
             };
-            ticks.push(AxisTick {
+            return Some(AxisTick {
                 value,
                 kind,
                 labeled,
             });
         }
 
-        ticks
+        None
     }
 }
 
@@ -252,6 +325,8 @@ fn ceil_to_i64(value: f64) -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::{AxisScale1D, AxisScaleOptions, AxisTickKind};
 
     #[test]
@@ -286,5 +361,33 @@ mod tests {
         assert!(!ticks.is_empty());
         assert!(ticks.iter().any(|tick| tick.value <= 10.0));
         assert!(ticks.iter().any(|tick| tick.value >= 40.0));
+    }
+
+    #[test]
+    fn iterator_matches_vec_helper() {
+        let scale = AxisScale1D::new(0.25);
+        let via_iter: Vec<_> = scale.iter_ticks_in_range(-15.0..42.0).collect();
+        let via_vec = scale.ticks_in_range(-15.0..42.0);
+        assert_eq!(via_iter, via_vec);
+    }
+
+    #[test]
+    fn spacing_metadata_matches_steps() {
+        let scale = AxisScale1D::with_options(
+            0.5,
+            AxisScaleOptions {
+                target_major_spacing_px: 96.0,
+                min_major_step: 0.0,
+                medium_label_min_spacing_px: 220.0,
+            },
+        );
+        assert!((scale.major_spacing_px() - scale.major_step() / 0.5).abs() < 1e-9);
+        assert!((scale.minor_spacing_px() - scale.minor_step() / 0.5).abs() < 1e-9);
+        if let Some(medium_step) = scale.medium_step() {
+            let medium_spacing = scale
+                .medium_spacing_px()
+                .expect("medium step implies medium spacing");
+            assert!((medium_spacing - medium_step / 0.5).abs() < 1e-9);
+        }
     }
 }
