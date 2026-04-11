@@ -1,14 +1,14 @@
 // Copyright 2026 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Understory Axis: headless numeric axis scale and tick primitives.
+//! Understory Axis: headless axis mapping and tick primitives.
 //!
-//! This crate focuses on one narrow concern: deriving stable, "nice" 1D tick
-//! positions from a continuous numeric axis.
+//! This crate focuses on one narrow concern: mapping numeric domains onto a 1D
+//! view span and deriving stable, "nice" tick positions for that mapping.
 //!
 //! It owns:
+//! - linear and logarithmic 1D axis mappings
 //! - major / medium / minor tick selection
-//! - 1-2-5 step sizing
 //! - label eligibility decisions based on spacing thresholds
 //! - spacing metadata for callers that need consistent axis-derived policy
 //! - configurable major-step ladders and subdivision policies for different axis domains
@@ -19,12 +19,8 @@
 //! - viewport transforms
 //! - rendering or text layout
 //!
-//! It currently models linear numeric axes. A true logarithmic axis needs a
-//! different world/view contract and range-dependent tick placement, so it is
-//! not represented here as "just another ladder."
-//!
 //! The intended split is:
-//! - a caller supplies world-units-per-pixel and a visible numeric range
+//! - a caller supplies a headless axis mapping plus tick policy
 //! - this crate returns tick positions plus their semantic kind
 //! - the caller formats tick labels appropriate to its own domain
 //!
@@ -32,12 +28,13 @@
 //!
 //! ```rust
 //! use understory_axis::{
-//!     AxisMajorStepLadder, AxisScale1D, AxisScaleOptions, AxisSubdivisionPolicy,
-//!     AxisTickKind,
+//!     AxisMajorStepLadder, AxisMapping1D, AxisScale1D, AxisScaleOptions,
+//!     AxisSubdivisionPolicy, AxisTickKind,
 //! };
 //!
-//! let scale = AxisScale1D::with_options(
-//!     0.5,
+//! let mapping = AxisMapping1D::linear(0.0..200.0, 0.0..100.0);
+//! let scale = AxisScale1D::from_mapping(
+//!     &mapping,
 //!     AxisScaleOptions {
 //!         target_major_spacing_px: 100.0,
 //!         min_major_step: 0.0,
@@ -168,15 +165,175 @@ pub enum AxisSubdivisionPolicy {
     Fixed(usize),
 }
 
-/// A derived 1D axis scale over a continuous numeric domain.
+/// A headless 1D axis mapping over a visible domain range and view span.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AxisMapping1D {
+    /// Linear mapping with a constant domain-units-per-pixel ratio.
+    Linear(AxisLinearMapping1D),
+    /// Logarithmic mapping over a positive domain.
+    Log(AxisLogMapping1D),
+}
+
+impl AxisMapping1D {
+    /// Creates a linear mapping for a visible domain and view span.
+    #[must_use]
+    pub fn linear(view_span: Range<f64>, visible_domain: Range<f64>) -> Self {
+        Self::Linear(AxisLinearMapping1D {
+            view_span,
+            visible_domain,
+        })
+    }
+
+    /// Creates a logarithmic mapping for a visible positive domain and view span.
+    ///
+    /// Invalid bases fall back to `10.0`.
+    #[must_use]
+    pub fn log(view_span: Range<f64>, visible_domain: Range<f64>, base: f64) -> Self {
+        Self::Log(AxisLogMapping1D {
+            view_span,
+            visible_domain,
+            base: normalized_log_base(base),
+        })
+    }
+
+    /// Returns the current view span in device coordinates.
+    #[must_use]
+    pub fn view_span(&self) -> Range<f64> {
+        match self {
+            Self::Linear(mapping) => mapping.view_span.clone(),
+            Self::Log(mapping) => mapping.view_span.clone(),
+        }
+    }
+
+    /// Returns the currently visible domain range.
+    #[must_use]
+    pub fn visible_domain(&self) -> Range<f64> {
+        match self {
+            Self::Linear(mapping) => mapping.visible_domain.clone(),
+            Self::Log(mapping) => mapping.visible_domain.clone(),
+        }
+    }
+
+    /// Maps a domain value into the view span.
+    #[must_use]
+    pub fn domain_to_view(&self, value: f64) -> f64 {
+        match self {
+            Self::Linear(mapping) => mapping.domain_to_view(value),
+            Self::Log(mapping) => mapping.domain_to_view(value),
+        }
+    }
+
+    /// Maps a view coordinate back into the domain.
+    #[must_use]
+    pub fn view_to_domain(&self, value: f64) -> f64 {
+        match self {
+            Self::Linear(mapping) => mapping.view_to_domain(value),
+            Self::Log(mapping) => mapping.view_to_domain(value),
+        }
+    }
+}
+
+/// Linear 1D axis mapping with a constant domain-units-per-pixel ratio.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AxisLinearMapping1D {
+    view_span: Range<f64>,
+    visible_domain: Range<f64>,
+}
+
+impl AxisLinearMapping1D {
+    fn domain_to_view(&self, value: f64) -> f64 {
+        let domain_len = self.visible_domain.end - self.visible_domain.start;
+        let view_len = self.view_span.end - self.view_span.start;
+        if domain_len == 0.0 {
+            return self.view_span.start;
+        }
+        self.view_span.start + (value - self.visible_domain.start) * view_len / domain_len
+    }
+
+    fn view_to_domain(&self, value: f64) -> f64 {
+        let view_len = self.view_span.end - self.view_span.start;
+        let domain_len = self.visible_domain.end - self.visible_domain.start;
+        if view_len == 0.0 {
+            return self.visible_domain.start;
+        }
+        self.visible_domain.start + (value - self.view_span.start) * domain_len / view_len
+    }
+}
+
+/// Logarithmic 1D axis mapping over a positive domain.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AxisLogMapping1D {
+    view_span: Range<f64>,
+    visible_domain: Range<f64>,
+    base: f64,
+}
+
+impl AxisLogMapping1D {
+    fn domain_to_view(&self, value: f64) -> f64 {
+        let min = self.visible_domain.start.min(self.visible_domain.end);
+        let max = self.visible_domain.start.max(self.visible_domain.end);
+        if value <= 0.0 || min <= 0.0 || max <= 0.0 {
+            return self.view_span.start;
+        }
+        let log_min = log_in_base(min, self.base);
+        let log_max = log_in_base(max, self.base);
+        let view_len = self.view_span.end - self.view_span.start;
+        if log_max == log_min {
+            return self.view_span.start;
+        }
+        self.view_span.start
+            + (log_in_base(value, self.base) - log_min) * view_len / (log_max - log_min)
+    }
+
+    fn view_to_domain(&self, value: f64) -> f64 {
+        let min = self.visible_domain.start.min(self.visible_domain.end);
+        let max = self.visible_domain.start.max(self.visible_domain.end);
+        if min <= 0.0 || max <= 0.0 {
+            return min.max(f64::MIN_POSITIVE);
+        }
+        let log_min = log_in_base(min, self.base);
+        let log_max = log_in_base(max, self.base);
+        let view_len = self.view_span.end - self.view_span.start;
+        if view_len == 0.0 {
+            return min;
+        }
+        let log_value = log_min + (value - self.view_span.start) * (log_max - log_min) / view_len;
+        libm::pow(self.base, log_value)
+    }
+}
+
+/// A derived 1D axis tick guide over a numeric mapping.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct AxisScale1D {
-    world_units_per_pixel: f64,
-    major_step: f64,
-    minor_step: f64,
-    subdivisions: usize,
-    medium_interval: Option<usize>,
-    medium_labels: bool,
+    kind: AxisScaleKind,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum AxisScaleKind {
+    Linear {
+        world_units_per_pixel: f64,
+        major_step: f64,
+        minor_step: f64,
+        subdivisions: usize,
+        medium_interval: Option<usize>,
+        medium_labels: bool,
+    },
+    Log {
+        base: f64,
+        log_units_per_pixel: f64,
+        major_log_step: f64,
+        subdivisions: usize,
+        medium_interval: Option<usize>,
+        medium_labels: bool,
+        subdivision_mode: LogSubdivisionMode,
+    },
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum LogSubdivisionMode {
+    None,
+    IntegerMultiples { base_int: usize },
+    EvenLogIntervals,
 }
 
 impl AxisScale1D {
@@ -189,6 +346,31 @@ impl AxisScale1D {
     /// Derive a scale from a world-units-per-pixel ratio and explicit options.
     #[must_use]
     pub fn with_options(world_units_per_pixel: f64, options: AxisScaleOptions) -> Self {
+        Self::linear_from_world_units_per_pixel(world_units_per_pixel, options)
+    }
+
+    /// Derive a scale from an explicit axis mapping and tick policy.
+    #[must_use]
+    pub fn from_mapping(mapping: &AxisMapping1D, options: AxisScaleOptions) -> Self {
+        match mapping {
+            AxisMapping1D::Linear(mapping) => {
+                let view_len = (mapping.view_span.end - mapping.view_span.start).abs();
+                let domain_len = (mapping.visible_domain.end - mapping.visible_domain.start).abs();
+                let world_units_per_pixel = if view_len > 0.0 {
+                    domain_len / view_len
+                } else {
+                    f64::MIN_POSITIVE
+                };
+                Self::linear_from_world_units_per_pixel(world_units_per_pixel, options)
+            }
+            AxisMapping1D::Log(mapping) => Self::log_from_mapping(mapping, options),
+        }
+    }
+
+    fn linear_from_world_units_per_pixel(
+        world_units_per_pixel: f64,
+        options: AxisScaleOptions,
+    ) -> Self {
         let world_units_per_pixel = world_units_per_pixel.abs().max(f64::MIN_POSITIVE);
         let target_major_step = world_units_per_pixel * options.target_major_spacing_px;
         let major_step = choose_step(
@@ -210,138 +392,365 @@ impl AxisScale1D {
         let medium_labels = major_spacing_px >= options.medium_label_min_spacing_px;
 
         Self {
-            world_units_per_pixel,
-            major_step,
-            minor_step,
-            subdivisions,
-            medium_interval,
-            medium_labels,
+            kind: AxisScaleKind::Linear {
+                world_units_per_pixel,
+                major_step,
+                minor_step,
+                subdivisions,
+                medium_interval,
+                medium_labels,
+            },
         }
     }
 
-    /// Returns the world-units-per-pixel ratio used to derive this axis scale.
-    #[must_use]
-    pub fn world_units_per_pixel(&self) -> f64 {
-        self.world_units_per_pixel
-    }
-
-    /// Returns the derived major step in world units.
-    #[must_use]
-    pub fn major_step(&self) -> f64 {
-        self.major_step
-    }
-
-    /// Returns the step in world units implied by the smallest label-eligible ticks.
-    #[must_use]
-    pub fn label_step(&self) -> f64 {
-        if self.medium_labels {
-            self.medium_step().unwrap_or(self.major_step)
+    fn log_from_mapping(mapping: &AxisLogMapping1D, options: AxisScaleOptions) -> Self {
+        let min = mapping.visible_domain.start.min(mapping.visible_domain.end);
+        let max = mapping.visible_domain.start.max(mapping.visible_domain.end);
+        let view_len = (mapping.view_span.end - mapping.view_span.start)
+            .abs()
+            .max(f64::MIN_POSITIVE);
+        let log_units_per_pixel = if min > 0.0 && max > 0.0 {
+            (log_in_base(max, mapping.base) - log_in_base(min, mapping.base)).abs() / view_len
         } else {
-            self.major_step
+            f64::MIN_POSITIVE
+        };
+        let target_major_step = log_units_per_pixel * options.target_major_spacing_px;
+        let major_log_step = choose_log_major_step(target_major_step.max(1e-12));
+        let major_spacing_px = major_log_step / log_units_per_pixel.max(f64::MIN_POSITIVE);
+        let medium_labels = major_spacing_px >= options.medium_label_min_spacing_px;
+        let (subdivisions, medium_interval, subdivision_mode) =
+            derive_log_subdivision_mode(mapping.base, major_log_step, options.subdivision_policy);
+
+        Self {
+            kind: AxisScaleKind::Log {
+                base: mapping.base,
+                log_units_per_pixel,
+                major_log_step,
+                subdivisions,
+                medium_interval,
+                medium_labels,
+                subdivision_mode,
+            },
         }
     }
 
-    /// Returns the derived medium step in world units when the scale has one.
+    /// Returns the domain-units-per-pixel ratio used to derive this axis scale when constant.
+    #[must_use]
+    pub fn world_units_per_pixel(&self) -> Option<f64> {
+        match self.kind {
+            AxisScaleKind::Linear {
+                world_units_per_pixel,
+                ..
+            } => Some(world_units_per_pixel),
+            AxisScaleKind::Log { .. } => None,
+        }
+    }
+
+    /// Returns the derived major step in domain units when the axis has a uniform domain step.
+    #[must_use]
+    pub fn major_step(&self) -> Option<f64> {
+        match self.kind {
+            AxisScaleKind::Linear { major_step, .. } => Some(major_step),
+            AxisScaleKind::Log { .. } => None,
+        }
+    }
+
+    /// Returns the step in domain units implied by the smallest label-eligible ticks when uniform.
+    #[must_use]
+    pub fn label_step(&self) -> Option<f64> {
+        match self.kind {
+            AxisScaleKind::Linear {
+                major_step,
+                minor_step,
+                medium_interval,
+                medium_labels,
+                ..
+            } => {
+                if medium_labels {
+                    Some(
+                        medium_interval
+                            .map(|interval| minor_step * interval as f64)
+                            .unwrap_or(major_step),
+                    )
+                } else {
+                    Some(major_step)
+                }
+            }
+            AxisScaleKind::Log { .. } => None,
+        }
+    }
+
+    /// Returns the derived medium step in domain units when the axis has a uniform domain step.
     #[must_use]
     pub fn medium_step(&self) -> Option<f64> {
-        self.medium_interval
-            .map(|interval| self.minor_step * interval as f64)
+        match self.kind {
+            AxisScaleKind::Linear {
+                minor_step,
+                medium_interval,
+                ..
+            } => medium_interval.map(|interval| minor_step * interval as f64),
+            AxisScaleKind::Log { .. } => None,
+        }
     }
 
-    /// Returns the derived minor step in world units.
+    /// Returns the derived minor step in domain units when the axis has a uniform domain step.
     #[must_use]
-    pub fn minor_step(&self) -> f64 {
-        self.minor_step
+    pub fn minor_step(&self) -> Option<f64> {
+        match self.kind {
+            AxisScaleKind::Linear { minor_step, .. } => Some(minor_step),
+            AxisScaleKind::Log { .. } => None,
+        }
     }
 
-    /// Returns the spacing in pixels between major ticks.
+    /// Returns the spacing in pixels between major ticks when uniform in view space.
     #[must_use]
-    pub fn major_spacing_px(&self) -> f64 {
-        self.major_step / self.world_units_per_pixel
+    pub fn major_spacing_px(&self) -> Option<f64> {
+        match self.kind {
+            AxisScaleKind::Linear {
+                world_units_per_pixel,
+                major_step,
+                ..
+            } => Some(major_step / world_units_per_pixel),
+            AxisScaleKind::Log {
+                log_units_per_pixel,
+                major_log_step,
+                ..
+            } => Some(major_log_step / log_units_per_pixel),
+        }
     }
 
-    /// Returns the spacing in pixels between medium ticks when the scale has one.
+    /// Returns the spacing in pixels between medium ticks when it is uniform in view space.
     #[must_use]
     pub fn medium_spacing_px(&self) -> Option<f64> {
-        self.medium_step()
-            .map(|step| step / self.world_units_per_pixel)
+        match self.kind {
+            AxisScaleKind::Linear {
+                world_units_per_pixel,
+                minor_step,
+                medium_interval,
+                ..
+            } => {
+                medium_interval.map(|interval| minor_step * interval as f64 / world_units_per_pixel)
+            }
+            AxisScaleKind::Log {
+                log_units_per_pixel,
+                major_log_step,
+                medium_interval,
+                subdivision_mode: LogSubdivisionMode::EvenLogIntervals,
+                ..
+            } => medium_interval.map(|interval| {
+                let log_step = major_log_step / interval as f64;
+                log_step / log_units_per_pixel
+            }),
+            AxisScaleKind::Log { .. } => None,
+        }
     }
 
-    /// Returns the spacing in pixels between minor ticks.
+    /// Returns the spacing in pixels between minor ticks when it is uniform in view space.
     #[must_use]
-    pub fn minor_spacing_px(&self) -> f64 {
-        self.minor_step / self.world_units_per_pixel
+    pub fn minor_spacing_px(&self) -> Option<f64> {
+        match self.kind {
+            AxisScaleKind::Linear {
+                world_units_per_pixel,
+                minor_step,
+                ..
+            } => Some(minor_step / world_units_per_pixel),
+            AxisScaleKind::Log {
+                log_units_per_pixel,
+                major_log_step,
+                subdivisions,
+                subdivision_mode: LogSubdivisionMode::EvenLogIntervals,
+                ..
+            } => Some((major_log_step / subdivisions as f64) / log_units_per_pixel),
+            AxisScaleKind::Log { .. } => None,
+        }
     }
 
     /// Returns whether medium ticks are eligible for labeling under this scale.
     #[must_use]
     pub fn medium_ticks_are_labeled(&self) -> bool {
-        self.medium_labels
+        match self.kind {
+            AxisScaleKind::Linear { medium_labels, .. } => medium_labels,
+            AxisScaleKind::Log { medium_labels, .. } => medium_labels,
+        }
     }
 
     /// Iterates ticks covering the provided visible range plus one minor step on each side.
     #[must_use]
     pub fn iter_ticks_in_range(&self, visible: Range<f64>) -> AxisTicksIter {
         AxisTicksIter {
-            scale: *self,
-            visible_start: visible.start,
-            visible_end: visible.end,
-            next_index: floor_to_i64(visible.start / self.minor_step) - 1,
-            end_index: ceil_to_i64(visible.end / self.minor_step) + 1,
+            inner: self.ticks_in_range(visible).into_iter(),
         }
     }
 
     /// Returns ticks covering the provided visible range plus one minor step on each side.
     #[must_use]
     pub fn ticks_in_range(&self, visible: Range<f64>) -> Vec<AxisTick> {
-        self.iter_ticks_in_range(visible).collect()
+        match self.kind {
+            AxisScaleKind::Linear {
+                minor_step,
+                subdivisions,
+                medium_interval,
+                medium_labels,
+                ..
+            } => build_linear_ticks(
+                visible,
+                minor_step,
+                subdivisions,
+                medium_interval,
+                medium_labels,
+            ),
+            AxisScaleKind::Log {
+                base,
+                major_log_step,
+                subdivisions,
+                medium_interval,
+                medium_labels,
+                subdivision_mode,
+                ..
+            } => build_log_ticks(
+                visible,
+                base,
+                major_log_step,
+                subdivisions,
+                medium_interval,
+                medium_labels,
+                subdivision_mode,
+            ),
+        }
     }
 }
 
 /// Iterator over ticks produced by an [`AxisScale1D`] for a visible numeric range.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct AxisTicksIter {
-    scale: AxisScale1D,
-    visible_start: f64,
-    visible_end: f64,
-    next_index: i64,
-    end_index: i64,
+    inner: alloc::vec::IntoIter<AxisTick>,
 }
 
 impl Iterator for AxisTicksIter {
     type Item = AxisTick;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.next_index <= self.end_index {
-            let index = self.next_index;
-            self.next_index += 1;
-            let value = index as f64 * self.scale.minor_step;
-            if value < self.visible_start - self.scale.minor_step
-                || value > self.visible_end + self.scale.minor_step
-            {
-                continue;
-            }
-            let sub_index = usize::try_from(index.rem_euclid(self.scale.subdivisions as i64))
-                .expect("rem_euclid stays within subdivision count");
-            let (kind, labeled) = if sub_index == 0 {
-                (AxisTickKind::Major, true)
-            } else if self
-                .scale
-                .medium_interval
-                .is_some_and(|interval| sub_index.is_multiple_of(interval))
-            {
-                (AxisTickKind::Medium, self.scale.medium_labels)
-            } else {
-                (AxisTickKind::Minor, false)
-            };
-            return Some(AxisTick {
-                value,
-                kind,
-                labeled,
-            });
-        }
+        self.inner.next()
+    }
+}
 
-        None
+fn build_linear_ticks(
+    visible: Range<f64>,
+    minor_step: f64,
+    subdivisions: usize,
+    medium_interval: Option<usize>,
+    medium_labels: bool,
+) -> Vec<AxisTick> {
+    let start_index = floor_to_i64(visible.start / minor_step) - 1;
+    let end_index = ceil_to_i64(visible.end / minor_step) + 1;
+    let mut ticks = Vec::new();
+
+    for index in start_index..=end_index {
+        let value = index as f64 * minor_step;
+        if value < visible.start - minor_step || value > visible.end + minor_step {
+            continue;
+        }
+        let sub_index = usize::try_from(index.rem_euclid(subdivisions as i64))
+            .expect("rem_euclid stays within subdivision count");
+        let (kind, labeled) = if sub_index == 0 {
+            (AxisTickKind::Major, true)
+        } else if medium_interval.is_some_and(|interval| sub_index.is_multiple_of(interval)) {
+            (AxisTickKind::Medium, medium_labels)
+        } else {
+            (AxisTickKind::Minor, false)
+        };
+        ticks.push(AxisTick {
+            value,
+            kind,
+            labeled,
+        });
+    }
+
+    ticks
+}
+
+fn build_log_ticks(
+    visible: Range<f64>,
+    base: f64,
+    major_log_step: f64,
+    subdivisions: usize,
+    medium_interval: Option<usize>,
+    medium_labels: bool,
+    subdivision_mode: LogSubdivisionMode,
+) -> Vec<AxisTick> {
+    let min = visible.start.min(visible.end).max(f64::MIN_POSITIVE);
+    let max = visible.start.max(visible.end);
+    if !min.is_finite() || !max.is_finite() || max <= 0.0 {
+        return Vec::new();
+    }
+
+    let log_min = log_in_base(min, base);
+    let log_max = log_in_base(max.max(min), base);
+    let start_index = floor_to_i64(log_min / major_log_step) - 1;
+    let end_index = ceil_to_i64(log_max / major_log_step) + 1;
+    let mut ticks = Vec::new();
+
+    for major_index in start_index..=end_index {
+        let major_log = major_index as f64 * major_log_step;
+        match subdivision_mode {
+            LogSubdivisionMode::None => push_log_tick(
+                &mut ticks,
+                libm::pow(base, major_log),
+                min,
+                max,
+                AxisTickKind::Major,
+                true,
+            ),
+            LogSubdivisionMode::IntegerMultiples { base_int } => {
+                let decade_value = libm::pow(base, major_log);
+                let medium_factor = integer_multiple_medium_factor(base_int);
+                for factor in 1..base_int {
+                    let value = decade_value * factor as f64;
+                    let (kind, labeled) = if factor == 1 {
+                        (AxisTickKind::Major, true)
+                    } else if Some(factor) == medium_factor {
+                        (AxisTickKind::Medium, medium_labels)
+                    } else {
+                        (AxisTickKind::Minor, false)
+                    };
+                    push_log_tick(&mut ticks, value, min, max, kind, labeled);
+                }
+            }
+            LogSubdivisionMode::EvenLogIntervals => {
+                let medium_index = medium_interval.unwrap_or(0);
+                let log_minor_step = major_log_step / subdivisions as f64;
+                for sub_index in 0..subdivisions {
+                    let value = libm::pow(base, major_log + sub_index as f64 * log_minor_step);
+                    let (kind, labeled) = if sub_index == 0 {
+                        (AxisTickKind::Major, true)
+                    } else if medium_interval.is_some_and(|_| sub_index == medium_index) {
+                        (AxisTickKind::Medium, medium_labels)
+                    } else {
+                        (AxisTickKind::Minor, false)
+                    };
+                    push_log_tick(&mut ticks, value, min, max, kind, labeled);
+                }
+            }
+        }
+    }
+
+    ticks
+}
+
+fn push_log_tick(
+    ticks: &mut Vec<AxisTick>,
+    value: f64,
+    min: f64,
+    max: f64,
+    kind: AxisTickKind,
+    labeled: bool,
+) {
+    if value.is_finite() && value >= min && value <= max {
+        ticks.push(AxisTick {
+            value,
+            kind,
+            labeled,
+        });
     }
 }
 
@@ -365,6 +774,10 @@ fn choose_step(target: f64, ladder: AxisMajorStepLadder) -> f64 {
             choose_time_like_step(target, units_per_second)
         }
     }
+}
+
+fn choose_log_major_step(target: f64) -> f64 {
+    choose_decimal_125_step(target)
 }
 
 fn choose_decimal_125_step(target: f64) -> f64 {
@@ -410,6 +823,18 @@ fn choose_time_like_step(target: f64, units_per_second: f64) -> f64 {
     choose_decimal_125_step(target_seconds / 86_400.0) * 86_400.0 * units_per_second
 }
 
+fn normalized_log_base(base: f64) -> f64 {
+    if base.is_finite() && base > 0.0 && !approx_eq(base, 1.0) {
+        base
+    } else {
+        10.0
+    }
+}
+
+fn log_in_base(value: f64, base: f64) -> f64 {
+    libm::log(value) / libm::log(normalized_log_base(base))
+}
+
 fn subdivisions_for_step(
     step: f64,
     ladder: AxisMajorStepLadder,
@@ -427,6 +852,43 @@ fn auto_subdivisions_for_step(step: f64, ladder: AxisMajorStepLadder) -> usize {
         AxisMajorStepLadder::BinaryPowerOfTwo => 4,
         AxisMajorStepLadder::TimeLike { units_per_second } => {
             time_like_subdivisions(step, units_per_second)
+        }
+    }
+}
+
+fn derive_log_subdivision_mode(
+    base: f64,
+    major_log_step: f64,
+    policy: AxisSubdivisionPolicy,
+) -> (usize, Option<usize>, LogSubdivisionMode) {
+    match policy {
+        AxisSubdivisionPolicy::Fixed(count) => {
+            let subdivisions = count.max(1);
+            let medium_interval = if subdivisions.is_multiple_of(2) {
+                Some(subdivisions / 2)
+            } else {
+                None
+            };
+            let mode = if subdivisions > 1 {
+                LogSubdivisionMode::EvenLogIntervals
+            } else {
+                LogSubdivisionMode::None
+            };
+            (subdivisions, medium_interval, mode)
+        }
+        AxisSubdivisionPolicy::Auto => {
+            if approx_eq(major_log_step, 1.0)
+                && let Some(base_int) = small_integer_base(base)
+                && base_int > 2
+            {
+                (
+                    base_int - 1,
+                    None,
+                    LogSubdivisionMode::IntegerMultiples { base_int },
+                )
+            } else {
+                (1, None, LogSubdivisionMode::None)
+            }
         }
     }
 }
@@ -450,6 +912,32 @@ fn decimal_125_subdivisions(step: f64) -> usize {
         4
     } else {
         5
+    }
+}
+
+fn small_integer_base(base: f64) -> Option<usize> {
+    let rounded = libm::round(base);
+    if approx_eq(base, rounded) && (2.0..=16.0).contains(&rounded) {
+        #[expect(
+            clippy::cast_sign_loss,
+            clippy::cast_possible_truncation,
+            reason = "bounded to a small positive integer range"
+        )]
+        {
+            Some(rounded as usize)
+        }
+    } else {
+        None
+    }
+}
+
+fn integer_multiple_medium_factor(base_int: usize) -> Option<usize> {
+    if base_int >= 4 && base_int.is_multiple_of(2) {
+        Some(base_int / 2)
+    } else if base_int >= 5 {
+        Some(5.min(base_int - 1))
+    } else {
+        None
     }
 }
 
@@ -523,14 +1011,18 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::{
-        AxisMajorStepLadder, AxisScale1D, AxisScaleOptions, AxisSubdivisionPolicy, AxisTickKind,
+        AxisMajorStepLadder, AxisMapping1D, AxisScale1D, AxisScaleOptions, AxisSubdivisionPolicy,
+        AxisTickKind,
     };
 
     #[test]
     fn larger_world_units_produce_larger_major_steps() {
         let coarse = AxisScale1D::new(2.0);
         let fine = AxisScale1D::new(0.2);
-        assert!(coarse.major_step() > fine.major_step());
+        assert!(
+            coarse.major_step().expect("linear scale has a major step")
+                > fine.major_step().expect("linear scale has a major step")
+        );
     }
 
     #[test]
@@ -582,8 +1074,16 @@ mod tests {
                 subdivision_policy: AxisSubdivisionPolicy::Auto,
             },
         );
-        assert!((scale.major_spacing_px() - scale.major_step() / 0.5).abs() < 1e-9);
-        assert!((scale.minor_spacing_px() - scale.minor_step() / 0.5).abs() < 1e-9);
+        let major_step = scale.major_step().expect("linear scale has a major step");
+        let minor_step = scale.minor_step().expect("linear scale has a minor step");
+        let major_spacing = scale
+            .major_spacing_px()
+            .expect("linear scale has major spacing");
+        let minor_spacing = scale
+            .minor_spacing_px()
+            .expect("linear scale has minor spacing");
+        assert!((major_spacing - major_step / 0.5).abs() < 1e-9);
+        assert!((minor_spacing - minor_step / 0.5).abs() < 1e-9);
         if let Some(medium_step) = scale.medium_step() {
             let medium_spacing = scale
                 .medium_spacing_px()
@@ -604,9 +1104,9 @@ mod tests {
                 subdivision_policy: AxisSubdivisionPolicy::Auto,
             },
         );
-        assert_eq!(scale.major_step(), 8.0);
+        assert_eq!(scale.major_step(), Some(8.0));
         assert_eq!(scale.medium_step(), Some(4.0));
-        assert_eq!(scale.minor_step(), 2.0);
+        assert_eq!(scale.minor_step(), Some(2.0));
     }
 
     #[test]
@@ -635,7 +1135,10 @@ mod tests {
         );
         assert_eq!(
             fine.label_step(),
-            fine.medium_step().unwrap_or(fine.major_step())
+            Some(
+                fine.medium_step()
+                    .unwrap_or(fine.major_step().expect("linear scale has a major step"))
+            )
         );
     }
 
@@ -653,8 +1156,8 @@ mod tests {
                 subdivision_policy: AxisSubdivisionPolicy::Auto,
             },
         );
-        assert_eq!(scale.major_step(), 15_000.0);
-        assert_eq!(scale.minor_step(), 5_000.0);
+        assert_eq!(scale.major_step(), Some(15_000.0));
+        assert_eq!(scale.minor_step(), Some(5_000.0));
     }
 
     #[test]
@@ -669,8 +1172,50 @@ mod tests {
                 subdivision_policy: AxisSubdivisionPolicy::Fixed(8),
             },
         );
-        assert_eq!(scale.major_step(), 8.0);
-        assert_eq!(scale.minor_step(), 1.0);
+        assert_eq!(scale.major_step(), Some(8.0));
+        assert_eq!(scale.minor_step(), Some(1.0));
         assert_eq!(scale.medium_step(), Some(4.0));
+    }
+
+    #[test]
+    fn explicit_linear_mapping_matches_linear_convenience() {
+        let mapping = AxisMapping1D::linear(20.0..220.0, 50.0..150.0);
+        let from_mapping = AxisScale1D::from_mapping(&mapping, AxisScaleOptions::default());
+        let from_ratio = AxisScale1D::with_options(0.5, AxisScaleOptions::default());
+        assert_eq!(from_mapping.major_step(), from_ratio.major_step());
+        assert_eq!(from_mapping.minor_step(), from_ratio.minor_step());
+    }
+
+    #[test]
+    fn log_mapping_generates_power_ticks_without_uniform_domain_step() {
+        let mapping = AxisMapping1D::log(0.0..300.0, 1.0..1_000.0, 10.0);
+        let scale = AxisScale1D::from_mapping(&mapping, AxisScaleOptions::default());
+        let ticks = scale.ticks_in_range(1.0..1_000.0);
+        assert!(
+            ticks
+                .iter()
+                .any(|tick| tick.value == 1.0 && tick.kind == AxisTickKind::Major)
+        );
+        assert!(
+            ticks
+                .iter()
+                .any(|tick| tick.value == 10.0 && tick.kind == AxisTickKind::Major)
+        );
+        assert!(
+            ticks
+                .iter()
+                .any(|tick| tick.value == 100.0 && tick.kind == AxisTickKind::Major)
+        );
+        assert_eq!(scale.major_step(), None);
+        assert_eq!(scale.label_step(), None);
+    }
+
+    #[test]
+    fn log_mapping_round_trips_domain_and_view_values() {
+        let mapping = AxisMapping1D::log(10.0..210.0, 1.0..100.0, 10.0);
+        let value = 10.0;
+        let view = mapping.domain_to_view(value);
+        let round_trip = mapping.view_to_domain(view);
+        assert!((round_trip - value).abs() < 1e-9);
     }
 }

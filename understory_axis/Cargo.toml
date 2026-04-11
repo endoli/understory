@@ -10,6 +10,7 @@ keywords = ["ui", "axis", "scale", "no_std", "understory"]
 categories = ["gui", "data-structures", "no-std"]
 
 [dependencies]
+libm = { version = "0.2", default-features = false }
 
 [lints]
 workspace = true
