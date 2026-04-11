@@ -11,6 +11,7 @@
 //! - 1-2-5 step sizing
 //! - label eligibility decisions based on spacing thresholds
 //! - spacing metadata for callers that need consistent axis-derived policy
+//! - configurable numeric step ladders for different axis domains
 //!
 //! It does not own:
 //! - domain-specific label formatting
@@ -26,7 +27,7 @@
 //! ## Minimal example
 //!
 //! ```rust
-//! use understory_axis::{AxisScale1D, AxisScaleOptions, AxisTickKind};
+//! use understory_axis::{AxisScale1D, AxisScaleOptions, AxisStepLadder, AxisTickKind};
 //!
 //! let scale = AxisScale1D::with_options(
 //!     0.5,
@@ -34,6 +35,7 @@
 //!         target_major_spacing_px: 100.0,
 //!         min_major_step: 0.0,
 //!         medium_label_min_spacing_px: 220.0,
+//!         step_ladder: AxisStepLadder::Decimal125,
 //!     },
 //! );
 //!
@@ -81,6 +83,8 @@ pub struct AxisScaleOptions {
     pub min_major_step: f64,
     /// Minimum major spacing in pixels before medium ticks become label-eligible.
     pub medium_label_min_spacing_px: f64,
+    /// Numeric ladder used to choose major tick steps.
+    pub step_ladder: AxisStepLadder,
 }
 
 impl Default for AxisScaleOptions {
@@ -89,8 +93,21 @@ impl Default for AxisScaleOptions {
             target_major_spacing_px: 96.0,
             min_major_step: 0.0,
             medium_label_min_spacing_px: 220.0,
+            step_ladder: AxisStepLadder::Decimal125,
         }
     }
+}
+
+/// Numeric ladder used to choose major axis steps.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum AxisStepLadder {
+    /// Decimal `1-2-5` major steps: `... 0.1, 0.2, 0.5, 1, 2, 5, 10 ...`.
+    Decimal125,
+    /// Binary power-of-two major steps: `... 1, 2, 4, 8, 16 ...`.
+    ///
+    /// This is useful for sample indices, memory-like domains, and other
+    /// quantities that naturally prefer binary breakpoints over decimal ones.
+    BinaryPowerOfTwo,
 }
 
 /// A derived 1D axis scale over a continuous numeric domain.
@@ -116,8 +133,11 @@ impl AxisScale1D {
     pub fn with_options(world_units_per_pixel: f64, options: AxisScaleOptions) -> Self {
         let world_units_per_pixel = world_units_per_pixel.abs().max(f64::MIN_POSITIVE);
         let target_major_step = world_units_per_pixel * options.target_major_spacing_px;
-        let major_step = choose_step(target_major_step.max(options.min_major_step).max(1e-12));
-        let subdivisions = subdivisions_for_step(major_step);
+        let major_step = choose_step(
+            target_major_step.max(options.min_major_step).max(1e-12),
+            options.step_ladder,
+        );
+        let subdivisions = subdivisions_for_step(major_step, options.step_ladder);
         let minor_step = major_step / subdivisions as f64;
         let medium_interval = if subdivisions.is_multiple_of(2) {
             Some(subdivisions / 2)
@@ -147,6 +167,16 @@ impl AxisScale1D {
     #[must_use]
     pub fn major_step(&self) -> f64 {
         self.major_step
+    }
+
+    /// Returns the step in world units implied by the smallest label-eligible ticks.
+    #[must_use]
+    pub fn label_step(&self) -> f64 {
+        if self.medium_labels {
+            self.medium_step().unwrap_or(self.major_step)
+        } else {
+            self.major_step
+        }
     }
 
     /// Returns the derived medium step in world units when the scale has one.
@@ -253,47 +283,69 @@ impl Iterator for AxisTicksIter {
     }
 }
 
-fn choose_step(target: f64) -> f64 {
-    let mut unit = 1.0_f64;
-    if target >= 1.0 {
-        while unit * 10.0 <= target {
-            unit *= 10.0;
+fn choose_step(target: f64, ladder: AxisStepLadder) -> f64 {
+    match ladder {
+        AxisStepLadder::Decimal125 => {
+            let mut unit = 1.0_f64;
+            if target >= 1.0 {
+                while unit * 10.0 <= target {
+                    unit *= 10.0;
+                }
+            } else {
+                while unit > target {
+                    unit /= 10.0;
+                }
+            }
+
+            for mantissa in [1.0_f64, 2.0, 5.0, 10.0] {
+                let step = mantissa * unit;
+                if step >= target {
+                    return step;
+                }
+            }
+
+            10.0 * unit
         }
-    } else {
-        while unit > target {
-            unit /= 10.0;
+        AxisStepLadder::BinaryPowerOfTwo => {
+            let mut step = 1.0_f64;
+            if target >= 1.0 {
+                while step < target {
+                    step *= 2.0;
+                }
+            } else {
+                while step * 0.5 >= target {
+                    step *= 0.5;
+                }
+            }
+            step
         }
     }
-
-    for mantissa in [1.0_f64, 2.0, 5.0, 10.0] {
-        let step = mantissa * unit;
-        if step >= target {
-            return step;
-        }
-    }
-
-    10.0 * unit
 }
 
-fn subdivisions_for_step(step: f64) -> usize {
-    let step = step.abs().max(1e-12);
-    let mut scale = 1.0_f64;
-    if step >= 1.0 {
-        while scale * 10.0 <= step {
-            scale *= 10.0;
+fn subdivisions_for_step(step: f64, ladder: AxisStepLadder) -> usize {
+    match ladder {
+        AxisStepLadder::Decimal125 => {
+            let step = step.abs().max(1e-12);
+            let mut scale = 1.0_f64;
+            if step >= 1.0 {
+                while scale * 10.0 <= step {
+                    scale *= 10.0;
+                }
+            } else {
+                while scale > step {
+                    scale /= 10.0;
+                }
+            }
+            let normalized = step / scale;
+            if normalized <= 1.0 + 1e-6 {
+                10
+            } else if normalized <= 2.0 + 1e-6 {
+                4
+            } else {
+                5
+            }
         }
-    } else {
-        while scale > step {
-            scale /= 10.0;
-        }
-    }
-    let normalized = step / scale;
-    if normalized <= 1.0 + 1e-6 {
-        10
-    } else if normalized <= 2.0 + 1e-6 {
-        4
-    } else {
-        5
+        AxisStepLadder::BinaryPowerOfTwo => 4,
     }
 }
 
@@ -327,7 +379,7 @@ fn ceil_to_i64(value: f64) -> i64 {
 mod tests {
     use alloc::vec::Vec;
 
-    use super::{AxisScale1D, AxisScaleOptions, AxisTickKind};
+    use super::{AxisScale1D, AxisScaleOptions, AxisStepLadder, AxisTickKind};
 
     #[test]
     fn larger_world_units_produce_larger_major_steps() {
@@ -344,6 +396,7 @@ mod tests {
                 target_major_spacing_px: 320.0,
                 min_major_step: 0.0,
                 medium_label_min_spacing_px: 220.0,
+                step_ladder: AxisStepLadder::Decimal125,
             },
         );
         let ticks = scale.ticks_in_range(0.0..100.0);
@@ -379,6 +432,7 @@ mod tests {
                 target_major_spacing_px: 96.0,
                 min_major_step: 0.0,
                 medium_label_min_spacing_px: 220.0,
+                step_ladder: AxisStepLadder::Decimal125,
             },
         );
         assert!((scale.major_spacing_px() - scale.major_step() / 0.5).abs() < 1e-9);
@@ -389,5 +443,49 @@ mod tests {
                 .expect("medium step implies medium spacing");
             assert!((medium_spacing - medium_step / 0.5).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn binary_step_ladder_prefers_power_of_two_steps() {
+        let scale = AxisScale1D::with_options(
+            0.75,
+            AxisScaleOptions {
+                target_major_spacing_px: 8.0,
+                min_major_step: 0.0,
+                medium_label_min_spacing_px: 220.0,
+                step_ladder: AxisStepLadder::BinaryPowerOfTwo,
+            },
+        );
+        assert_eq!(scale.major_step(), 8.0);
+        assert_eq!(scale.medium_step(), Some(4.0));
+        assert_eq!(scale.minor_step(), 2.0);
+    }
+
+    #[test]
+    fn label_step_tracks_smallest_label_eligible_ticks() {
+        let coarse = AxisScale1D::with_options(
+            1.0,
+            AxisScaleOptions {
+                target_major_spacing_px: 96.0,
+                min_major_step: 0.0,
+                medium_label_min_spacing_px: 220.0,
+                step_ladder: AxisStepLadder::Decimal125,
+            },
+        );
+        assert_eq!(coarse.label_step(), coarse.major_step());
+
+        let fine = AxisScale1D::with_options(
+            0.05,
+            AxisScaleOptions {
+                target_major_spacing_px: 320.0,
+                min_major_step: 0.0,
+                medium_label_min_spacing_px: 220.0,
+                step_ladder: AxisStepLadder::Decimal125,
+            },
+        );
+        assert_eq!(
+            fine.label_step(),
+            fine.medium_step().unwrap_or(fine.major_step())
+        );
     }
 }

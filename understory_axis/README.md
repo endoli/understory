@@ -5,6 +5,7 @@ Headless numeric axis scale and tick primitives for Understory.
 This crate owns:
 
 - 1D axis scale selection from world-units-per-pixel
+- configurable numeric step ladders
 - major / medium / minor tick classification
 - labeled-tick eligibility
 - spacing metadata for callers that want consistent axis-derived policy
