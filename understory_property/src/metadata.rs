@@ -11,7 +11,9 @@ use invalidation::ChannelSet;
 
 /// Callback invoked when a property value changes.
 ///
-/// The callback receives the old value (if any) and the new value.
+/// The callback receives the previous effective-local value and the new
+/// effective-local value when invoked through notifying helpers such as
+/// [`crate::DependencyObjectExt::set_local_notifying`].
 pub type PropertyChangedCallback<T> = Box<dyn Fn(Option<&T>, &T) + Send + Sync>;
 
 /// Callback for coercing a property value before it's stored.
