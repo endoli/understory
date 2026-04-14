@@ -16,3 +16,6 @@ understory_focus = { path = "../understory_focus" }
 understory_index = { path = "../understory_index" }
 understory_precise_hit = { path = "../understory_precise_hit" }
 understory_event_state = { path = "../understory_event_state" }
+understory_inspector = { path = "../understory_inspector" }
+understory_outline = { path = "../understory_outline" }
+understory_virtual_list = { path = "../understory_virtual_list" }
