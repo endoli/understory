@@ -360,8 +360,16 @@ pub trait DependencyObjectExt<K: Copy + Eq>: DependencyObject<K> {
     /// This is the "blessed" API for setting property values. It:
     /// 1. Coerces the value using the property's coerce callback (if any)
     /// 2. Stores the value at the local layer
-    /// 3. Calls the property's changed callback (if any)
-    /// 4. Returns the affected channels for dirty marking
+    /// 3. Computes the new effective local value (`Animation -> Local -> default`)
+    /// 4. Calls the property's changed callback if that effective local value changed
+    /// 5. Returns affected channels only when the effective local value changed
+    ///
+    /// This helper does **not** consult inheritance or style layers; it only
+    /// reasons about the same effective-local resolution used by
+    /// [`DependencyObjectExt::get_effective_local`].
+    ///
+    /// `T` must implement [`PartialEq`] so no-op effective changes can be
+    /// suppressed reliably.
     ///
     /// The caller is responsible for marking dirty channels:
     /// ```ignore
@@ -401,22 +409,26 @@ pub trait DependencyObjectExt<K: Copy + Eq>: DependencyObject<K> {
     ///
     /// let mut element = Element { key: 1, parent: None, store: PropertyStore::new(1) };
     ///
-    /// // Set value - coerces, stores, returns affected channels
-    /// let channels = element.set_local_notifying(width, -10.0, &registry);
+    /// // Set value - stores it and returns affected channels because the
+    /// // effective local value changed from the default.
+    /// let channels = element.set_local_notifying(width, 10.0, &registry);
     ///
-    /// // Value was coerced to 0.0
-    /// assert_eq!(element.property_store().get_local(width), Some(&0.0));
+    /// assert_eq!(element.property_store().get_local(width), Some(&10.0));
     ///
     /// // Caller marks dirty
     /// assert!(channels.contains(LAYOUT));
     /// ```
-    fn set_local_notifying<T: Clone + 'static>(
+    fn set_local_notifying<T: Clone + PartialEq + 'static>(
         &mut self,
         property: Property<T>,
         value: T,
         registry: &PropertyRegistry,
     ) -> ChannelSet {
         let metadata = registry.get_metadata(property);
+        let old_effective = metadata.map(|_| {
+            self.property_store()
+                .get_effective_local(property, registry)
+        });
 
         // 1. Coerce the value
         let value = match metadata {
@@ -424,21 +436,21 @@ pub trait DependencyObjectExt<K: Copy + Eq>: DependencyObject<K> {
             None => value,
         };
 
-        // 2. Only clone old value if we have a callback that needs it
-        let old_value = metadata
-            .filter(|m| m.has_changed_callback())
-            .and_then(|_| self.property_store().get_local(property).cloned());
+        // 2. Store the value
+        self.property_store_mut().set_local(property, value);
 
-        // 3. Store the value
-        let stored_value = self.property_store_mut().set_local(property, value);
-
-        // 4. Call changed callback
-        if let Some(m) = metadata {
-            m.on_changed(old_value.as_ref(), stored_value);
+        // 3. Notify only when the effective local value changed.
+        if let Some((m, old_effective)) = metadata.zip(old_effective) {
+            let new_effective = self
+                .property_store()
+                .get_effective_local(property, registry);
+            if old_effective != new_effective {
+                m.on_changed(Some(&old_effective), &new_effective);
+                return m.affects_channels();
+            }
         }
 
-        // 5. Return affected channels
-        metadata.map(|m| m.affects_channels()).unwrap_or_default()
+        ChannelSet::empty()
     }
 
     /// Clears the local value.
@@ -448,11 +460,82 @@ pub trait DependencyObjectExt<K: Copy + Eq>: DependencyObject<K> {
         self.property_store_mut().clear_local(property)
     }
 
+    /// Clears the local value and notifies if the effective local value changed.
+    ///
+    /// This mirrors [`DependencyObjectExt::set_local_notifying`]: it compares
+    /// the effective local value (`Animation -> Local -> default`) before and
+    /// after the clear and only returns dirty channels when that observable
+    /// value changed.
+    fn clear_local_notifying<T: Clone + PartialEq + 'static>(
+        &mut self,
+        property: Property<T>,
+        registry: &PropertyRegistry,
+    ) -> ChannelSet {
+        if !self.property_store().has_local(property) {
+            return ChannelSet::empty();
+        }
+
+        let metadata = registry.get_metadata(property);
+        let old_effective = metadata.map(|_| {
+            self.property_store()
+                .get_effective_local(property, registry)
+        });
+
+        self.property_store_mut().clear_local(property);
+
+        if let Some((m, old_effective)) = metadata.zip(old_effective) {
+            let new_effective = self
+                .property_store()
+                .get_effective_local(property, registry);
+            if old_effective != new_effective {
+                m.on_changed(Some(&old_effective), &new_effective);
+                return m.affects_channels();
+            }
+        }
+
+        ChannelSet::empty()
+    }
+
     /// Clears the animation value.
     ///
     /// Returns `true` if a value was removed.
     fn clear_animation<T: Clone + 'static>(&mut self, property: Property<T>) -> bool {
         self.property_store_mut().clear_animation(property)
+    }
+
+    /// Clears the animation value and notifies if the effective local value changed.
+    ///
+    /// This compares the effective local value (`Animation -> Local -> default`)
+    /// before and after the clear and only returns dirty channels when that
+    /// observable value changed.
+    fn clear_animation_notifying<T: Clone + PartialEq + 'static>(
+        &mut self,
+        property: Property<T>,
+        registry: &PropertyRegistry,
+    ) -> ChannelSet {
+        if !self.property_store().has_animation(property) {
+            return ChannelSet::empty();
+        }
+
+        let metadata = registry.get_metadata(property);
+        let old_effective = metadata.map(|_| {
+            self.property_store()
+                .get_effective_local(property, registry)
+        });
+
+        self.property_store_mut().clear_animation(property);
+
+        if let Some((m, old_effective)) = metadata.zip(old_effective) {
+            let new_effective = self
+                .property_store()
+                .get_effective_local(property, registry);
+            if old_effective != new_effective {
+                m.on_changed(Some(&old_effective), &new_effective);
+                return m.affects_channels();
+            }
+        }
+
+        ChannelSet::empty()
     }
 
     /// Returns `true` if the property has any value (local or animation).
@@ -719,12 +802,244 @@ mod tests {
 
         let mut element = TestElement::new(1, None);
 
-        let channels = element.set_local_notifying(width, -10.0, &registry);
+        let channels = element.set_local_notifying(width, 10.0, &registry);
 
-        // Value was coerced
-        assert_eq!(element.get_local_value(width), Some(&0.0));
+        // Value was stored
+        assert_eq!(element.get_local_value(width), Some(&10.0));
 
         // Returns affected channels
         assert!(channels.contains(LAYOUT));
+    }
+
+    #[test]
+    fn ext_set_local_notifying_skips_noop_effective_changes() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+        let mut registry = PropertyRegistry::new();
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let last_old = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+        let last_new = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+        let width = registry.register(
+            "Width",
+            PropertyMetadataBuilder::new(0.0_f64)
+                .on_changed({
+                    let callback_count = Arc::clone(&callback_count);
+                    let last_old = Arc::clone(&last_old);
+                    let last_new = Arc::clone(&last_new);
+                    move |old, new| {
+                        callback_count.fetch_add(1, Ordering::Relaxed);
+                        last_old.store(
+                            old.copied().unwrap_or(f64::NAN).to_bits(),
+                            Ordering::Relaxed,
+                        );
+                        last_new.store(new.to_bits(), Ordering::Relaxed);
+                    }
+                })
+                .build(),
+        );
+
+        let mut element = TestElement::new(1, None);
+
+        let first = element.set_local_notifying(width, 10.0, &registry);
+        assert!(first.is_empty());
+        assert_eq!(callback_count.load(Ordering::Relaxed), 1);
+        assert_eq!(f64::from_bits(last_old.load(Ordering::Relaxed)), 0.0);
+        assert_eq!(f64::from_bits(last_new.load(Ordering::Relaxed)), 10.0);
+
+        let second = element.set_local_notifying(width, 10.0, &registry);
+        assert!(second.is_empty());
+        assert_eq!(callback_count.load(Ordering::Relaxed), 1);
+        assert_eq!(f64::from_bits(last_old.load(Ordering::Relaxed)), 0.0);
+        assert_eq!(f64::from_bits(last_new.load(Ordering::Relaxed)), 10.0);
+    }
+
+    #[test]
+    fn ext_set_local_notifying_uses_effective_local_when_animation_masks_local() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        use invalidation::Channel;
+
+        let mut registry = PropertyRegistry::new();
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let width = registry.register(
+            "Width",
+            PropertyMetadataBuilder::new(0.0_f64)
+                .affects_channels(Channel::new(0).into_set())
+                .on_changed({
+                    let callback_count = Arc::clone(&callback_count);
+                    move |_, _| {
+                        callback_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+                .build(),
+        );
+
+        let mut element = TestElement::new(1, None);
+        element.set_animation(width, 50.0);
+
+        let channels = element.set_local_notifying(width, 10.0, &registry);
+
+        assert!(channels.is_empty());
+        assert_eq!(callback_count.load(Ordering::Relaxed), 0);
+        assert_eq!(element.get_local_value(width), Some(&10.0));
+        assert_eq!(element.get_effective_local(width, &registry), 50.0);
+    }
+
+    #[test]
+    fn ext_clear_local_notifying_reports_effective_change() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+        use invalidation::Channel;
+
+        const LAYOUT: Channel = Channel::new(0);
+
+        let mut registry = PropertyRegistry::new();
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let last_old = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+        let last_new = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+        let width = registry.register(
+            "Width",
+            PropertyMetadataBuilder::new(0.0_f64)
+                .affects_channels(LAYOUT.into_set())
+                .on_changed({
+                    let callback_count = Arc::clone(&callback_count);
+                    let last_old = Arc::clone(&last_old);
+                    let last_new = Arc::clone(&last_new);
+                    move |old, new| {
+                        callback_count.fetch_add(1, Ordering::Relaxed);
+                        last_old.store(
+                            old.copied().unwrap_or(f64::NAN).to_bits(),
+                            Ordering::Relaxed,
+                        );
+                        last_new.store(new.to_bits(), Ordering::Relaxed);
+                    }
+                })
+                .build(),
+        );
+
+        let mut element = TestElement::new(1, None);
+        element.set_local(width, 10.0);
+
+        let channels = element.clear_local_notifying(width, &registry);
+
+        assert!(channels.contains(LAYOUT));
+        assert!(element.get_local_value(width).is_none());
+        assert_eq!(element.get_effective_local(width, &registry), 0.0);
+        assert_eq!(callback_count.load(Ordering::Relaxed), 1);
+        assert_eq!(f64::from_bits(last_old.load(Ordering::Relaxed)), 10.0);
+        assert_eq!(f64::from_bits(last_new.load(Ordering::Relaxed)), 0.0);
+    }
+
+    #[test]
+    fn ext_clear_local_notifying_skips_masked_changes() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        use invalidation::Channel;
+
+        let mut registry = PropertyRegistry::new();
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let width = registry.register(
+            "Width",
+            PropertyMetadataBuilder::new(0.0_f64)
+                .affects_channels(Channel::new(0).into_set())
+                .on_changed({
+                    let callback_count = Arc::clone(&callback_count);
+                    move |_, _| {
+                        callback_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+                .build(),
+        );
+
+        let mut element = TestElement::new(1, None);
+        element.set_animation(width, 50.0);
+        element.set_local(width, 10.0);
+
+        let channels = element.clear_local_notifying(width, &registry);
+
+        assert!(channels.is_empty());
+        assert!(element.get_local_value(width).is_none());
+        assert_eq!(element.get_effective_local(width, &registry), 50.0);
+        assert_eq!(callback_count.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn ext_clear_animation_notifying_reports_effective_change() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+        use invalidation::Channel;
+
+        const LAYOUT: Channel = Channel::new(0);
+
+        let mut registry = PropertyRegistry::new();
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let last_old = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+        let last_new = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+        let width = registry.register(
+            "Width",
+            PropertyMetadataBuilder::new(0.0_f64)
+                .affects_channels(LAYOUT.into_set())
+                .on_changed({
+                    let callback_count = Arc::clone(&callback_count);
+                    let last_old = Arc::clone(&last_old);
+                    let last_new = Arc::clone(&last_new);
+                    move |old, new| {
+                        callback_count.fetch_add(1, Ordering::Relaxed);
+                        last_old.store(
+                            old.copied().unwrap_or(f64::NAN).to_bits(),
+                            Ordering::Relaxed,
+                        );
+                        last_new.store(new.to_bits(), Ordering::Relaxed);
+                    }
+                })
+                .build(),
+        );
+
+        let mut element = TestElement::new(1, None);
+        element.set_local(width, 10.0);
+        element.set_animation(width, 20.0);
+
+        let channels = element.clear_animation_notifying(width, &registry);
+
+        assert!(channels.contains(LAYOUT));
+        assert!(element.get_animation_value(width).is_none());
+        assert_eq!(element.get_effective_local(width, &registry), 10.0);
+        assert_eq!(callback_count.load(Ordering::Relaxed), 1);
+        assert_eq!(f64::from_bits(last_old.load(Ordering::Relaxed)), 20.0);
+        assert_eq!(f64::from_bits(last_new.load(Ordering::Relaxed)), 10.0);
+    }
+
+    #[test]
+    fn ext_clear_animation_notifying_skips_noop_effective_changes() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        use invalidation::Channel;
+
+        let mut registry = PropertyRegistry::new();
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let width = registry.register(
+            "Width",
+            PropertyMetadataBuilder::new(0.0_f64)
+                .affects_channels(Channel::new(0).into_set())
+                .on_changed({
+                    let callback_count = Arc::clone(&callback_count);
+                    move |_, _| {
+                        callback_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+                .build(),
+        );
+
+        let mut element = TestElement::new(1, None);
+        element.set_local(width, 20.0);
+        element.set_animation(width, 20.0);
+
+        let channels = element.clear_animation_notifying(width, &registry);
+
+        assert!(channels.is_empty());
+        assert!(element.get_animation_value(width).is_none());
+        assert_eq!(element.get_effective_local(width, &registry), 20.0);
+        assert_eq!(callback_count.load(Ordering::Relaxed), 0);
     }
 }
