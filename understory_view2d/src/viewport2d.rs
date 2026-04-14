@@ -3,7 +3,7 @@
 
 use kurbo::{Affine, Point, Rect, Vec2};
 
-use crate::modes::{ClampMode, FitMode};
+use crate::modes::{ClampMode, FitMode, normalize_zoom_limits, sanitize_zoom_value};
 
 /// 2D viewport over a world‑space plane.
 ///
@@ -91,16 +91,32 @@ impl Viewport2D {
         self.zoom
     }
 
+    /// Returns the minimum allowed zoom factor.
+    #[must_use]
+    pub fn min_zoom(&self) -> f64 {
+        self.min_zoom
+    }
+
+    /// Returns the maximum allowed zoom factor.
+    #[must_use]
+    pub fn max_zoom(&self) -> f64 {
+        self.max_zoom
+    }
+
+    /// Returns the configured zoom limits as `(min_zoom, max_zoom)`.
+    #[must_use]
+    pub fn zoom_limits(&self) -> (f64, f64) {
+        (self.min_zoom, self.max_zoom)
+    }
+
     /// Sets the minimum and maximum zoom factors.
     ///
     /// The provided range is normalized so that `min_zoom <= max_zoom`. The
-    /// current zoom is clamped into the new range.
+    /// current zoom is clamped into the new range. Non-finite or non-positive
+    /// limits are ignored.
     pub fn set_zoom_limits(&mut self, min_zoom: f64, max_zoom: f64) {
-        let (min_zoom, max_zoom) = if min_zoom <= max_zoom {
-            (min_zoom, max_zoom)
-        } else {
-            (max_zoom, min_zoom)
-        };
+        let (min_zoom, max_zoom) =
+            normalize_zoom_limits(min_zoom, max_zoom, self.min_zoom, self.max_zoom);
         self.min_zoom = min_zoom;
         self.max_zoom = max_zoom;
         self.set_zoom(self.zoom);
@@ -132,7 +148,12 @@ impl Viewport2D {
     }
 
     /// Sets the zoom factor, clamping it into the configured zoom range.
+    ///
+    /// Non-finite or non-positive zoom values are ignored.
     pub fn set_zoom(&mut self, zoom: f64) {
+        let Some(zoom) = sanitize_zoom_value(zoom) else {
+            return;
+        };
         let clamped = zoom.clamp(self.min_zoom, self.max_zoom);
         if (self.zoom - clamped).abs() < f64::EPSILON {
             return;
@@ -160,7 +181,7 @@ impl Viewport2D {
     /// The anchor point remains fixed in view space as much as possible under
     /// the new zoom level.
     pub fn zoom_about_view_point(&mut self, anchor_view: Point, factor: f64) {
-        if factor <= 0.0 {
+        if !factor.is_finite() || factor <= 0.0 {
             return;
         }
         let old_zoom = self.zoom;
@@ -548,5 +569,41 @@ mod tests {
         assert_eq!(info.view_rect, view_rect);
         assert_eq!(info.clamp_mode, ClampMode::KeepSomeVisible);
         assert!(info.min_zoom <= info.max_zoom);
+    }
+
+    #[test]
+    fn invalid_zoom_inputs_are_ignored_in_2d() {
+        let view_rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let mut vp = Viewport2D::new(view_rect);
+        let original_visible = vp.visible_world_rect();
+
+        vp.set_zoom_limits(0.0, 0.0);
+        assert_eq!(vp.zoom(), 1.0);
+        assert!(vp.world_units_per_pixel().is_finite());
+        assert_eq!(vp.visible_world_rect(), original_visible);
+
+        vp.set_zoom_limits(f64::NAN, f64::NEG_INFINITY);
+        assert_eq!(vp.zoom(), 1.0);
+        assert!(vp.world_units_per_pixel().is_finite());
+
+        vp.set_zoom(f64::NAN);
+        vp.set_zoom(0.0);
+        vp.set_zoom(-2.0);
+        assert_eq!(vp.zoom(), 1.0);
+
+        vp.zoom_about_view_point(view_rect.center(), f64::NAN);
+        vp.zoom_about_view_point(view_rect.center(), f64::INFINITY);
+        assert_eq!(vp.zoom(), 1.0);
+        assert_eq!(vp.visible_world_rect(), original_visible);
+    }
+
+    #[test]
+    fn zoom_limit_getters_work_in_2d() {
+        let mut vp = Viewport2D::new(Rect::new(0.0, 0.0, 100.0, 100.0));
+        vp.set_zoom_limits(0.25, 8.0);
+
+        assert_eq!(vp.min_zoom(), 0.25);
+        assert_eq!(vp.max_zoom(), 8.0);
+        assert_eq!(vp.zoom_limits(), (0.25, 8.0));
     }
 }

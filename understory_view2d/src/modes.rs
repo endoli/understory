@@ -37,3 +37,30 @@ pub enum FitMode {
     /// minimum with the start of the view span.
     AlignMin,
 }
+
+pub(crate) fn normalize_zoom_limits(
+    min_zoom: f64,
+    max_zoom: f64,
+    current_min: f64,
+    current_max: f64,
+) -> (f64, f64) {
+    let min_zoom = sanitize_zoom_limit(min_zoom, current_min);
+    let max_zoom = sanitize_zoom_limit(max_zoom, current_max);
+    if min_zoom <= max_zoom {
+        (min_zoom, max_zoom)
+    } else {
+        (max_zoom, min_zoom)
+    }
+}
+
+pub(crate) fn sanitize_zoom_value(zoom: f64) -> Option<f64> {
+    if zoom.is_finite() && zoom > 0.0 {
+        Some(zoom)
+    } else {
+        None
+    }
+}
+
+fn sanitize_zoom_limit(value: f64, fallback: f64) -> f64 {
+    sanitize_zoom_value(value).unwrap_or(fallback)
+}

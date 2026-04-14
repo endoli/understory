@@ -5,7 +5,7 @@ use core::ops::Range;
 
 use kurbo::Point;
 
-use crate::modes::{ClampMode, FitMode};
+use crate::modes::{ClampMode, FitMode, normalize_zoom_limits, sanitize_zoom_value};
 
 /// 1D viewport over a world‑space axis.
 ///
@@ -85,23 +85,44 @@ impl Viewport1D {
         self.zoom
     }
 
+    /// Returns the minimum allowed zoom factor.
+    #[must_use]
+    pub fn min_zoom(&self) -> f64 {
+        self.min_zoom
+    }
+
+    /// Returns the maximum allowed zoom factor.
+    #[must_use]
+    pub fn max_zoom(&self) -> f64 {
+        self.max_zoom
+    }
+
+    /// Returns the configured zoom limits as `(min_zoom, max_zoom)`.
+    #[must_use]
+    pub fn zoom_limits(&self) -> (f64, f64) {
+        (self.min_zoom, self.max_zoom)
+    }
+
     /// Sets the minimum and maximum zoom factors.
     ///
     /// The provided range is normalized so that `min_zoom <= max_zoom`. The
-    /// current zoom is clamped into the new range.
+    /// current zoom is clamped into the new range. Non-finite or non-positive
+    /// limits are ignored.
     pub fn set_zoom_limits(&mut self, min_zoom: f64, max_zoom: f64) {
-        let (min_zoom, max_zoom) = if min_zoom <= max_zoom {
-            (min_zoom, max_zoom)
-        } else {
-            (max_zoom, min_zoom)
-        };
+        let (min_zoom, max_zoom) =
+            normalize_zoom_limits(min_zoom, max_zoom, self.min_zoom, self.max_zoom);
         self.min_zoom = min_zoom;
         self.max_zoom = max_zoom;
         self.set_zoom(self.zoom);
     }
 
     /// Sets the zoom factor, clamping it into the configured zoom range.
+    ///
+    /// Non-finite or non-positive zoom values are ignored.
     pub fn set_zoom(&mut self, zoom: f64) {
+        let Some(zoom) = sanitize_zoom_value(zoom) else {
+            return;
+        };
         let clamped = zoom.clamp(self.min_zoom, self.max_zoom);
         if (self.zoom - clamped).abs() < f64::EPSILON {
             return;
@@ -152,7 +173,7 @@ impl Viewport1D {
     /// The anchor point remains fixed in view space as much as possible under
     /// the new zoom level.
     pub fn zoom_about_view_point(&mut self, anchor_view_x: f64, factor: f64) {
-        if factor <= 0.0 {
+        if !factor.is_finite() || factor <= 0.0 {
             return;
         }
         let old_zoom = self.zoom;
@@ -179,6 +200,23 @@ impl Viewport1D {
 
     /// Fits the given world‑space range into the view span, preserving aspect ratio.
     pub fn fit_range(&mut self, world_range: Range<f64>) {
+        self.set_visible_world_range(world_range);
+    }
+
+    /// Fits the given world-space range plus symmetric world-space padding into the view span.
+    ///
+    /// `padding` is interpreted in world units on each side of the range. Negative
+    /// padding is treated as zero.
+    pub fn fit_range_with_padding(&mut self, world_range: Range<f64>, padding: f64) {
+        let padding = padding.max(0.0);
+        self.set_visible_world_range((world_range.start - padding)..(world_range.end + padding));
+    }
+
+    /// Sets the exact world-space range that should be visible through the current view span.
+    ///
+    /// This updates zoom and pan so that [`Self::visible_world_range`] matches
+    /// `world_range`, subject to zoom limits and optional clamping.
+    pub fn set_visible_world_range(&mut self, world_range: Range<f64>) {
         let w_len = world_range.end - world_range.start;
         if w_len <= 0.0 {
             return;
@@ -205,6 +243,14 @@ impl Viewport1D {
         };
 
         self.clamp_to_bounds();
+    }
+
+    /// Centers the view on the given world-space coordinate.
+    pub fn center_on(&mut self, world_x: f64) {
+        let view_center = (self.view_span.start + self.view_span.end) * 0.5;
+        let world_in_view = self.world_to_view_x(world_x);
+        let delta = view_center - world_in_view;
+        self.pan_by_view(delta);
     }
 
     /// Returns the visible world‑space range.
@@ -452,5 +498,66 @@ mod tests {
             y: 12345.0,
         });
         assert!((world_from_y0 - world_from_y1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn invalid_zoom_inputs_are_ignored_in_1d() {
+        let mut vp = Viewport1D::new(0.0..100.0);
+        let original_visible = vp.visible_world_range();
+
+        vp.set_zoom_limits(0.0, 0.0);
+        assert_eq!(vp.zoom(), 1.0);
+        assert!(vp.world_units_per_pixel_x().is_finite());
+        assert_eq!(vp.visible_world_range(), original_visible);
+
+        vp.set_zoom_limits(f64::NAN, f64::INFINITY);
+        assert_eq!(vp.zoom(), 1.0);
+        assert!(vp.world_units_per_pixel_x().is_finite());
+
+        vp.set_zoom(f64::NAN);
+        vp.set_zoom(0.0);
+        vp.set_zoom(-5.0);
+        assert_eq!(vp.zoom(), 1.0);
+
+        vp.zoom_about_view_point(50.0, f64::NAN);
+        vp.zoom_about_view_point(50.0, f64::INFINITY);
+        assert_eq!(vp.zoom(), 1.0);
+        assert_eq!(vp.visible_world_range(), original_visible);
+    }
+
+    #[test]
+    fn center_on_and_zoom_limit_getters_work_in_1d() {
+        let mut vp = Viewport1D::new(0.0..200.0);
+        vp.set_zoom_limits(0.5, 4.0);
+        vp.set_zoom(2.0);
+        vp.center_on(30.0);
+
+        assert_eq!(vp.min_zoom(), 0.5);
+        assert_eq!(vp.max_zoom(), 4.0);
+        assert_eq!(vp.zoom_limits(), (0.5, 4.0));
+
+        let view_center = (vp.view_span().start + vp.view_span().end) * 0.5;
+        let centered = vp.world_to_view_x(30.0);
+        assert!((centered - view_center).abs() < 1e-9);
+    }
+
+    #[test]
+    fn set_visible_world_range_matches_requested_range() {
+        let mut vp = Viewport1D::new(0.0..200.0);
+        vp.set_visible_world_range(50.0..150.0);
+
+        let visible = vp.visible_world_range();
+        assert!((visible.start - 50.0).abs() < 1e-9);
+        assert!((visible.end - 150.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_range_with_padding_expands_visible_range() {
+        let mut vp = Viewport1D::new(0.0..200.0);
+        vp.fit_range_with_padding(50.0..150.0, 10.0);
+
+        let visible = vp.visible_world_range();
+        assert!((visible.start - 40.0).abs() < 1e-9);
+        assert!((visible.end - 160.0).abs() < 1e-9);
     }
 }
