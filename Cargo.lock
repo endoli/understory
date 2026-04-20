@@ -556,6 +556,7 @@ dependencies = [
  "understory_outline",
  "understory_precise_hit",
  "understory_responder",
+ "understory_transcript",
  "understory_virtual_list",
 ]
 
@@ -626,6 +627,13 @@ name = "understory_style"
 version = "0.1.0"
 dependencies = [
  "understory_property",
+]
+
+[[package]]
+name = "understory_transcript"
+version = "0.1.0"
+dependencies = [
+ "hashbrown",
 ]
 
 [[package]]

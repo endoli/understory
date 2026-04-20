@@ -46,6 +46,18 @@ These examples form a short, progressive walkthrough from routing basics to inte
   - Drive `understory_inspector` over a property-grid-style domain model, then inspect expansion sync, visible-row focus, range selection, and collapse pruning.
   - Run: `cargo run -p understory_examples --example outline_inspector`
 
+- transcript_agent_run
+  - Record a small agent-style run with user input, tool lifecycle, streamed stdout, and annotation entries using `understory_transcript`.
+  - Run: `cargo run -p understory_examples --example transcript_agent_run`
+
+- transcript_virtual_list
+  - Virtualize a variable-height transcript with `PrefixSumExtentModel`, then scroll to interesting entries with `VirtualList`.
+  - Run: `cargo run -p understory_examples --example transcript_virtual_list`
+
+- transcript_tail_anchored
+  - Keep a chat/log-style transcript pinned to the tail with `TailAnchoredExtentModel`, but only while the user is already anchored there.
+  - Run: `cargo run -p understory_examples --example transcript_tail_anchored`
+
 Notes
 - Examples live in a separate crate (`understory_examples`) so that published crates stay free of example-only dependencies.
 - Output is formatted with section headers to make sequences easy to follow.
