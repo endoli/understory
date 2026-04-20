@@ -16,6 +16,7 @@ hashbrown.workspace = true
 invalidation.workspace = true
 ui-events = { version = "0.3.0", default-features = false }
 understory_box_tree = { path = "../understory_box_tree", default-features = false }
+understory_display = { path = "../understory_display", default-features = false }
 understory_event_state = { path = "../understory_event_state" }
 understory_property = { path = "../understory_property" }
 understory_responder = { path = "../understory_responder", default-features = false, features = [

@@ -1554,6 +1554,7 @@ dependencies = [
  "peniko",
  "ui-events",
  "understory_box_tree",
+ "understory_display",
  "understory_event_state",
  "understory_property",
  "understory_responder",

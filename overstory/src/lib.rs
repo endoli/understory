@@ -12,10 +12,12 @@
 //! - [`understory_responder`] for deterministic routing,
 //! - [`ui_events`] for transport-agnostic input event types.
 //!
-//! This crate intentionally does **not** define a long-term display-list or
-//! presentation-tree abstraction. The current visual snapshot is a retained,
-//! toolkit-facing debug/projection layer used to pressure-test the runtime
-//! shape until those Understory seam crates exist.
+//! This crate intentionally does **not** own a renderer-facing display list or
+//! presentation system. It resolves retained UI/runtime state into:
+//!
+//! - a debug/projection [`SceneSnapshot`], and
+//! - a retained `understory_display::DisplayTree` that embedders can lay out
+//!   and lower into paint backends.
 //!
 //! ## First slice
 //!
@@ -25,8 +27,9 @@
 //! - a built-in element vocabulary (`Root`, `Panel`, `Row`, `Column`, `Button`,
 //!   `Spacer`),
 //! - built-in layout/visual dependency properties,
-//! - a full rebuild path that resolves style, lays out elements, and projects
-//!   them into an [`understory_box_tree::Tree`],
+//! - a full rebuild path that resolves style, lays out elements, projects them
+//!   into an [`understory_box_tree::Tree`], and can build a retained
+//!   `understory_display::DisplayTree`,
 //! - a `ui-events` pointer runtime that updates hover/press state and emits
 //!   high-level interactions.
 //!
@@ -48,6 +51,7 @@
 
 extern crate alloc;
 
+mod display;
 mod element;
 mod properties;
 mod runtime;

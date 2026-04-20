@@ -28,7 +28,8 @@ use overstory::{
 };
 use softbuffer::Surface;
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
-use understory_examples::overstory_display::{OverstoryDisplayLowerer, imaging_scene_from_display};
+use understory_display::{BoxConstraints, TextEngine};
+use understory_examples::overstory_display::imaging_scene_from_display;
 use understory_style::{
     IdSet, Selector, StyleBuilder, StyleCascade, StyleCascadeBuilder, StyleOrigin,
     StyleSheetBuilder, Theme, ThemeBuilder,
@@ -75,7 +76,7 @@ struct DemoApp {
     ids: DemoIds,
     roomy: bool,
     reducer: WindowEventReducer,
-    display: OverstoryDisplayLowerer,
+    text: TextEngine,
     render_state: RenderState,
 }
 
@@ -87,7 +88,7 @@ impl DemoApp {
             ids,
             roomy: true,
             reducer: WindowEventReducer::default(),
-            display: OverstoryDisplayLowerer::new(),
+            text: TextEngine::new(),
             render_state: RenderState::Suspended,
         };
         app.apply_density(true);
@@ -312,7 +313,13 @@ impl DemoApp {
         }
 
         let snapshot = self.ui.scene();
-        let display_list = self.display.display_list_from_overstory(snapshot);
+        let mut display_tree = snapshot.display_tree();
+        display_tree.layout(
+            &mut self.text,
+            snapshot.view_rect().origin(),
+            BoxConstraints::tight(snapshot.view_rect().size()),
+        );
+        let display_list = display_tree.to_display_list();
         let imaging_scene = imaging_scene_from_display(&display_list);
         let rgba = renderer
             .render_scene(

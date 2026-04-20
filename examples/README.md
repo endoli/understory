@@ -63,7 +63,7 @@ These examples form a short, progressive walkthrough from routing basics to inte
   - Run: `cargo run -p understory_examples --example overstory_showcase`
 
 - overstory_visual_demo
-  - Lower the experimental Overstory retained UI layer into a retained `understory_display::DisplayTree`, lower that into a retained `understory_display::DisplayList` command stream with paint and structural entries, then into `imaging::record::Scene`, and rasterize it with `imaging_vello_cpu` in a `winit` + `softbuffer` window driven by `ui-events-winit`.
+  - Ask Overstory's `SceneSnapshot` for a retained `understory_display::DisplayTree`, lay it out, lower it into a retained `understory_display::DisplayList` command stream with paint and structural entries, then into `imaging::record::Scene`, and rasterize it with `imaging_vello_cpu` in a `winit` + `softbuffer` window driven by `ui-events-winit`.
   - Run: `cargo run -p understory_examples --example overstory_visual_demo`
 
 Notes

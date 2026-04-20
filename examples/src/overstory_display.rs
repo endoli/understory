@@ -1,137 +1,15 @@
 // Copyright 2026 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Lowering helpers between Overstory, Understory Display, and Imaging.
+//! Lowering helpers between retained display lists and imaging.
 
 use imaging::{
     Composite, Painter,
     record::{self, Glyph},
 };
-use kurbo::{Affine, Point, Stroke, Vec2};
-use overstory::ResolvedElement;
-use peniko::{BlendMode, Brush};
-use understory_display::{
-    BoxConstraints, DisplayAlign, DisplayEntry, DisplayList, DisplayNode, DisplayOp, DisplayTree,
-    Insets, TextEngine, parley::Alignment,
-};
-
-/// Stateful Overstory -> display-list lowerer with reusable text shaping state.
-#[derive(Clone, Default)]
-pub struct OverstoryDisplayLowerer {
-    text: TextEngine,
-}
-
-#[derive(Debug)]
-struct ElementDisplayTree<'a> {
-    element: &'a ResolvedElement,
-    children: Vec<ElementDisplayTree<'a>>,
-}
-
-impl OverstoryDisplayLowerer {
-    /// Creates a new lowerer.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Lowers one resolved Overstory snapshot into a retained display list.
-    #[must_use]
-    pub fn display_list_from_overstory(
-        &mut self,
-        snapshot: &overstory::SceneSnapshot,
-    ) -> DisplayList {
-        let root_origin = Point::new(snapshot.view_rect().x0, snapshot.view_rect().y0);
-        let mut index = 0;
-        let display_root = build_element_tree(snapshot.resolved(), &mut index)
-            .expect("scene snapshot should contain a root resolved element");
-        let mut tree = DisplayTree::new(Self::display_node_for(root_origin, &display_root));
-        tree.layout(
-            &mut self.text,
-            root_origin,
-            BoxConstraints::tight(snapshot.view_rect().size()),
-        );
-        tree.to_display_list()
-    }
-
-    fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> DisplayNode {
-        let element = node.element;
-        let mut children = Vec::new();
-        let size = element.rect.size();
-
-        if element.background.to_rgba8().a != 0 {
-            let background = Brush::Solid(element.background);
-            children.push(if element.corner_radius > 0.0 {
-                DisplayNode::fill_rounded_rect(element.corner_radius, background)
-            } else {
-                DisplayNode::fill_rect(background)
-            });
-        }
-
-        if element.border.width > 0.0 && element.border.color.to_rgba8().a != 0 {
-            let border = Brush::Solid(element.border.color);
-            let stroke = Stroke::new(element.border.width);
-            children.push(if element.corner_radius > 0.0 {
-                DisplayNode::stroke_rounded_rect(element.corner_radius, stroke, border)
-            } else {
-                DisplayNode::stroke_rect(stroke, border)
-            });
-        }
-
-        if let Some(label) = element.label.as_deref() {
-            children.push(DisplayNode::align(
-                DisplayAlign::Start,
-                DisplayAlign::Center,
-                DisplayNode::padding(
-                    Insets::symmetric(16.0, 0.0),
-                    DisplayNode::text(
-                        label,
-                        Brush::Solid(element.foreground),
-                        21.0,
-                        "sans-serif",
-                        Alignment::Start,
-                    ),
-                ),
-            ));
-        }
-
-        children.extend(
-            node.children
-                .iter()
-                .map(|child| Self::display_node_for(element.rect.origin(), child)),
-        );
-
-        DisplayNode::offset(
-            Vec2::new(
-                element.rect.x0 - parent_origin.x,
-                element.rect.y0 - parent_origin.y,
-            ),
-            DisplayNode::fixed_frame(size, DisplayNode::stack(children)),
-        )
-    }
-}
-
-fn build_element_tree<'a>(
-    resolved: &'a [ResolvedElement],
-    index: &mut usize,
-) -> Option<ElementDisplayTree<'a>> {
-    let element = resolved.get(*index)?;
-    let depth = element.depth;
-    *index += 1;
-
-    let mut children = Vec::new();
-    while let Some(next) = resolved.get(*index) {
-        if next.depth <= depth {
-            break;
-        }
-        if next.depth != depth + 1 {
-            panic!("resolved scene depth should advance one level at a time");
-        }
-        let child = build_element_tree(resolved, index).expect("child subtree should parse");
-        children.push(child);
-    }
-
-    Some(ElementDisplayTree { element, children })
-}
+use kurbo::Affine;
+use peniko::BlendMode;
+use understory_display::{DisplayEntry, DisplayItem, DisplayList, DisplayOp};
 
 /// Lower one retained display list into an imaging recording.
 #[must_use]
@@ -193,11 +71,7 @@ fn record_entries(
     }
 }
 
-fn record_item(
-    painter: &mut Painter<'_, record::Scene>,
-    item: &understory_display::DisplayItem,
-    transform: Affine,
-) {
+fn record_item(painter: &mut Painter<'_, record::Scene>, item: &DisplayItem, transform: Affine) {
     match &item.op {
         DisplayOp::FillRect { rect, brush } => {
             painter.fill(*rect, brush).transform(transform).draw();
@@ -248,7 +122,10 @@ fn record_item(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use peniko::Color;
+    use peniko::{Brush, Color};
+    use understory_display::{
+        BoxConstraints, DisplayAlign, DisplayNode, DisplayTree, Insets, TextAlign, TextEngine,
+    };
 
     #[test]
     fn display_tree_text_lowering_produces_positioned_glyphs() {
@@ -267,7 +144,7 @@ mod tests {
                             Brush::Solid(Color::BLACK),
                             21.0,
                             "sans-serif",
-                            Alignment::Start,
+                            TextAlign::Start,
                         ),
                     ),
                 ),
@@ -275,7 +152,7 @@ mod tests {
         ));
         tree.layout(
             &mut text,
-            Point::ORIGIN,
+            kurbo::Point::ORIGIN,
             BoxConstraints::tight(kurbo::Size::new(160.0, 48.0)),
         );
 
@@ -314,7 +191,7 @@ mod tests {
                                     Brush::Solid(Color::BLACK),
                                     21.0,
                                     "sans-serif",
-                                    Alignment::Start,
+                                    TextAlign::Start,
                                 ),
                             ),
                         ),
@@ -324,7 +201,7 @@ mod tests {
         )));
         tree.layout(
             &mut text,
-            Point::ORIGIN,
+            kurbo::Point::ORIGIN,
             BoxConstraints::tight(kurbo::Size::new(120.0, 40.0)),
         );
 
@@ -333,75 +210,6 @@ mod tests {
         assert!(
             !scene.commands().is_empty(),
             "expected retained imaging commands"
-        );
-    }
-
-    #[test]
-    fn overstory_lowering_preserves_parent_child_structure() {
-        let mut ui = overstory::Ui::new(overstory::default_theme());
-        ui.set_view_rect(kurbo::Rect::new(0.0, 0.0, 220.0, 140.0));
-        ui.set_local(ui.root(), ui.properties().padding, 0.0);
-        ui.set_local(ui.root(), ui.properties().gap, 10.0);
-
-        let shell = ui.append_child(ui.root(), overstory::ElementKind::Row);
-        ui.set_local(shell, ui.properties().padding, 0.0);
-        ui.set_local(shell, ui.properties().gap, 10.0);
-
-        let left = ui.append_child(shell, overstory::ElementKind::Panel);
-        ui.set_local(left, ui.properties().width, 80.0);
-        ui.set_local(left, ui.properties().padding, 8.0);
-        ui.set_local(left, ui.properties().background, Color::from_rgb8(1, 2, 3));
-
-        let child = ui.append_child(left, overstory::ElementKind::Button);
-        ui.set_label(child, "Child");
-        ui.set_local(child, ui.properties().height, 28.0);
-        ui.set_local(
-            child,
-            ui.properties().background,
-            Color::from_rgb8(10, 20, 30),
-        );
-
-        let right = ui.append_child(shell, overstory::ElementKind::Panel);
-        ui.set_local(right, ui.properties().padding, 8.0);
-        ui.set_local(
-            right,
-            ui.properties().background,
-            Color::from_rgb8(200, 210, 220),
-        );
-
-        let root = ui.root();
-        let snapshot = ui.scene();
-        let mut index = 0;
-        let display_root = build_element_tree(snapshot.resolved(), &mut index).expect("root tree");
-
-        assert_eq!(display_root.element.id, root);
-        assert_eq!(
-            display_root.children.len(),
-            1,
-            "root should own the shell row"
-        );
-        let shell_tree = &display_root.children[0];
-        assert_eq!(
-            shell_tree.children.len(),
-            2,
-            "shell row should have two panels"
-        );
-        assert_eq!(
-            shell_tree.children[0].element.id, left,
-            "left panel should stay inside the shell subtree"
-        );
-        assert_eq!(
-            shell_tree.children[1].element.id, right,
-            "right panel should stay a sibling of the left panel"
-        );
-        assert_eq!(
-            shell_tree.children[0].children.len(),
-            1,
-            "left panel should own its button child"
-        );
-        assert_eq!(
-            shell_tree.children[0].children[0].element.id, child,
-            "button should remain nested under the left panel"
         );
     }
 }

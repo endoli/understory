@@ -9,9 +9,9 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
 
 - `overstory`
   - Experimental retained UI/runtime layer built on top of the Understory kernels.
-  - Uses `understory_property`, `understory_style`, `understory_box_tree`, and `ui-events` together to pressure-test what belongs in a higher-level toolkit versus future seam crates such as a display tree.
-  - Deliberately stops at a retained visual snapshot rather than collapsing widget/runtime state directly into renderer commands.
-  - The examples crate includes both a headless showcase and an `imaging`-backed visual demo that lowers this snapshot through `understory_display` as a retained display tree and command stream.
+  - Uses `understory_property`, `understory_style`, `understory_box_tree`, `understory_display`, and `ui-events` together to pressure-test what belongs in a higher-level toolkit versus lower retained seams.
+  - Resolves retained UI/runtime state into a `SceneSnapshot` plus a retained `understory_display::DisplayTree`, rather than collapsing widget/runtime state directly into renderer commands.
+  - The examples crate includes both a headless showcase and an `imaging`-backed visual demo that lays out this display tree and lowers it through `understory_display`’s retained command stream.
 
 - `understory_display`
   - Small retained display-tree and retained command-stream primitives between higher-level retained UI/runtime layers and renderer-facing paint backends.
