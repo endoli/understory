@@ -1,0 +1,26 @@
+[package]
+name = "overstory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Retained UI/runtime layer built on top of Understory kernels"
+readme = "README.md"
+keywords = ["ui", "toolkit", "retained", "understory", "overstory"]
+categories = ["gui", "data-structures"]
+
+[dependencies]
+kurbo.workspace = true
+hashbrown.workspace = true
+invalidation.workspace = true
+ui-events = { version = "0.3.0", default-features = false }
+understory_box_tree = { path = "../understory_box_tree", default-features = false }
+understory_event_state = { path = "../understory_event_state" }
+understory_property = { path = "../understory_property" }
+understory_responder = { path = "../understory_responder", default-features = false, features = [
+  "box_tree_adapter",
+] }
+understory_style = { path = "../understory_style" }
+
+[lints]
+workspace = true

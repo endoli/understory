@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "overstory",
   "understory_index",
   "understory_box_tree",
   "understory_focus",
