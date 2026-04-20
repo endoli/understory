@@ -56,6 +56,11 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Generic over the key type `T` (no `Hash`/`Ord` requirement; only `PartialEq`), suitable for list selections, canvases, and other selection UIs.
   - Intended to pair with `understory_box_tree` / `understory_precise_hit` for hit testing and `understory_responder` for event routing.
 
+- `understory_transcript`
+  - Append-order interaction log primitives with generic payloads and explicit updates for chat, shell, and agent-style systems.
+  - Provides stable entry ids, typed entry kinds, `EntryBody` as a built-in text/bytes default payload, explicit parent/cause links, and explicit status/chunk updates to existing entries.
+  - Designed to sit below transcript/chat/console UIs without taking on text layout, rendering, or persistence policy.
+
 - `understory_view2d`
   - 2D and 1D view/viewport primitives:
     - `Viewport2D` for canvas/CAD‑style views: camera state (pan + zoom), coordinate conversion between world and device space, view fitting (center vs align‑min), and simple clamping against optional world bounds.
@@ -117,6 +122,7 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
   - `understory_inspector/README.md` documents the host-side controller for outline-backed inspection UIs.
   - `understory_outline/README.md` documents hierarchical visible-row projection, expansion state, and grouped/tree-style usage.
   - `understory_selection/README.md` documents the selection container, anchor/revision semantics, and click helpers.
+  - `understory_transcript/README.md` documents append-order transcript storage, generic payloads, explicit update semantics, typed entry kinds, and chat/tool/process-style usage.
   - `understory_view2d/README.md` documents the 2D and 1D viewport types, clamping/fit modes, and examples of using visible regions for culling.
 - Run examples.
   - `cargo run -p understory_examples --example index_basics`
@@ -125,6 +131,9 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
   - `cargo run -p understory_examples --example outline_property_grid`
   - `cargo run -p understory_examples --example outline_virtual_list`
   - `cargo run -p understory_examples --example outline_inspector`
+  - `cargo run -p understory_examples --example transcript_agent_run`
+  - `cargo run -p understory_examples --example transcript_virtual_list`
+  - `cargo run -p understory_examples --example transcript_tail_anchored`
   - `cargo run -p understory_examples --example responder_basics`
   - `cargo run -p understory_examples --example responder_hover`
   - `cargo run -p understory_examples --example responder_box_tree`
