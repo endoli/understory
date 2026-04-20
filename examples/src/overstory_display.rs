@@ -1,120 +1,119 @@
 // Copyright 2026 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Lowering helpers between retained display lists and imaging.
+//! Lowering helpers between retained display trees and imaging.
 
 use imaging::{
     Composite, Painter,
     record::{self, Glyph},
 };
-use kurbo::Affine;
+use kurbo::{Affine, RoundedRect};
 use peniko::BlendMode;
-use understory_display::{DisplayEntry, DisplayItem, DisplayList, DisplayOp};
+use understory_display::{DisplayNode, DisplayNodeKind, DisplayTree};
 
-/// Lower one retained display list into an imaging recording.
+/// Lower one retained display tree into an imaging recording.
 #[must_use]
-pub fn imaging_scene_from_display(list: &DisplayList) -> record::Scene {
+pub fn imaging_scene_from_display_tree(tree: &DisplayTree) -> record::Scene {
     let mut scene = record::Scene::new();
     {
         let mut painter = Painter::new(&mut scene);
-        let mut index = 0;
-        record_entries(&mut painter, list.entries(), &mut index, Affine::IDENTITY);
+        record_node(&mut painter, tree.root(), Affine::IDENTITY);
     }
     scene
 }
 
-fn record_entries(
+fn record_node(
     painter: &mut Painter<'_, record::Scene>,
-    entries: &[DisplayEntry],
-    index: &mut usize,
+    node: &DisplayNode,
     transform: Affine,
 ) {
-    while *index < entries.len() {
-        match &entries[*index] {
-            DisplayEntry::Item(item) => {
-                record_item(painter, item, transform);
-                *index += 1;
-            }
-            DisplayEntry::PushClipRect(clip) => {
-                *index += 1;
-                painter.with_fill_clip_transformed(clip.rect, transform, |painter| {
-                    record_entries(painter, entries, index, transform);
-                });
-            }
-            DisplayEntry::PopClip => {
-                *index += 1;
-                return;
-            }
-            DisplayEntry::PushOpacity(opacity) => {
-                *index += 1;
-                painter.with_group(
-                    imaging::GroupRef::new()
-                        .with_composite(Composite::new(BlendMode::default(), opacity.opacity)),
-                    |painter| {
-                        record_entries(painter, entries, index, transform);
-                    },
-                );
-            }
-            DisplayEntry::PopOpacity => {
-                *index += 1;
-                return;
-            }
-            DisplayEntry::PushTransform(scope) => {
-                *index += 1;
-                record_entries(painter, entries, index, transform * scope.transform);
-            }
-            DisplayEntry::PopTransform => {
-                *index += 1;
-                return;
+    match node.kind() {
+        DisplayNodeKind::Stack { children } => {
+            for child in children {
+                record_node(painter, child, transform);
             }
         }
-    }
-}
-
-fn record_item(painter: &mut Painter<'_, record::Scene>, item: &DisplayItem, transform: Affine) {
-    match &item.op {
-        DisplayOp::FillRect { rect, brush } => {
-            painter.fill(*rect, brush).transform(transform).draw();
+        DisplayNodeKind::Padding { child, .. }
+        | DisplayNodeKind::Align { child, .. }
+        | DisplayNodeKind::Offset { child, .. }
+        | DisplayNodeKind::FixedFrame { child, .. } => {
+            record_node(painter, child, transform);
         }
-        DisplayOp::StrokeRect {
-            rect,
-            stroke,
-            brush,
+        DisplayNodeKind::Transform {
+            transform: node_transform,
+            child,
         } => {
+            record_node(painter, child, transform * *node_transform);
+        }
+        DisplayNodeKind::ClipRect { child } => {
+            painter.with_fill_clip_transformed(node.layout().rect(), transform, |painter| {
+                record_node(painter, child, transform);
+            });
+        }
+        DisplayNodeKind::Opacity { opacity, child } => {
+            if *opacity <= 0.0 {
+                return;
+            }
+            if *opacity >= 1.0 {
+                record_node(painter, child, transform);
+                return;
+            }
+            painter.with_group(
+                imaging::GroupRef::new()
+                    .with_composite(Composite::new(BlendMode::default(), *opacity)),
+                |painter| {
+                    record_node(painter, child, transform);
+                },
+            );
+        }
+        DisplayNodeKind::FillRect { brush } => {
             painter
-                .stroke(*rect, stroke, brush)
+                .fill(node.layout().rect(), brush)
                 .transform(transform)
                 .draw();
         }
-        DisplayOp::FillRoundedRect { rect, brush } => {
-            painter.fill(*rect, brush).transform(transform).draw();
-        }
-        DisplayOp::StrokeRoundedRect {
-            rect,
-            stroke,
-            brush,
-        } => {
+        DisplayNodeKind::StrokeRect { stroke, brush } => {
             painter
-                .stroke(*rect, stroke, brush)
+                .stroke(node.layout().rect(), stroke, brush)
                 .transform(transform)
                 .draw();
         }
-        DisplayOp::GlyphRun { run } => {
-            let glyphs = run
-                .glyphs
-                .iter()
-                .map(|glyph| Glyph {
-                    id: glyph.id,
-                    x: glyph.origin.x as f32,
-                    y: glyph.origin.y as f32,
-                })
-                .collect::<Vec<_>>();
+        DisplayNodeKind::FillRoundedRect {
+            corner_radius,
+            brush,
+        } => {
+            let rect = RoundedRect::from_rect(node.layout().rect(), *corner_radius);
+            painter.fill(rect, brush).transform(transform).draw();
+        }
+        DisplayNodeKind::StrokeRoundedRect {
+            corner_radius,
+            stroke,
+            brush,
+        } => {
+            let rect = RoundedRect::from_rect(node.layout().rect(), *corner_radius);
             painter
-                .glyphs(&run.font, &run.brush)
+                .stroke(rect, stroke, brush)
                 .transform(transform)
-                .font_size(run.font_size)
-                .normalized_coords(&run.normalized_coords)
-                .draw(&peniko::Style::Fill(peniko::Fill::NonZero), &glyphs);
+                .draw();
+        }
+        DisplayNodeKind::Text(display_text) => {
+            for run in display_text.runs() {
+                let glyphs = run
+                    .glyphs
+                    .iter()
+                    .map(|glyph| Glyph {
+                        id: glyph.id,
+                        x: glyph.origin.x as f32,
+                        y: glyph.origin.y as f32,
+                    })
+                    .collect::<Vec<_>>();
+                painter
+                    .glyphs(&run.font, &run.brush)
+                    .transform(transform)
+                    .font_size(run.font_size)
+                    .normalized_coords(&run.normalized_coords)
+                    .draw(&peniko::Style::Fill(peniko::Fill::NonZero), &glyphs);
+            }
         }
     }
 }
@@ -124,11 +123,11 @@ mod tests {
     use super::*;
     use peniko::{Brush, Color};
     use understory_display::{
-        BoxConstraints, DisplayAlign, DisplayNode, DisplayTree, Insets, TextAlign, TextEngine,
+        BoxConstraints, DisplayAlign, Insets, TextAlign, TextEngine,
     };
 
     #[test]
-    fn display_tree_text_lowering_produces_positioned_glyphs() {
+    fn display_tree_text_lowering_produces_imaging_commands() {
         let mut text = TextEngine::new();
         let mut tree = DisplayTree::new(DisplayNode::fixed_frame(
             kurbo::Size::new(160.0, 48.0),
@@ -156,19 +155,15 @@ mod tests {
             BoxConstraints::tight(kurbo::Size::new(160.0, 48.0)),
         );
 
-        let list = tree.to_display_list();
-        let glyph_count: usize = list
-            .items()
-            .filter_map(|item| match &item.op {
-                DisplayOp::GlyphRun { run } => Some(run.glyphs.len()),
-                _ => None,
-            })
-            .sum();
-        assert!(glyph_count > 0, "expected at least one positioned glyph");
+        let scene = imaging_scene_from_display_tree(&tree);
+        assert!(
+            !scene.commands().is_empty(),
+            "expected retained imaging commands"
+        );
     }
 
     #[test]
-    fn imaging_lowering_handles_structural_entries() {
+    fn imaging_lowering_handles_clip_opacity_transform() {
         let mut text = TextEngine::new();
         let mut tree = DisplayTree::new(DisplayNode::clip_rect(DisplayNode::opacity(
             0.75,
@@ -205,8 +200,7 @@ mod tests {
             BoxConstraints::tight(kurbo::Size::new(120.0, 40.0)),
         );
 
-        let list = tree.to_display_list();
-        let scene = imaging_scene_from_display(&list);
+        let scene = imaging_scene_from_display_tree(&tree);
         assert!(
             !scene.commands().is_empty(),
             "expected retained imaging commands"

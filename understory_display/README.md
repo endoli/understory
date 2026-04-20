@@ -1,17 +1,13 @@
 # Understory Display
 
-Small retained display-tree and retained command-stream primitives between higher-level
-retained UI/runtime layers and renderer-facing paint backends.
+Small retained display-tree primitives between higher-level retained UI/runtime
+layers and renderer-facing paint backends.
 
 `understory_display` owns:
 
 - a retained display tree for local measure/place,
-- stable display item ids,
-- retained display entries as a flat lowering target,
-- retained display items with z/bounds/provenance inside that command stream,
-- a calm display-op vocabulary for common 2D draws,
-- and, with the `std` feature, Parley-backed retained glyph runs,
-- a tiny builder API.
+- a calm drawing vocabulary for common 2D shapes,
+- and, with the `std` feature, Parley-backed retained glyph runs.
 
 It does not own:
 
@@ -28,11 +24,6 @@ The current crate intentionally starts small:
 - `DisplayNode`
 - `BoxConstraints`
 - `Insets`
-- `DisplayList`
-- `DisplayItem`
-- `DisplayOp`
-- `DisplayListBuilder`
-- `ItemId`
 - `SemanticId`
 
 The initial retained-node set is enough to pressure-test Overstory and imaging
@@ -51,6 +42,5 @@ without pretending the full text/presentation problem is already solved:
 See the workspace `understory_examples` crate for:
 
 - lowering `overstory::SceneSnapshot` into a retained `understory_display::DisplayTree`
-- lowering the retained tree into a retained `understory_display::DisplayList`
-- lowering `DisplayList` into `imaging::record::Scene`
+- lowering `DisplayTree` directly into `imaging::record::Scene`
 - rendering the result in `overstory_visual_demo.rs` with real glyph runs

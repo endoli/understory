@@ -13,8 +13,8 @@ Understory crates for the headless kernels:
 - `peniko` for the shared color vocabulary exposed by the public API,
 - `understory_display` for the retained display-tree seam above paint backends.
 
-This crate intentionally does **not** own a renderer-facing display list or
-presentation system. Instead it resolves retained UI/runtime state into:
+This crate intentionally does **not** own a renderer or presentation system.
+Instead it resolves retained UI/runtime state into:
 
 - a `SceneSnapshot` for debug/projection and hit testing, and
 - a retained `understory_display::DisplayTree` that embedders can lay out and
@@ -40,7 +40,7 @@ This crate does not yet own:
 - text shaping or glyph recording,
 - accessibility bridges,
 - platform event loops,
-- a renderer-facing display list,
+- a renderer-facing paint backend,
 - a general widget authoring API.
 
 ## Example
@@ -48,5 +48,4 @@ This crate does not yet own:
 See `examples/overstory_showcase.rs` in the workspace examples crate.
 For a windowed demo, see `examples/overstory_visual_demo.rs`, which asks
 `SceneSnapshot` for a retained `understory_display::DisplayTree`, lays it out,
-lowers it into a retained `understory_display::DisplayList`, and then lowers
-that into `imaging`.
+and lowers it directly into `imaging`.

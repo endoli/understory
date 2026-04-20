@@ -7,9 +7,8 @@
 //! - Overstory owns retained UI state, style resolution, layout, box-tree hit
 //!   testing, and pointer interaction.
 //! - This example lowers the resolved [`overstory::SceneSnapshot`] into
-//!   `understory_display::DisplayTree`, then into a retained
-//!   `understory_display::DisplayList` command stream.
-//! - It then lowers that command stream into `imaging::record::Scene`.
+//!   a retained `understory_display::DisplayTree`.
+//! - It then lowers that tree directly into `imaging::record::Scene`.
 //! - `imaging_vello_cpu` rasterizes that scene into an RGBA buffer.
 //! - `softbuffer` presents the result in a `winit` window.
 //!
@@ -29,7 +28,7 @@ use overstory::{
 use softbuffer::Surface;
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
 use understory_display::{BoxConstraints, TextEngine};
-use understory_examples::overstory_display::imaging_scene_from_display;
+use understory_examples::overstory_display::imaging_scene_from_display_tree;
 use understory_style::{
     IdSet, Selector, StyleBuilder, StyleCascade, StyleCascadeBuilder, StyleOrigin,
     StyleSheetBuilder, Theme, ThemeBuilder,
@@ -319,8 +318,7 @@ impl DemoApp {
             snapshot.view_rect().origin(),
             BoxConstraints::tight(snapshot.view_rect().size()),
         );
-        let display_list = display_tree.to_display_list();
-        let imaging_scene = imaging_scene_from_display(&display_list);
+        let imaging_scene = imaging_scene_from_display_tree(&display_tree);
         let rgba = renderer
             .render_scene(
                 &imaging_scene,

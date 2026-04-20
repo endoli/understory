@@ -50,38 +50,18 @@ impl InteractionBatch {
 
 /// Mutable runtime state for a retained Overstory UI.
 #[derive(Clone, Debug)]
-pub struct RuntimeState {
+pub(crate) struct RuntimeState {
     pub(crate) hover: HoverState<ElementId>,
     pub(crate) clicks: ClickState<ElementId>,
     pub(crate) pressed_target: Option<ElementId>,
 }
 
-impl Default for RuntimeState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RuntimeState {
-    /// Creates empty interaction state.
-    #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             hover: HoverState::new(),
             clicks: ClickState::new(),
             pressed_target: None,
         }
-    }
-
-    /// Returns the current hovered path.
-    #[must_use]
-    pub fn hovered_path(&self) -> &[ElementId] {
-        self.hover.current_path()
-    }
-
-    /// Returns the active press target, if any.
-    #[must_use]
-    pub fn pressed_target(&self) -> Option<ElementId> {
-        self.pressed_target
     }
 }

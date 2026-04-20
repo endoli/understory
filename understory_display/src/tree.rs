@@ -7,10 +7,10 @@ extern crate alloc;
 
 use alloc::{boxed::Box, vec::Vec};
 
-use kurbo::{Affine, Insets as KurboInsets, Point, Rect, RoundedRect, Size, Stroke, Vec2};
+use kurbo::{Affine, Insets as KurboInsets, Point, Rect, Size, Stroke, Vec2};
 use peniko::Brush;
 
-use crate::{DisplayGlyphRun, DisplayList, DisplayListBuilder, SemanticId};
+use crate::{DisplayGlyphRun, SemanticId};
 #[cfg(feature = "std")]
 use crate::{TextEngine, TextRunRequest};
 
@@ -207,14 +207,6 @@ impl DisplayTree {
         layout_node(&mut self.root, text, origin, constraints);
     }
 
-    /// Lowers the placed tree into a flat retained display list.
-    #[must_use]
-    pub fn to_display_list(&self) -> DisplayList {
-        let mut builder = DisplayListBuilder::new();
-        let mut z = 0_i32;
-        lower_node(&self.root, &mut builder, &mut z);
-        builder.build()
-    }
 }
 
 /// One retained display-tree node.
@@ -541,6 +533,12 @@ impl DisplayText {
         }
     }
 
+    /// Returns the shaped glyph runs after layout.
+    #[must_use]
+    pub fn runs(&self) -> &[DisplayGlyphRun] {
+        &self.runs
+    }
+
     fn ensure_shaped(&mut self, text: &mut TextEngine, max_advance: Option<f32>) {
         if self.cached_max_advance == max_advance {
             return;
@@ -566,12 +564,15 @@ fn measure_node(
     constraints: BoxConstraints,
 ) -> Size {
     match &mut node.kind {
-        DisplayNodeKind::Stack { children } => children
-            .iter_mut()
-            .map(|child| measure_node(child, text, constraints))
-            .fold(Size::ZERO, |size, child| {
-                Size::new(size.width.max(child.width), size.height.max(child.height))
-            }),
+        DisplayNodeKind::Stack { children } => {
+            let content = children
+                .iter_mut()
+                .map(|child| measure_node(child, text, constraints))
+                .fold(Size::ZERO, |size, child| {
+                    Size::new(size.width.max(child.width), size.height.max(child.height))
+                });
+            constraints.constrain(content)
+        }
         DisplayNodeKind::Padding { insets, child } => {
             let child_size = measure_node(child, text, constraints.shrink(*insets));
             constraints.constrain(Size::new(
@@ -730,90 +731,6 @@ fn layout_node(
     size
 }
 
-fn lower_node(node: &DisplayNode, builder: &mut DisplayListBuilder, z: &mut i32) {
-    match &node.kind {
-        DisplayNodeKind::Stack { children } => {
-            for child in children {
-                lower_node(child, builder, z);
-            }
-        }
-        DisplayNodeKind::Padding { child, .. }
-        | DisplayNodeKind::Align { child, .. }
-        | DisplayNodeKind::Offset { child, .. }
-        | DisplayNodeKind::FixedFrame { child, .. } => {
-            lower_node(child, builder, z);
-        }
-        DisplayNodeKind::Transform { transform, child } => {
-            builder.push_transform(*transform, node.semantic_id);
-            lower_node(child, builder, z);
-            builder.pop_transform();
-        }
-        DisplayNodeKind::ClipRect { child } => {
-            builder.push_clip_rect(node.layout.rect, node.semantic_id);
-            lower_node(child, builder, z);
-            builder.pop_clip();
-        }
-        DisplayNodeKind::Opacity { opacity, child } => {
-            if *opacity <= 0.0 {
-                return;
-            }
-            if *opacity >= 1.0 {
-                lower_node(child, builder, z);
-                return;
-            }
-            builder.push_opacity(*opacity, node.layout.bounds, node.semantic_id);
-            lower_node(child, builder, z);
-            builder.pop_opacity();
-        }
-        DisplayNodeKind::FillRect { brush } => {
-            let _ = builder.fill_rect(node.layout.rect, brush.clone(), *z, node.semantic_id);
-            *z += 1;
-        }
-        DisplayNodeKind::StrokeRect { stroke, brush } => {
-            let _ = builder.stroke_rect(
-                node.layout.rect,
-                stroke.clone(),
-                brush.clone(),
-                *z,
-                node.semantic_id,
-            );
-            *z += 1;
-        }
-        DisplayNodeKind::FillRoundedRect {
-            corner_radius,
-            brush,
-        } => {
-            let _ = builder.fill_rounded_rect(
-                RoundedRect::from_rect(node.layout.rect, *corner_radius),
-                brush.clone(),
-                *z,
-                node.semantic_id,
-            );
-            *z += 1;
-        }
-        DisplayNodeKind::StrokeRoundedRect {
-            corner_radius,
-            stroke,
-            brush,
-        } => {
-            let _ = builder.stroke_rounded_rect(
-                RoundedRect::from_rect(node.layout.rect, *corner_radius),
-                stroke.clone(),
-                brush.clone(),
-                *z,
-                node.semantic_id,
-            );
-            *z += 1;
-        }
-        DisplayNodeKind::Text(display_text) => {
-            for run in &display_text.runs {
-                let _ = builder.glyph_run(run.clone(), *z, node.semantic_id);
-                *z += 1;
-            }
-        }
-    }
-}
-
 #[cfg(feature = "std")]
 fn union_run_bounds(runs: &[DisplayGlyphRun]) -> Option<Rect> {
     runs.iter()
@@ -865,7 +782,7 @@ mod tests {
     use peniko::Color;
 
     #[test]
-    fn text_node_measures_and_lowers() {
+    fn text_node_measures_with_nonzero_size() {
         let mut text = TextEngine::new();
         let mut tree = DisplayTree::new(DisplayNode::text(
             "Display",
@@ -880,16 +797,13 @@ mod tests {
             BoxConstraints::loose(Size::new(200.0, 50.0)),
         );
 
-        let list = tree.to_display_list();
-        assert!(!list.is_empty());
-        assert!(matches!(
-            &list.items().next().expect("expected paint item").op,
-            crate::DisplayOp::GlyphRun { .. }
-        ));
+        let layout = tree.root().layout();
+        assert!(layout.rect().width() > 0.0);
+        assert!(layout.rect().height() > 0.0);
     }
 
     #[test]
-    fn fixed_frame_stack_places_text_inside_frame() {
+    fn fixed_frame_stack_places_children_at_frame_origin() {
         let mut text = TextEngine::new();
         let mut tree = DisplayTree::new(DisplayNode::fixed_frame(
             Size::new(160.0, 48.0),
@@ -918,10 +832,8 @@ mod tests {
             BoxConstraints::loose(Size::new(160.0, 48.0)),
         );
 
-        let list = tree.to_display_list();
-        assert_eq!(list.items().count(), 2);
-        let items = list.items().collect::<Vec<_>>();
-        assert_eq!(items[0].bounds, Rect::new(0.0, 0.0, 160.0, 48.0));
+        let layout = tree.root().layout();
+        assert_eq!(layout.rect(), Rect::new(0.0, 0.0, 160.0, 48.0));
     }
 
     #[test]
@@ -938,23 +850,18 @@ mod tests {
             BoxConstraints::tight(Size::new(220.0, 140.0)),
         );
 
-        let list = tree.to_display_list();
-        let items = list.items().collect::<Vec<_>>();
-        assert_eq!(items[0].bounds, Rect::new(16.0, 20.0, 96.0, 44.0));
+        assert_eq!(
+            tree.root().layout().rect(),
+            Rect::new(16.0, 20.0, 96.0, 44.0)
+        );
     }
 
     #[test]
-    fn clip_opacity_and_transform_lower_to_structural_entries() {
+    fn clip_bounds_intersect_child_bounds() {
         let mut text = TextEngine::new();
-        let mut tree = DisplayTree::new(DisplayNode::clip_rect(DisplayNode::opacity(
-            0.5,
-            DisplayNode::transform(
-                Affine::translate((12.0, 8.0)),
-                DisplayNode::fixed_frame(
-                    Size::new(80.0, 24.0),
-                    DisplayNode::fill_rect(Brush::Solid(Color::from_rgb8(10, 20, 30))),
-                ),
-            ),
+        let mut tree = DisplayTree::new(DisplayNode::clip_rect(DisplayNode::fixed_frame(
+            Size::new(80.0, 24.0),
+            DisplayNode::fill_rect(Brush::Solid(Color::from_rgb8(10, 20, 30))),
         )));
         tree.layout(
             &mut text,
@@ -962,25 +869,8 @@ mod tests {
             BoxConstraints::tight(Size::new(80.0, 24.0)),
         );
 
-        let list = tree.to_display_list();
-        assert!(matches!(
-            list.entries()[0],
-            crate::DisplayEntry::PushClipRect(_)
-        ));
-        assert!(matches!(
-            list.entries()[1],
-            crate::DisplayEntry::PushOpacity(_)
-        ));
-        assert!(matches!(
-            list.entries()[2],
-            crate::DisplayEntry::PushTransform(_)
-        ));
-        assert!(matches!(list.entries()[3], crate::DisplayEntry::Item(_)));
-        assert!(matches!(
-            list.entries()[4],
-            crate::DisplayEntry::PopTransform
-        ));
-        assert!(matches!(list.entries()[5], crate::DisplayEntry::PopOpacity));
-        assert!(matches!(list.entries()[6], crate::DisplayEntry::PopClip));
+        let layout = tree.root().layout();
+        assert_eq!(layout.rect(), Rect::new(0.0, 0.0, 80.0, 24.0));
+        assert_eq!(layout.bounds(), Rect::new(0.0, 0.0, 80.0, 24.0));
     }
 }

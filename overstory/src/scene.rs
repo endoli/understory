@@ -195,14 +195,13 @@ impl<'a> SceneBuilder<'a> {
         }
 
         let measured_height = self.measure_height(id, available_rect.width());
-        let width = if matches!(element.kind, ElementKind::Root) {
+        let is_root = matches!(element.kind, ElementKind::Root);
+        let width = if is_root {
             available_rect.width()
-        } else if style.width > 0.0 {
-            style.width.min(available_rect.width()).max(0.0)
         } else {
-            available_rect.width().max(0.0)
+            resolve_dim(style.width, available_rect.width())
         };
-        let height = if matches!(element.kind, ElementKind::Root) {
+        let height = if is_root {
             available_rect.height()
         } else {
             measured_height
@@ -246,56 +245,45 @@ impl<'a> SceneBuilder<'a> {
             ElementKind::Root | ElementKind::Panel | ElementKind::Row | ElementKind::Column
         ) {
             let content = inset_rect(rect, style.padding);
+            let horizontal = matches!(element.kind, ElementKind::Row);
+            let mut cursor = if horizontal { content.x0 } else { content.y0 };
             let mut previous_visible = false;
-            if matches!(element.kind, ElementKind::Row) {
-                let mut x = content.x0;
-                for &child in &element.children {
-                    let Some(child_element) = self.elements.get(child.index()) else {
-                        continue;
-                    };
-                    let child_style = self.resolve_style(child_element);
-                    if !child_style.visible {
-                        continue;
-                    }
-                    if previous_visible {
-                        x += style.gap;
-                    }
-                    let child_rect = Rect::new(x, content.y0, content.x1, content.y1);
-                    let child_size = self.layout_element(
-                        child,
-                        Point::new(x, content.y0),
-                        child_rect,
-                        Some(node),
-                        depth + 1,
-                    );
-                    x += child_size.width;
-                    previous_visible = true;
+            for &child in &element.children {
+                let Some(child_element) = self.elements.get(child.index()) else {
+                    continue;
+                };
+                let child_style = self.resolve_style(child_element);
+                if !child_style.visible {
+                    continue;
                 }
-            } else {
-                let mut y = content.y0;
-                let child_width = content.width().max(0.0);
-                for &child in &element.children {
-                    let Some(child_element) = self.elements.get(child.index()) else {
-                        continue;
-                    };
-                    let child_style = self.resolve_style(child_element);
-                    if !child_style.visible {
-                        continue;
-                    }
-                    if previous_visible {
-                        y += style.gap;
-                    }
-                    let child_rect = Rect::new(content.x0, y, content.x0 + child_width, content.y1);
-                    let child_size = self.layout_element(
-                        child,
-                        Point::new(content.x0, y),
-                        child_rect,
-                        Some(node),
-                        depth + 1,
-                    );
-                    y += child_size.height;
-                    previous_visible = true;
+                if previous_visible {
+                    cursor += style.gap;
                 }
+                let (child_origin, child_rect) = if horizontal {
+                    (
+                        Point::new(cursor, content.y0),
+                        Rect::new(cursor, content.y0, content.x1, content.y1),
+                    )
+                } else {
+                    let cw = content.width().max(0.0);
+                    (
+                        Point::new(content.x0, cursor),
+                        Rect::new(content.x0, cursor, content.x0 + cw, content.y1),
+                    )
+                };
+                let child_size = self.layout_element(
+                    child,
+                    child_origin,
+                    child_rect,
+                    Some(node),
+                    depth + 1,
+                );
+                cursor += if horizontal {
+                    child_size.width
+                } else {
+                    child_size.height
+                };
+                previous_visible = true;
             }
         }
 
@@ -322,39 +310,31 @@ impl<'a> SceneBuilder<'a> {
         match element.kind {
             ElementKind::Button => style.height.max(0.0),
             ElementKind::Spacer => 0.0,
-            ElementKind::Row => {
-                let width = if style.width > 0.0 {
-                    style.width.min(available_width)
-                } else {
-                    available_width
-                };
-                let child_width = (width - style.padding * 2.0).max(0.0);
-                let mut max_height: f64 = 0.0;
-                for &child in &element.children {
-                    max_height = max_height.max(self.measure_height(child, child_width));
-                }
-                (style.padding * 2.0 + max_height).max(0.0)
-            }
-            ElementKind::Panel | ElementKind::Column | ElementKind::Root => {
-                let width = if style.width > 0.0 {
-                    style.width.min(available_width)
-                } else {
-                    available_width
-                };
-                let child_width = (width - style.padding * 2.0).max(0.0);
-                let mut total = style.padding * 2.0;
-                let mut visible_children = 0_u32;
-                for &child in &element.children {
-                    let height = self.measure_height(child, child_width);
-                    if height > 0.0 {
-                        if visible_children > 0 {
-                            total += style.gap;
-                        }
-                        total += height;
-                        visible_children += 1;
+            ElementKind::Row | ElementKind::Panel | ElementKind::Column | ElementKind::Root => {
+                let child_width = (resolve_dim(style.width, available_width)
+                    - style.padding * 2.0)
+                    .max(0.0);
+                if matches!(element.kind, ElementKind::Row) {
+                    let mut max_height: f64 = 0.0;
+                    for &child in &element.children {
+                        max_height = max_height.max(self.measure_height(child, child_width));
                     }
+                    (style.padding * 2.0 + max_height).max(0.0)
+                } else {
+                    let mut total = style.padding * 2.0;
+                    let mut visible_children = 0_u32;
+                    for &child in &element.children {
+                        let height = self.measure_height(child, child_width);
+                        if height > 0.0 {
+                            if visible_children > 0 {
+                                total += style.gap;
+                            }
+                            total += height;
+                            visible_children += 1;
+                        }
+                    }
+                    total.max(0.0)
                 }
-                total.max(0.0)
             }
         }
     }
@@ -522,6 +502,16 @@ fn build_pseudos(element: &Element) -> Vec<understory_style::PseudoClassId> {
         pseudos.push(PSEUDO_DISABLED);
     }
     pseudos
+}
+
+/// Resolves a style dimension: if the style specifies a positive value, clamp
+/// it to the available space; otherwise use the full available space.
+fn resolve_dim(style_value: f64, available: f64) -> f64 {
+    if style_value > 0.0 {
+        style_value.min(available).max(0.0)
+    } else {
+        available.max(0.0)
+    }
 }
 
 fn inset_rect(rect: Rect, inset: f64) -> Rect {

@@ -12,8 +12,8 @@
 //! - [`understory_responder`] for deterministic routing,
 //! - [`ui_events`] for transport-agnostic input event types.
 //!
-//! This crate intentionally does **not** own a renderer-facing display list or
-//! presentation system. It resolves retained UI/runtime state into:
+//! This crate intentionally does **not** own a renderer or presentation system.
+//! It resolves retained UI/runtime state into:
 //!
 //! - a debug/projection [`SceneSnapshot`], and
 //! - a retained `understory_display::DisplayTree` that embedders can lay out
@@ -40,7 +40,7 @@
 //! - text layout,
 //! - accessibility bridges,
 //! - platform event loops,
-//! - a renderer-facing display list,
+//! - a renderer-facing paint backend,
 //! - a general widget authoring API.
 //!
 //! ## Example
@@ -67,7 +67,8 @@ pub use element::{
 /// and palettes without adding another direct dependency for basic styling.
 pub use peniko::{self, Color};
 pub use properties::{BuiltInProperties, DirtyChannels, ThemeKeys};
-pub use runtime::{Interaction, InteractionBatch, RuntimeState};
+pub use runtime::{Interaction, InteractionBatch};
+pub(crate) use runtime::RuntimeState;
 pub use scene::{BorderStyle, ResolvedElement, SceneSnapshot};
 pub use ui::{Ui, default_theme};
 

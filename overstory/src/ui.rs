@@ -70,22 +70,10 @@ impl Ui {
         &self.props
     }
 
-    /// Returns the property registry.
-    #[must_use]
-    pub const fn registry(&self) -> &PropertyRegistry {
-        &self.registry
-    }
-
     /// Returns the current theme.
     #[must_use]
     pub const fn theme(&self) -> &Theme {
         &self.theme
-    }
-
-    /// Returns the current runtime state.
-    #[must_use]
-    pub const fn runtime(&self) -> &RuntimeState {
-        &self.runtime
     }
 
     /// Returns one retained element.

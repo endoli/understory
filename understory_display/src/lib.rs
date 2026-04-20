@@ -1,13 +1,12 @@
 // Copyright 2026 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Retained display-tree and display-list primitives between toolkit/runtime
-//! state and paint backends.
+//! Retained display-tree primitives between toolkit/runtime state and paint
+//! backends.
 //!
 //! `understory_display` provides:
 //!
 //! - a small retained display tree for local measure/place,
-//! - a flat retained display command stream as a lowering target,
 //! - and a calm 2D drawing vocabulary.
 //!
 //! It is intended to sit between:
@@ -34,7 +33,7 @@
 //!
 //! - shape text into retained glyph runs with Parley,
 //! - let retained text leaves participate in local measure/place,
-//! - carry font data and positioned glyphs in lowered display items,
+//! - carry font data and positioned glyphs in display nodes,
 //! - leave backend-specific glyph rendering to adapters above this crate.
 //!
 //! ## Example
@@ -43,29 +42,21 @@
 //! concrete flow:
 //!
 //! - `overstory::SceneSnapshot` -> retained `understory_display::DisplayTree`
-//! - retained `understory_display::DisplayTree` -> flat retained `understory_display::DisplayList`
-//! - `understory_display::DisplayList` -> `imaging::record::Scene`
+//! - retained `understory_display::DisplayTree` -> `imaging::record::Scene`
 //! - `imaging_vello_cpu` -> pixels in a window
 
 #![no_std]
 
 extern crate alloc;
 
-mod builder;
 mod ids;
 mod item;
-mod list;
 #[cfg(feature = "std")]
 mod text;
 mod tree;
 
-pub use builder::DisplayListBuilder;
-pub use ids::{ItemId, SemanticId};
-pub use item::{
-    DisplayClipRect, DisplayEntry, DisplayGlyph, DisplayGlyphRun, DisplayItem, DisplayOp,
-    DisplayOpacity, DisplayTransform,
-};
-pub use list::DisplayList;
+pub use ids::SemanticId;
+pub use item::{DisplayGlyph, DisplayGlyphRun};
 #[cfg(feature = "std")]
 pub use text::{TextEngine, TextRunRequest};
 pub use tree::{
