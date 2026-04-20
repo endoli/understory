@@ -58,6 +58,10 @@ These examples form a short, progressive walkthrough from routing basics to inte
   - Keep a chat/log-style transcript pinned to the tail with `TailAnchoredExtentModel`, but only while the user is already anchored there.
   - Run: `cargo run -p understory_examples --example transcript_tail_anchored`
 
+- overstory_showcase
+  - Drive the experimental Overstory retained UI layer through theme/style resolution, box-tree projection, and `ui-events` pointer interaction.
+  - Run: `cargo run -p understory_examples --example overstory_showcase`
+
 Notes
 - Examples live in a separate crate (`understory_examples`) so that published crates stay free of example-only dependencies.
 - Output is formatted with section headers to make sequences easy to follow.

@@ -7,6 +7,11 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
 
 ## Crates
 
+- `overstory`
+  - Experimental retained UI/runtime layer built on top of the Understory kernels.
+  - Uses `understory_property`, `understory_style`, `understory_box_tree`, and `ui-events` together to pressure-test what belongs in a higher-level toolkit versus future seam crates such as a display tree.
+  - Deliberately stops at a retained visual snapshot rather than pretending to be the long-term renderer-facing display list.
+
 - `understory_index`
   - A generic 2D AABB index with pluggable backends: FlatVec (linear scan), R‑tree, and BVH.
   - Works across `f32`/`f64`/`i64` coordinate spaces with widened accumulator metrics for robust splits.
@@ -134,6 +139,7 @@ For example, a canvas or DWG or DXF viewer can reuse the box and index layers wi
   - `cargo run -p understory_examples --example transcript_agent_run`
   - `cargo run -p understory_examples --example transcript_virtual_list`
   - `cargo run -p understory_examples --example transcript_tail_anchored`
+  - `cargo run -p understory_examples --example overstory_showcase`
   - `cargo run -p understory_examples --example responder_basics`
   - `cargo run -p understory_examples --example responder_hover`
   - `cargo run -p understory_examples --example responder_box_tree`

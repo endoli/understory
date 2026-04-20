@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+overstory = { path = "../overstory" }
 understory_responder = { path = "../understory_responder", features = [
   "box_tree_adapter",
   "hit2d_adapter",
@@ -18,5 +19,6 @@ understory_precise_hit = { path = "../understory_precise_hit" }
 understory_event_state = { path = "../understory_event_state" }
 understory_inspector = { path = "../understory_inspector" }
 understory_outline = { path = "../understory_outline" }
+understory_style = { path = "../understory_style" }
 understory_transcript = { path = "../understory_transcript" }
 understory_virtual_list = { path = "../understory_virtual_list" }

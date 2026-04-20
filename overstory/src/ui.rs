@@ -93,6 +93,12 @@ impl Ui {
         self.elements.get(id.index())
     }
 
+    /// Returns all retained elements in insertion order.
+    #[must_use]
+    pub fn elements(&self) -> &[Element] {
+        &self.elements
+    }
+
     /// Returns the current view rectangle.
     #[must_use]
     pub fn view_rect(&self) -> Rect {
