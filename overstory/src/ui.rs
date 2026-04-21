@@ -354,6 +354,28 @@ impl Ui {
         batch
     }
 
+    /// Refreshes editor layouts for all `TextInput` elements and caches their
+    /// cursor/selection geometry.
+    pub fn refresh_editors(&mut self, text: &mut understory_display::TextEngine) {
+        let (font_cx, layout_cx) = text.contexts();
+        for element in &mut self.elements {
+            if matches!(element.kind, ElementKind::TextInput) {
+                element.editor.refresh_layout(font_cx, layout_cx);
+                element.cached_cursor_rect = element
+                    .editor
+                    .cursor_geometry(2.0)
+                    .map(|bb| Rect::new(bb.x0, bb.y0, bb.x1, bb.y1));
+                let mut rects = Vec::new();
+                element
+                    .editor
+                    .selection_geometry_with(|bb, _line| {
+                        rects.push(Rect::new(bb.x0, bb.y0, bb.x1, bb.y1));
+                    });
+                element.cached_selection_rects = rects;
+            }
+        }
+    }
+
     /// Rebuilds the resolved scene if needed and returns the current snapshot.
     pub fn rebuild(&mut self) -> &SceneSnapshot {
         if self.scene.is_none() || !self.dirty.is_empty() {

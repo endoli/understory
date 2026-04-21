@@ -87,59 +87,92 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> Disp
         });
     }
 
-    // Determine display text: for TextInput, show buffer + cursor; otherwise use label.
-    let is_text_input = matches!(element.kind, ElementKind::TextInput);
-    let display_text: Option<alloc::string::String> = if is_text_input {
-        let cursor = if element.focused { "|" } else { "" };
-        let text = element.label.as_deref().unwrap_or("");
-        Some(alloc::format!("{text}{cursor}"))
-    } else {
-        element.label.as_deref().map(alloc::string::String::from)
-    };
+    let label_text = element.label.as_deref();
 
-    if let Some(label) = display_text.as_deref()
+    if let Some(label) = label_text
         && !label.is_empty()
     {
-            let font_size = if element.font_size > 0.0 {
-                element.font_size
-            } else {
-                DEFAULT_FONT_SIZE
-            };
-            let label_padding = if element.label_padding > 0.0 {
-                element.label_padding
-            } else {
-                DEFAULT_LABEL_PADDING
-            };
-            let font_family = if element.font_family.is_empty() {
-                DEFAULT_FONT_FAMILY
-            } else {
-                &element.font_family
-            };
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "Font size is a small positive value; f32 is sufficient."
-            )]
-            let text_node = DisplayNode::text(
-                label,
-                Brush::Solid(element.foreground),
-                font_size as f32,
-                font_family,
-                element.text_align,
-            );
-            if matches!(element.kind, ElementKind::TextBlock) {
-                // TextBlock: top-left aligned, padded, wraps at container width.
-                children.push(DisplayNode::padding(
-                    Insets::uniform(element.label_padding.max(0.0)),
-                    text_node,
-                ));
-            } else {
-                // Button/TextInput/other: horizontally padded, vertically centered.
-                children.push(DisplayNode::align(
-                    understory_display::DisplayAlign::Start,
-                    understory_display::DisplayAlign::Center,
-                    DisplayNode::padding(Insets::symmetric(label_padding, 0.0), text_node),
-                ));
-            }
+        let font_size = if element.font_size > 0.0 {
+            element.font_size
+        } else {
+            DEFAULT_FONT_SIZE
+        };
+        let label_padding = if element.label_padding > 0.0 {
+            element.label_padding
+        } else {
+            DEFAULT_LABEL_PADDING
+        };
+        let font_family = if element.font_family.is_empty() {
+            DEFAULT_FONT_FAMILY
+        } else {
+            &element.font_family
+        };
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "Font size is a small positive value; f32 is sufficient."
+        )]
+        let text_node = DisplayNode::text(
+            label,
+            Brush::Solid(element.foreground),
+            font_size as f32,
+            font_family,
+            element.text_align,
+        );
+        if matches!(element.kind, ElementKind::TextBlock) {
+            // TextBlock: top-left aligned, padded, wraps at container width.
+            children.push(DisplayNode::padding(
+                Insets::uniform(element.label_padding.max(0.0)),
+                text_node,
+            ));
+        } else {
+            // Button/TextInput/other: horizontally padded, vertically centered.
+            children.push(DisplayNode::align(
+                understory_display::DisplayAlign::Start,
+                understory_display::DisplayAlign::Center,
+                DisplayNode::padding(Insets::symmetric(label_padding, 0.0), text_node),
+            ));
+        }
+    }
+
+    // Render selection highlights and cursor for focused TextInput elements.
+    if matches!(element.kind, ElementKind::TextInput) && element.focused {
+        let label_padding = if element.label_padding > 0.0 {
+            element.label_padding
+        } else {
+            DEFAULT_LABEL_PADDING
+        };
+        let selection_brush = Brush::Solid(peniko::Color::from_rgba8(80, 140, 220, 100));
+        let cursor_brush = Brush::Solid(element.foreground);
+
+        let mut overlay_nodes = Vec::new();
+        for sel_rect in &element.selection_rects {
+            overlay_nodes.push(DisplayNode::offset(
+                Vec2::new(sel_rect.x0, sel_rect.y0),
+                DisplayNode::fixed_frame(
+                    sel_rect.size(),
+                    DisplayNode::fill_rect(selection_brush.clone()),
+                ),
+            ));
+        }
+        if let Some(cursor) = &element.cursor_rect {
+            overlay_nodes.push(DisplayNode::offset(
+                Vec2::new(cursor.x0, cursor.y0),
+                DisplayNode::fixed_frame(
+                    cursor.size(),
+                    DisplayNode::fill_rect(cursor_brush),
+                ),
+            ));
+        }
+        if !overlay_nodes.is_empty() {
+            children.push(DisplayNode::align(
+                understory_display::DisplayAlign::Start,
+                understory_display::DisplayAlign::Center,
+                DisplayNode::padding(
+                    Insets::symmetric(label_padding, 0.0),
+                    DisplayNode::stack(overlay_nodes),
+                ),
+            ));
+        }
     }
 
     let child_nodes: Vec<DisplayNode> = node

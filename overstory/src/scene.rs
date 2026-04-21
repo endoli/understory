@@ -62,6 +62,10 @@ pub struct ResolvedElement {
     pub pressed: bool,
     /// Focus state at snapshot time.
     pub focused: bool,
+    /// Cursor rectangle relative to the text origin (`TextInput` only).
+    pub cursor_rect: Option<Rect>,
+    /// Selection highlight rectangles relative to the text origin (`TextInput` only).
+    pub selection_rects: Vec<Rect>,
     /// Vertical scroll offset (`ScrollView` only).
     pub scroll_offset: f64,
     /// Resolved font size for label text.
@@ -268,6 +272,8 @@ impl<'a> SceneBuilder<'a> {
             hovered: element.pseudos.hovered,
             pressed: element.pseudos.pressed,
             focused: element.pseudos.focused,
+            cursor_rect: element.cached_cursor_rect,
+            selection_rects: element.cached_selection_rects.clone(),
             scroll_offset: element.scroll_offset,
             font_size: style.font_size,
             label_padding: style.label_padding,

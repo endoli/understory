@@ -548,6 +548,7 @@ impl DemoApp {
         }
 
         let scale_factor = window.scale_factor();
+        self.ui.refresh_editors(&mut self.text);
         let snapshot = self.ui.scene();
         let mut display_tree = snapshot.display_tree();
         display_tree.layout(
