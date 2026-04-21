@@ -1,7 +1,7 @@
 // Copyright 2026 the Overstory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Windowed Overstory demo rendered through `imaging`.
+//! Windowed Overstory demo rendered through `imaging` + Vello Hybrid.
 //!
 //! This example keeps `overstory` renderer-agnostic:
 //! - Overstory owns retained UI state, style resolution, layout, box-tree hit
@@ -9,23 +9,20 @@
 //! - This example lowers the resolved [`overstory::SceneSnapshot`] into
 //!   a retained `understory_display::DisplayTree`.
 //! - It then lowers that tree directly into `imaging::record::Scene`.
-//! - `imaging_vello_cpu` rasterizes that scene into an RGBA buffer.
-//! - `softbuffer` presents the result in a `winit` window.
+//! - `imaging_vello_hybrid` encodes the scene and renders it via `wgpu` to a
+//!   GPU surface.
 //!
 //! Run:
 //! - `cargo run -p understory_examples --example overstory_visual_demo`
 
-use std::boxed::Box;
-use std::num::NonZeroU32;
-use std::rc::Rc;
+use std::sync::Arc;
 
-use imaging_vello_cpu::VelloCpuRenderer;
+use imaging_vello_hybrid::VelloHybridRenderer;
 use kurbo::Rect;
 use overstory::peniko::color::palette;
 use overstory::{
     ButtonClass, ElementId, ElementKind, Interaction, LayoutClass, ThemeKeys, Ui, default_theme,
 };
-use softbuffer::Surface;
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
 use understory_display::{BoxConstraints, TextEngine};
 use understory_examples::overstory_display::imaging_scene_from_display_tree;
@@ -33,6 +30,7 @@ use understory_style::{
     IdSet, Selector, StyleBuilder, StyleCascade, StyleCascadeBuilder, StyleOrigin,
     StyleSheetBuilder, Theme, ThemeBuilder,
 };
+use wgpu::TextureFormat;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{KeyEvent, WindowEvent};
@@ -61,14 +59,162 @@ struct DemoIds {
     messages: ElementId,
 }
 
-#[derive(Debug)]
 enum RenderState {
     Active {
-        window: Rc<Window>,
-        surface: Surface<Rc<Window>, Rc<Window>>,
-        renderer: Box<VelloCpuRenderer>,
+        window: Arc<Window>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        surface: wgpu::Surface<'static>,
+        surface_config: wgpu::SurfaceConfiguration,
+        renderer: VelloHybridRenderer,
+        blit: BlitPipeline,
     },
     Suspended,
+}
+
+/// Simple full-screen blit from an Rgba8Unorm texture to the surface format.
+struct BlitPipeline {
+    pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+}
+
+impl BlitPipeline {
+    fn new(device: &wgpu::Device, surface_format: TextureFormat) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("blit shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                r"
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4f {
+    let uv = vec2f(f32((idx << 1u) & 2u), f32(idx & 2u));
+    return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+
+@group(0) @binding(0) var t: texture_2d<f32>;
+@group(0) @binding(1) var s: sampler;
+
+@fragment
+fn fs_main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+    let dims = vec2f(textureDimensions(t));
+    let uv = pos.xy / dims;
+    return textureSample(t, s, uv);
+}
+"
+                .into(),
+            ),
+        });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("blit bind group layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("blit pipeline layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("blit pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("blit sampler"),
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        Self {
+            pipeline,
+            bind_group_layout,
+            sampler,
+        }
+    }
+
+    fn blit(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        source: &wgpu::TextureView,
+        target: &wgpu::TextureView,
+    ) {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("blit bind group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(source),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("blit encoder"),
+        });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("blit pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        queue.submit([encoder.finish()]);
+    }
 }
 
 struct DemoApp {
@@ -275,8 +421,10 @@ impl DemoApp {
 
         let RenderState::Active {
             window,
+            device,
             surface,
-            renderer,
+            surface_config,
+            ..
         } = &mut self.render_state
         else {
             return;
@@ -285,24 +433,21 @@ impl DemoApp {
         if size.width == 0 || size.height == 0 {
             return;
         }
-        surface
-            .resize(
-                NonZeroU32::new(size.width).expect("non-zero width"),
-                NonZeroU32::new(size.height).expect("non-zero height"),
-            )
-            .expect("resize surface");
-        **renderer = VelloCpuRenderer::new(
-            u16::try_from(size.width).expect("window width exceeds u16"),
-            u16::try_from(size.height).expect("window height exceeds u16"),
-        );
+        surface_config.width = size.width;
+        surface_config.height = size.height;
+        surface.configure(device, surface_config);
         window.request_redraw();
     }
 
     fn redraw_active(&mut self) {
         let RenderState::Active {
             window,
+            device,
+            queue,
             surface,
             renderer,
+            blit,
+            ..
         } = &mut self.render_state
         else {
             return;
@@ -320,19 +465,47 @@ impl DemoApp {
             BoxConstraints::tight(snapshot.view_rect().size()),
         );
         let imaging_scene = imaging_scene_from_display_tree(&display_tree);
-        let rgba = renderer
-            .render_scene(
-                &imaging_scene,
-                u16::try_from(size.width).expect("window width exceeds u16"),
-                u16::try_from(size.height).expect("window height exceeds u16"),
-            )
-            .expect("render imaging scene");
+        let width = u16::try_from(size.width).expect("window width exceeds u16");
+        let height = u16::try_from(size.height).expect("window height exceeds u16");
+        let native = renderer
+            .encode_scene(&imaging_scene, width, height)
+            .expect("encode imaging scene");
 
-        let mut buffer = surface.buffer_mut().expect("lock softbuffer");
-        for (pixel, rgba) in buffer.iter_mut().zip(rgba.data.chunks_exact(4)) {
-            *pixel = u32::from_le_bytes([rgba[2], rgba[1], rgba[0], 0]);
-        }
-        buffer.present().expect("present softbuffer buffer");
+        // Render to an offscreen Rgba8Unorm texture (the format vello_hybrid uses),
+        // then blit to the surface texture (which may be Bgra8UnormSrgb on macOS).
+        let offscreen = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("offscreen"),
+            size: wgpu::Extent3d {
+                width: u32::from(width),
+                height: u32::from(height),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
+        renderer
+            .render_to_texture_view(
+                &native,
+                &offscreen_view,
+                u32::from(width),
+                u32::from(height),
+            )
+            .expect("render to offscreen");
+
+        let frame = surface
+            .get_current_texture()
+            .expect("get current surface texture");
+        let surface_view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        blit.blit(device, queue, &offscreen_view, &surface_view);
+        frame.present();
     }
 }
 
@@ -345,27 +518,62 @@ impl ApplicationHandler for DemoApp {
         let attrs = Window::default_attributes()
             .with_title("Overstory + imaging")
             .with_inner_size(PhysicalSize::new(960, 640));
-        let window = Rc::new(event_loop.create_window(attrs).expect("create window"));
-        let context = softbuffer::Context::new(window.clone()).expect("create softbuffer context");
-        let mut surface =
-            softbuffer::Surface::new(&context, window.clone()).expect("create softbuffer surface");
+        let window = Arc::new(event_loop.create_window(attrs).expect("create window"));
         let size = window.inner_size();
-        surface
-            .resize(
-                NonZeroU32::new(size.width.max(1)).expect("non-zero width"),
-                NonZeroU32::new(size.height.max(1)).expect("non-zero height"),
-            )
-            .expect("resize initial surface");
+
+        let instance = wgpu::Instance::default();
+        let surface = instance
+            .create_surface(window.clone())
+            .expect("create wgpu surface");
+        let (device, queue, surface_format) = pollster::block_on(async {
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::default(),
+                    force_fallback_adapter: false,
+                    compatible_surface: Some(&surface),
+                })
+                .await
+                .expect("request wgpu adapter");
+            let caps = surface.get_capabilities(&adapter);
+            let format = caps
+                .formats
+                .iter()
+                .find(|f| **f == TextureFormat::Rgba8Unorm)
+                .copied()
+                .unwrap_or(caps.formats[0]);
+            let (device, queue) = adapter
+                .request_device(&wgpu::DeviceDescriptor {
+                    label: Some("overstory demo"),
+                    ..Default::default()
+                })
+                .await
+                .expect("request wgpu device");
+            (device, queue, format)
+        });
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width.max(1),
+            height: size.height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+        };
+        surface.configure(&device, &surface_config);
+
         self.resize_ui(size);
-        let renderer = Box::new(VelloCpuRenderer::new(
-            u16::try_from(size.width.max(1)).expect("window width exceeds u16"),
-            u16::try_from(size.height.max(1)).expect("window height exceeds u16"),
-        ));
+        let blit = BlitPipeline::new(&device, surface_format);
+        let renderer = VelloHybridRenderer::new(device.clone(), queue.clone());
         window.request_redraw();
         self.render_state = RenderState::Active {
             window,
+            device,
+            queue,
             surface,
+            surface_config,
             renderer,
+            blit,
         };
     }
 
