@@ -62,6 +62,10 @@ pub struct ResolvedElement {
     pub pressed: bool,
     /// Vertical scroll offset (`ScrollView` only).
     pub scroll_offset: f64,
+    /// Resolved font size for label text.
+    pub font_size: f64,
+    /// Resolved horizontal label padding.
+    pub label_padding: f64,
 }
 
 /// Full resolved scene snapshot for one Overstory frame.
@@ -243,6 +247,8 @@ impl<'a> SceneBuilder<'a> {
             hovered: element.pseudos.hovered,
             pressed: element.pseudos.pressed,
             scroll_offset: element.scroll_offset,
+            font_size: style.font_size,
+            label_padding: style.label_padding,
         });
 
         let is_scroll_view = matches!(element.kind, ElementKind::ScrollView);
@@ -534,6 +540,20 @@ impl<'a> SceneBuilder<'a> {
                 element.style.as_ref(),
             ),
             fill: cx.get_value(element, &inputs, self.props.fill, element.style.as_ref()),
+            font_size: cx.get_value_with_theme(
+                element,
+                &inputs,
+                self.props.font_size,
+                element.style.as_ref(),
+                Some(ThemeKeys::FONT_SIZE),
+            ),
+            label_padding: cx.get_value_with_theme(
+                element,
+                &inputs,
+                self.props.label_padding,
+                element.style.as_ref(),
+                Some(ThemeKeys::LABEL_PADDING),
+            ),
         }
     }
     fn alloc_z(&mut self) -> i32 {
@@ -558,6 +578,8 @@ struct ResolvedStyle {
     pickable: bool,
     focusable: bool,
     fill: bool,
+    font_size: f64,
+    label_padding: f64,
 }
 
 impl ResolvedStyle {

@@ -11,6 +11,11 @@ use understory_display::{DisplayNode, DisplayTree, Insets, TextAlign};
 
 use crate::{ElementKind, ResolvedElement, SceneSnapshot};
 
+/// Default font size when no property or theme value is set.
+const DEFAULT_FONT_SIZE: f64 = 16.0;
+/// Default horizontal label padding when no property or theme value is set.
+const DEFAULT_LABEL_PADDING: f64 = 12.0;
+
 #[derive(Debug)]
 struct ElementDisplayTree<'a> {
     element: &'a ResolvedElement,
@@ -81,15 +86,29 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> Disp
     }
 
     if let Some(label) = element.label.as_deref() {
+        let font_size = if element.font_size > 0.0 {
+            element.font_size
+        } else {
+            DEFAULT_FONT_SIZE
+        };
+        let label_padding = if element.label_padding > 0.0 {
+            element.label_padding
+        } else {
+            DEFAULT_LABEL_PADDING
+        };
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "Font size is a small positive value; f32 is sufficient."
+        )]
         children.push(DisplayNode::align(
             understory_display::DisplayAlign::Start,
             understory_display::DisplayAlign::Center,
             DisplayNode::padding(
-                Insets::symmetric(16.0, 0.0),
+                Insets::symmetric(label_padding, 0.0),
                 DisplayNode::text(
                     label,
                     Brush::Solid(element.foreground),
-                    21.0,
+                    font_size as f32,
                     "sans-serif",
                     TextAlign::Start,
                 ),

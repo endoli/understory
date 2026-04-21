@@ -706,6 +706,36 @@ mod tests {
     }
 
     #[test]
+    fn custom_font_size_in_resolved_element() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 100.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+
+        let button = ui.append_child(ui.root(), ElementKind::Button);
+        ui.set_label(button, "Big");
+        ui.set_local(button, ui.properties().font_size, 32.0);
+
+        let scene = ui.scene();
+        let resolved = scene.resolved_element(button).unwrap();
+        assert_eq!(resolved.font_size, 32.0);
+    }
+
+    #[test]
+    fn theme_font_size_used_as_default() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 100.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+
+        let button = ui.append_child(ui.root(), ElementKind::Button);
+        ui.set_label(button, "Normal");
+
+        let scene = ui.scene();
+        let resolved = scene.resolved_element(button).unwrap();
+        assert_eq!(resolved.font_size, 16.0);
+        assert_eq!(resolved.label_padding, 12.0);
+    }
+
+    #[test]
     fn density_selection_follows_current_mode() {
         let mut app = DemoApp::new();
 

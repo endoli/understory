@@ -58,6 +58,10 @@ impl ThemeKeys {
     pub const PRIMARY_HOVER_BACKGROUND: ResourceKey = ResourceKey::new(13);
     /// Primary action pressed background.
     pub const PRIMARY_PRESSED_BACKGROUND: ResourceKey = ResourceKey::new(14);
+    /// Default font size.
+    pub const FONT_SIZE: ResourceKey = ResourceKey::new(15);
+    /// Default label padding.
+    pub const LABEL_PADDING: ResourceKey = ResourceKey::new(16);
 }
 
 /// Built-in dependency properties for layout and visuals.
@@ -89,6 +93,10 @@ pub struct BuiltInProperties {
     pub focusable: Property<bool>,
     /// Fill remaining space in the parent container.
     pub fill: Property<bool>,
+    /// Font size for label text.
+    pub font_size: Property<f64>,
+    /// Horizontal label padding.
+    pub label_padding: Property<f64>,
 }
 
 impl BuiltInProperties {
@@ -180,6 +188,21 @@ impl BuiltInProperties {
             fill: registry.register(
                 "Fill",
                 PropertyMetadataBuilder::new(false)
+                    .affects_channels(layout)
+                    .build(),
+            ),
+            font_size: registry.register(
+                "FontSize",
+                PropertyMetadataBuilder::new(0.0_f64)
+                    .coerce(|value| value.max(0.0))
+                    .inherits(true)
+                    .affects_channels(layout_paint)
+                    .build(),
+            ),
+            label_padding: registry.register(
+                "LabelPadding",
+                PropertyMetadataBuilder::new(0.0_f64)
+                    .coerce(|value| value.max(0.0))
                     .affects_channels(layout)
                     .build(),
             ),

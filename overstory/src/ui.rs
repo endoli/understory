@@ -438,6 +438,8 @@ pub fn default_theme() -> Theme {
         .set(ThemeKeys::PADDING, 16.0_f64)
         .set(ThemeKeys::GAP, 12.0_f64)
         .set(ThemeKeys::BUTTON_HEIGHT, 44.0_f64)
+        .set(ThemeKeys::FONT_SIZE, 16.0_f64)
+        .set(ThemeKeys::LABEL_PADDING, 12.0_f64)
         .build()
 }
 
