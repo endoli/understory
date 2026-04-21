@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use core::any::Any;
 
 use peniko::Brush;
-use understory_display::{DisplayNode, Insets};
+use understory_display::{DisplayAlign, DisplayNode, Insets};
 
 use understory_style::ResourceKey;
 
@@ -83,8 +83,8 @@ impl Widget for ButtonWidget {
             resolved.text_align,
         );
         children.push(DisplayNode::align(
-            understory_display::DisplayAlign::Start,
-            understory_display::DisplayAlign::Center,
+            DisplayAlign::Start,
+            DisplayAlign::Center,
             DisplayNode::padding(Insets::symmetric(label_padding, 0.0), text_node),
         ));
     }

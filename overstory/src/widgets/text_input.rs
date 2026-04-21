@@ -9,7 +9,7 @@ use core::any::Any;
 use kurbo::{Point, Rect, Vec2};
 use parley::PlainEditor;
 use peniko::Brush;
-use understory_display::{DisplayNode, Insets, TextEngine};
+use understory_display::{DisplayAlign, DisplayNode, Insets, TextEngine};
 use ui_events::keyboard::{Key, KeyboardEvent, Modifiers, NamedKey};
 
 use understory_style::ResourceKey;
@@ -112,8 +112,8 @@ impl Widget for TextInputWidget {
                 resolved.text_align,
             );
             children.push(DisplayNode::align(
-                understory_display::DisplayAlign::Start,
-                understory_display::DisplayAlign::Center,
+                DisplayAlign::Start,
+                DisplayAlign::Center,
                 DisplayNode::padding(Insets::symmetric(label_padding, 0.0), text_node),
             ));
         }
@@ -138,8 +138,8 @@ impl Widget for TextInputWidget {
         }
         if !overlay_nodes.is_empty() {
             children.push(DisplayNode::align(
-                understory_display::DisplayAlign::Start,
-                understory_display::DisplayAlign::Center,
+                DisplayAlign::Start,
+                DisplayAlign::Center,
                 DisplayNode::padding(
                     Insets::symmetric(label_padding, 0.0),
                     DisplayNode::stack(overlay_nodes),
