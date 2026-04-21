@@ -77,12 +77,7 @@ impl Widget for TooltipWidget {
         }
     }
 
-    fn display(
-        &self,
-        _id: ElementId,
-        resolved: &ResolvedElement,
-        children: &mut Vec<DisplayNode>,
-    ) {
+    fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
         let Some(label) = resolved.label.as_deref() else {
             return;
         };
@@ -117,10 +112,7 @@ impl Widget for TooltipWidget {
         ));
     }
 
-    fn background_key(
-        &self,
-        _element: &crate::Element,
-    ) -> Option<understory_style::ResourceKey> {
+    fn background_key(&self, _element: &crate::Element) -> Option<understory_style::ResourceKey> {
         Some(crate::ThemeKeys::BUTTON_BACKGROUND)
     }
 

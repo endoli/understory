@@ -8,15 +8,15 @@ use alloc::{boxed::Box, vec, vec::Vec};
 use hashbrown::HashMap;
 use kurbo::{Affine, Point, Rect};
 use understory_box_tree::{LocalNode, NodeFlags, NodeId, QueryFilter, Tree};
+use understory_display::{TextAlign, TextEngine};
 use understory_property::{PropertyRegistry, PropertyStore};
 use understory_responder::adapters::box_tree::top_hit_for_point;
-use understory_display::{TextAlign, TextEngine};
 use understory_style::{PseudoClassId, ResolveCx, ResourceKey, Theme, TypeTag};
 
 use crate::{
-    BuiltInProperties, Color, Element, ElementId, LayoutClass, Widget, WidgetArena, WidgetHandle,
-    PSEUDO_DISABLED, PSEUDO_FOCUSED, PSEUDO_HOVER, PSEUDO_PRESSED, TYPE_PANEL, TYPE_SCROLL_VIEW,
-    ThemeKeys,
+    BuiltInProperties, Color, Element, ElementId, LayoutClass, PSEUDO_DISABLED, PSEUDO_FOCUSED,
+    PSEUDO_HOVER, PSEUDO_PRESSED, TYPE_PANEL, TYPE_SCROLL_VIEW, ThemeKeys, Widget, WidgetArena,
+    WidgetHandle,
 };
 
 /// Border styling for one resolved element.
@@ -240,9 +240,7 @@ impl<'a> SceneBuilder<'a> {
         };
 
         let rect = Rect::new(origin.x, origin.y, origin.x + width, origin.y + height);
-        let widget_ref = element
-            .widget
-            .and_then(|h| self.widget_arena.get(h));
+        let widget_ref = element.widget.and_then(|h| self.widget_arena.get(h));
         let flags = style.flags_for(widget_ref);
         let z_index = self.alloc_z();
         let node = self.tree.insert(
@@ -390,13 +388,8 @@ impl<'a> SceneBuilder<'a> {
                         )
                     }
                 };
-                let child_size = self.layout_element(
-                    child,
-                    child_origin,
-                    child_rect,
-                    Some(node),
-                    depth + 1,
-                );
+                let child_size =
+                    self.layout_element(child, child_origin, child_rect, Some(node), depth + 1);
                 cursor += if horizontal {
                     child_size.width
                 } else {
@@ -405,16 +398,20 @@ impl<'a> SceneBuilder<'a> {
                 previous_visible = true;
 
                 // Apply scroll transform to child box-tree nodes.
-                if is_scroll_view
-                    && let Some(child_node) = self.element_to_node[child.index()]
-                {
+                if is_scroll_view && let Some(child_node) = self.element_to_node[child.index()] {
                     self.tree.set_local_transform(
                         child_node,
-                        Affine::translate((0.0, -element
-                            .widget
-                            .and_then(|h| self.widget_arena.get(h))
-                            .and_then(|w| w.as_any().downcast_ref::<crate::widgets::ScrollViewWidget>())
-                            .map_or(0.0, |w| w.scroll_offset()))),
+                        Affine::translate((
+                            0.0,
+                            -element
+                                .widget
+                                .and_then(|h| self.widget_arena.get(h))
+                                .and_then(|w| {
+                                    w.as_any()
+                                        .downcast_ref::<crate::widgets::ScrollViewWidget>()
+                                })
+                                .map_or(0.0, |w| w.scroll_offset()),
+                        )),
                     );
                 }
             }
@@ -488,9 +485,8 @@ impl<'a> SceneBuilder<'a> {
             return 0.0;
         }
 
-        let child_width = (resolve_dim(style.width, available_width)
-            - style.padding * 2.0)
-            .max(0.0);
+        let child_width =
+            (resolve_dim(style.width, available_width) - style.padding * 2.0).max(0.0);
         if element.horizontal {
             let mut max_height: f64 = 0.0;
             for &child in &element.children {
@@ -523,9 +519,7 @@ impl<'a> SceneBuilder<'a> {
         let cx = ResolveCx::new(self.registry, self.theme, lookup);
         let pseudos = build_pseudos(element);
         let inputs = element.selector_inputs(&pseudos);
-        let widget_ref = element
-            .widget
-            .and_then(|h| self.widget_arena.get(h));
+        let widget_ref = element.widget.and_then(|h| self.widget_arena.get(h));
         let background_key = widget_ref
             .and_then(|w| w.background_key(element))
             .or_else(|| default_background_key(element));

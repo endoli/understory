@@ -111,10 +111,8 @@ impl SurfacePlan {
                 DisplayNode::fixed_frame(surface.bounds.size(), tree.root().clone()),
             ));
         }
-        let composited = DisplayNode::fixed_frame(
-            root.bounds.size(),
-            DisplayNode::stack(stack_children),
-        );
+        let composited =
+            DisplayNode::fixed_frame(root.bounds.size(), DisplayNode::stack(stack_children));
         Some((DisplayTree::new(composited), root.bounds))
     }
 }

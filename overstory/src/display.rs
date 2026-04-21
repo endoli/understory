@@ -109,7 +109,11 @@ fn skip_subtree(resolved: &[ResolvedElement], index: &mut usize) {
     }
 }
 
-fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>, widget_arena: &WidgetArena) -> DisplayNode {
+fn display_node_for(
+    parent_origin: Point,
+    node: &ElementDisplayTree<'_>,
+    widget_arena: &WidgetArena,
+) -> DisplayNode {
     let element = node.element;
     let mut children = Vec::new();
     let size = element.rect.size();
@@ -139,8 +143,6 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>, widget_
     {
         widget.display(element.id, element, &mut children);
     }
-
-
 
     let child_nodes: Vec<DisplayNode> = node
         .children

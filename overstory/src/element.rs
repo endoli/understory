@@ -197,7 +197,6 @@ impl Element {
     }
 }
 
-
 impl DependencyObject<ElementId> for Element {
     fn property_store(&self) -> &PropertyStore<ElementId> {
         &self.store

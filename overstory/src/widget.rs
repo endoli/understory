@@ -47,7 +47,8 @@ impl<'a> MeasureCtx<'a> {
         font_family: &str,
         max_width: Option<f32>,
     ) -> Size {
-        self.text.measure_text(text, font_size, font_family, max_width)
+        self.text
+            .measure_text(text, font_size, font_family, max_width)
     }
 }
 
@@ -74,7 +75,13 @@ pub trait Widget {
     ///
     /// Called during display tree projection. Nodes are added to `children`
     /// alongside the element's background, border, and label nodes.
-    fn display(&self, _id: ElementId, _resolved: &ResolvedElement, _children: &mut Vec<DisplayNode>) {}
+    fn display(
+        &self,
+        _id: ElementId,
+        _resolved: &ResolvedElement,
+        _children: &mut Vec<DisplayNode>,
+    ) {
+    }
 
     /// Handle a keyboard event when this widget is focused.
     ///
@@ -189,10 +196,7 @@ impl WidgetArena {
     /// Returns a reference to the widget at the given handle.
     #[must_use]
     pub fn get(&self, handle: WidgetHandle) -> Option<&dyn Widget> {
-        self.widgets
-            .get(handle.0 as usize)?
-            .as_ref()
-            .map(|w| &**w)
+        self.widgets.get(handle.0 as usize)?.as_ref().map(|w| &**w)
     }
 
     /// Returns a mutable reference to the widget at the given handle.
@@ -208,17 +212,14 @@ impl WidgetArena {
     pub fn iter_mut(
         &mut self,
     ) -> impl Iterator<Item = (WidgetHandle, &mut (dyn Widget + 'static))> + '_ {
-        self.widgets
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(i, slot)| {
-                let w = slot.as_mut()?;
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "Arena indices are bounded by insert checks."
-                )]
-                Some((WidgetHandle(i as u32), &mut **w))
-            })
+        self.widgets.iter_mut().enumerate().filter_map(|(i, slot)| {
+            let w = slot.as_mut()?;
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "Arena indices are bounded by insert checks."
+            )]
+            Some((WidgetHandle(i as u32), &mut **w))
+        })
     }
 }
 
@@ -231,7 +232,10 @@ impl Default for WidgetArena {
 impl core::fmt::Debug for WidgetArena {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("WidgetArena")
-            .field("count", &self.widgets.iter().filter(|s| s.is_some()).count())
+            .field(
+                "count",
+                &self.widgets.iter().filter(|s| s.is_some()).count(),
+            )
             .finish()
     }
 }

@@ -34,12 +34,7 @@ impl ButtonWidget {
 }
 
 impl Widget for ButtonWidget {
-    fn display(
-        &self,
-        _id: ElementId,
-        resolved: &ResolvedElement,
-        children: &mut Vec<DisplayNode>,
-    ) {
+    fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
         let Some(label) = resolved.label.as_deref() else {
             return;
         };
@@ -81,14 +76,16 @@ impl Widget for ButtonWidget {
 
     fn background_key(&self, element: &Element) -> Option<ResourceKey> {
         let primary = element.classes.contains(ButtonClass::Primary.class_id());
-        Some(match (primary, element.pseudos.pressed, element.pseudos.hovered) {
-            (true, true, _) => ThemeKeys::PRIMARY_PRESSED_BACKGROUND,
-            (true, false, true) => ThemeKeys::PRIMARY_HOVER_BACKGROUND,
-            (true, false, false) => ThemeKeys::PRIMARY_BACKGROUND,
-            (false, true, _) => ThemeKeys::BUTTON_PRESSED_BACKGROUND,
-            (false, false, true) => ThemeKeys::BUTTON_HOVER_BACKGROUND,
-            (false, false, false) => ThemeKeys::BUTTON_BACKGROUND,
-        })
+        Some(
+            match (primary, element.pseudos.pressed, element.pseudos.hovered) {
+                (true, true, _) => ThemeKeys::PRIMARY_PRESSED_BACKGROUND,
+                (true, false, true) => ThemeKeys::PRIMARY_HOVER_BACKGROUND,
+                (true, false, false) => ThemeKeys::PRIMARY_BACKGROUND,
+                (false, true, _) => ThemeKeys::BUTTON_PRESSED_BACKGROUND,
+                (false, false, true) => ThemeKeys::BUTTON_HOVER_BACKGROUND,
+                (false, false, false) => ThemeKeys::BUTTON_BACKGROUND,
+            },
+        )
     }
 
     fn height_key(&self) -> Option<ResourceKey> {

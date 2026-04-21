@@ -17,9 +17,9 @@ use understory_style::{ClassId, IdSet, StyleCascade, Theme, ThemeBuilder, TypeTa
 
 use crate::{
     BuiltInProperties, ButtonClass, DirtyChannels, Element, ElementId, Interaction,
-    InteractionBatch, LayoutClass, RuntimeState, SceneSnapshot, ThemeKeys, Widget, WidgetArena,
-    TYPE_BUTTON, TYPE_COLUMN, TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW,
-    TYPE_SPACER, TYPE_TEXT_BLOCK, TYPE_TEXT_INPUT,
+    InteractionBatch, LayoutClass, RuntimeState, SceneSnapshot, TYPE_BUTTON, TYPE_COLUMN,
+    TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW, TYPE_SPACER, TYPE_TEXT_BLOCK,
+    TYPE_TEXT_INPUT, ThemeKeys, Widget, WidgetArena,
 };
 
 /// Retained Overstory UI state.
@@ -169,11 +169,7 @@ impl Ui {
     ///
     /// This is a convenience wrapper that creates the appropriate widget and
     /// sets structural flags based on the type tag.
-    pub fn append_child(
-        &mut self,
-        parent: ElementId,
-        type_tag: TypeTag,
-    ) -> ElementId {
+    pub fn append_child(&mut self, parent: ElementId, type_tag: TypeTag) -> ElementId {
         match type_tag {
             TYPE_ROOT | TYPE_PANEL | TYPE_COLUMN => self.append_container(parent, type_tag, false),
             TYPE_ROW => self.append_container(parent, type_tag, true),
@@ -368,9 +364,7 @@ impl Ui {
         {
             let handled = widget.keyboard_event(focused, event, text, &mut batch);
             if handled {
-                self.mark_dirty(
-                    DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
-                );
+                self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
             }
         }
         batch
@@ -388,7 +382,9 @@ impl Ui {
             .filter_map(|el| {
                 let handle = el.widget?;
                 let widget = self.widget_arena.get(handle)?;
-                let tw = widget.as_any().downcast_ref::<crate::widgets::TooltipWidget>()?;
+                let tw = widget
+                    .as_any()
+                    .downcast_ref::<crate::widgets::TooltipWidget>()?;
                 Some((el.id, tw.trigger()))
             })
             .collect();
@@ -420,9 +416,7 @@ impl Ui {
                     tw.set_visible(*hovered);
                     changed = true;
                 }
-                if *hovered
-                    && let Some(rect) = trigger_rect
-                {
+                if *hovered && let Some(rect) = trigger_rect {
                     tw.set_position(Point::new(rect.x0, rect.y1 + 4.0));
                 }
             }
@@ -490,7 +484,10 @@ impl Ui {
 
     /// Rebuilds the scene if needed and returns a display tree with widget
     /// rendering applied.
-    pub fn display_tree(&mut self, text: &mut TextEngine) -> (understory_display::DisplayTree, Rect) {
+    pub fn display_tree(
+        &mut self,
+        text: &mut TextEngine,
+    ) -> (understory_display::DisplayTree, Rect) {
         let _ = self.rebuild(text);
         let snapshot = self.scene.as_ref().expect("scene just rebuilt");
         let tree = snapshot.display_tree(&self.widget_arena);
@@ -551,12 +548,8 @@ impl Ui {
                 let bounds = self
                     .widget::<crate::widgets::TooltipWidget>(*id)
                     .and_then(|tw| {
-                        tw.position().map(|pos| {
-                            Rect::from_origin_size(
-                                pos,
-                                layout_rect.size(),
-                            )
-                        })
+                        tw.position()
+                            .map(|pos| Rect::from_origin_size(pos, layout_rect.size()))
                     })
                     .unwrap_or(layout_rect);
                 plan.push(crate::SurfaceEntry {
@@ -633,14 +626,13 @@ impl Ui {
                             let is_focusable = scene
                                 .node_for(id)
                                 .and_then(|node| scene.box_tree().flags(node))
-                                .is_some_and(|f| {
-                                    f.contains(NodeFlags::FOCUSABLE)
-                                });
+                                .is_some_and(|f| f.contains(NodeFlags::FOCUSABLE));
                             if is_focusable {
                                 self.set_focus(id);
                                 batch.push(Interaction::FocusChanged(id));
                                 // Delegate click-to-position to widget.
-                                if let Some(resolved) = self.rebuild(text).resolved_element(id).cloned()
+                                if let Some(resolved) =
+                                    self.rebuild(text).resolved_element(id).cloned()
                                     && let Some(handle) =
                                         self.elements.get(id.index()).and_then(|e| e.widget)
                                     && let Some(widget) = self.widget_arena.get_mut(handle)
@@ -812,14 +804,8 @@ pub fn default_theme() -> Theme {
         .set(ThemeKeys::BUTTON_HEIGHT, 44.0_f64)
         .set(ThemeKeys::FONT_SIZE, 16.0_f64)
         .set(ThemeKeys::LABEL_PADDING, 12.0_f64)
-        .set(
-            ThemeKeys::FONT_FAMILY,
-            Box::<str>::from("sans-serif"),
-        )
-        .set(
-            ThemeKeys::TEXT_ALIGN,
-            TextAlign::Start,
-        )
+        .set(ThemeKeys::FONT_FAMILY, Box::<str>::from("sans-serif"))
+        .set(ThemeKeys::TEXT_ALIGN, TextAlign::Start)
         .build()
 }
 
@@ -951,7 +937,12 @@ mod tests {
             .build();
         ui.set_style(button, cascade);
 
-        let before = ui.rebuild(&mut text).resolved_element(button).unwrap().border.width;
+        let before = ui
+            .rebuild(&mut text)
+            .resolved_element(button)
+            .unwrap()
+            .border
+            .width;
         assert_eq!(before, 1.0);
 
         let move_event = PointerEvent::Move(PointerUpdate {
@@ -963,7 +954,12 @@ mod tests {
         let mut text = TextEngine::new();
         let _ = ui.handle_pointer_event(&move_event, &mut text);
 
-        let after = ui.rebuild(&mut text).resolved_element(button).unwrap().border.width;
+        let after = ui
+            .rebuild(&mut text)
+            .resolved_element(button)
+            .unwrap()
+            .border
+            .width;
         assert_eq!(after, 4.0);
     }
 
@@ -979,34 +975,43 @@ mod tests {
 
         let mut text = TextEngine::new();
 
-        let move_batch = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
-            pointer: primary_pointer(),
-            current: pointer_state(20.0, 20.0, 1),
-            coalesced: Vec::new(),
-            predicted: Vec::new(),
-        }), &mut text);
+        let move_batch = ui.handle_pointer_event(
+            &PointerEvent::Move(PointerUpdate {
+                pointer: primary_pointer(),
+                current: pointer_state(20.0, 20.0, 1),
+                coalesced: Vec::new(),
+                predicted: Vec::new(),
+            }),
+            &mut text,
+        );
         assert!(
             move_batch
                 .events()
                 .contains(&Interaction::HoverEntered(button))
         );
 
-        let down_batch = ui.handle_pointer_event(&PointerEvent::Down(PointerButtonEvent {
-            button: Some(PointerButton::Primary),
-            pointer: primary_pointer(),
-            state: pointer_state(20.0, 20.0, 2),
-        }), &mut text);
+        let down_batch = ui.handle_pointer_event(
+            &PointerEvent::Down(PointerButtonEvent {
+                button: Some(PointerButton::Primary),
+                pointer: primary_pointer(),
+                state: pointer_state(20.0, 20.0, 2),
+            }),
+            &mut text,
+        );
         assert!(
             down_batch
                 .events()
                 .contains(&Interaction::PressStarted(button))
         );
 
-        let up_batch = ui.handle_pointer_event(&PointerEvent::Up(PointerButtonEvent {
-            button: Some(PointerButton::Primary),
-            pointer: primary_pointer(),
-            state: pointer_state(20.0, 20.0, 3),
-        }), &mut text);
+        let up_batch = ui.handle_pointer_event(
+            &PointerEvent::Up(PointerButtonEvent {
+                button: Some(PointerButton::Primary),
+                pointer: primary_pointer(),
+                state: pointer_state(20.0, 20.0, 3),
+            }),
+            &mut text,
+        );
         assert!(up_batch.events().contains(&Interaction::PressEnded(button)));
         assert!(up_batch.events().contains(&Interaction::Clicked(button)));
     }

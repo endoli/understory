@@ -61,6 +61,10 @@ struct DemoIds {
     input: ElementId,
 }
 
+#[allow(
+    clippy::large_enum_variant,
+    reason = "This is example-local window/render state; keeping the active path inline is clearer than boxing renderer fields."
+)]
 enum RenderState {
     Active {
         window: Arc<Window>,
@@ -235,15 +239,36 @@ impl DemoApp {
         let (ui, ids) = build_demo_ui();
         let mut transcript = Transcript::new();
         let sample_messages = [
-            (MessageRole::Assistant, "Welcome to the Overstory demo. This message area is driven by understory_transcript."),
+            (
+                MessageRole::Assistant,
+                "Welcome to the Overstory demo. This message area is driven by understory_transcript.",
+            ),
             (MessageRole::User, "Can I type messages?"),
-            (MessageRole::Assistant, "Each message is a TextBlock element that wraps its text within the available width."),
-            (MessageRole::Assistant, "The message list is a ScrollView with fill layout, so it stretches to fill the space between the button row and the bottom of the content panel."),
+            (
+                MessageRole::Assistant,
+                "Each message is a TextBlock element that wraps its text within the available width.",
+            ),
+            (
+                MessageRole::Assistant,
+                "The message list is a ScrollView with fill layout, so it stretches to fill the space between the button row and the bottom of the content panel.",
+            ),
             (MessageRole::User, "What about scrolling?"),
-            (MessageRole::Assistant, "Try scrolling with the mouse wheel or trackpad to see the scroll offset in action."),
-            (MessageRole::Assistant, "You can also switch between Light and Dark themes using the sidebar buttons. The text properties cascade through the style system."),
-            (MessageRole::Assistant, "Switching between Roomy and Compact density adjusts padding, gaps, and button sizes throughout the UI."),
-            (MessageRole::Assistant, "This is a longer message to demonstrate text wrapping. When a message exceeds the available width, Parley shapes the text with a max advance constraint and the glyphs wrap onto multiple lines."),
+            (
+                MessageRole::Assistant,
+                "Try scrolling with the mouse wheel or trackpad to see the scroll offset in action.",
+            ),
+            (
+                MessageRole::Assistant,
+                "You can also switch between Light and Dark themes using the sidebar buttons. The text properties cascade through the style system.",
+            ),
+            (
+                MessageRole::Assistant,
+                "Switching between Roomy and Compact density adjusts padding, gaps, and button sizes throughout the UI.",
+            ),
+            (
+                MessageRole::Assistant,
+                "This is a longer message to demonstrate text wrapping. When a message exceeds the available width, Parley shapes the text with a max advance constraint and the glyphs wrap onto multiple lines.",
+            ),
             (MessageRole::User, "Nice."),
         ];
         for (role, text) in &sample_messages {
@@ -280,10 +305,8 @@ impl DemoApp {
         let _ = self.ui.scene(&mut self.text); // rebuild to get updated content_height
         let content_h = self.ui.content_height(self.ids.messages);
         let viewport_h = self.ui.viewport_height(self.ids.messages);
-        self.ui.set_scroll_offset(
-            self.ids.messages,
-            (content_h - viewport_h).max(0.0),
-        );
+        self.ui
+            .set_scroll_offset(self.ids.messages, (content_h - viewport_h).max(0.0));
     }
 
     fn sync_messages(&mut self) {
@@ -298,8 +321,7 @@ impl DemoApp {
                 self.ui.set_label(block, text);
                 self.ui
                     .set_local(block, self.ui.properties().label_padding, 8.0);
-                self.ui
-                    .set_local(block, self.ui.properties().padding, 8.0);
+                self.ui.set_local(block, self.ui.properties().padding, 8.0);
                 self.ui
                     .set_local(block, self.ui.properties().corner_radius, 8.0);
                 if is_user {
@@ -574,8 +596,7 @@ impl DemoApp {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
@@ -814,11 +835,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
     ui.set_local(messages, ui.properties().fill, true);
     ui.set_local(messages, ui.properties().padding, 12.0);
     ui.set_local(messages, ui.properties().gap, 10.0);
-    ui.set_local(
-        messages,
-        ui.properties().background,
-        Color::TRANSPARENT,
-    );
+    ui.set_local(messages, ui.properties().background, Color::TRANSPARENT);
 
     // Messages are populated from the transcript via DemoApp::sync_messages.
 
@@ -971,14 +988,8 @@ mod tests {
 
         let scene = ui.scene(&mut text);
         assert_eq!(scene.resolved_element(top).unwrap().rect.height(), 50.0);
-        assert_eq!(
-            scene.resolved_element(middle).unwrap().rect.height(),
-            300.0
-        );
-        assert_eq!(
-            scene.resolved_element(bottom).unwrap().rect.height(),
-            50.0
-        );
+        assert_eq!(scene.resolved_element(middle).unwrap().rect.height(), 300.0);
+        assert_eq!(scene.resolved_element(bottom).unwrap().rect.height(), 50.0);
         assert_eq!(scene.resolved_element(bottom).unwrap().rect.y0, 350.0);
     }
 
@@ -1002,14 +1013,8 @@ mod tests {
         ui.set_local(second, ui.properties().fill, true);
 
         let scene = ui.scene(&mut text);
-        assert_eq!(
-            scene.resolved_element(first).unwrap().rect.height(),
-            150.0
-        );
-        assert_eq!(
-            scene.resolved_element(second).unwrap().rect.height(),
-            150.0
-        );
+        assert_eq!(scene.resolved_element(first).unwrap().rect.height(), 150.0);
+        assert_eq!(scene.resolved_element(second).unwrap().rect.height(), 150.0);
         assert_eq!(scene.resolved_element(second).unwrap().rect.y0, 150.0);
     }
 
@@ -1170,7 +1175,10 @@ mod tests {
         let b_rect = scene.resolved_element(b).unwrap().rect;
 
         assert_eq!(a_rect.y0, 0.0);
-        assert_eq!(b_rect.y0, a_rect.y1, "second block should start where first ends");
+        assert_eq!(
+            b_rect.y0, a_rect.y1,
+            "second block should start where first ends"
+        );
     }
 
     #[test]
@@ -1202,10 +1210,10 @@ mod tests {
 
     #[test]
     fn scroll_event_over_messages_updates_offset() {
+        use overstory::ui_events::ScrollDelta;
         use overstory::ui_events::pointer::{
             PointerButtons, PointerId, PointerInfo, PointerScrollEvent, PointerState, PointerType,
         };
-        use overstory::ui_events::ScrollDelta;
 
         let mut app = DemoApp::new();
         app.resize_ui(PhysicalSize::new(960, 640), 1.0);
@@ -1230,15 +1238,16 @@ mod tests {
         state.scale_factor = 1.0;
         state.time = 100;
 
-        let scroll_event = overstory::ui_events::pointer::PointerEvent::Scroll(PointerScrollEvent {
-            pointer: PointerInfo {
-                pointer_id: Some(PointerId::PRIMARY),
-                persistent_device_id: None,
-                pointer_type: PointerType::Mouse,
-            },
-            delta: ScrollDelta::LineDelta(0.0, -3.0),
-            state,
-        });
+        let scroll_event =
+            overstory::ui_events::pointer::PointerEvent::Scroll(PointerScrollEvent {
+                pointer: PointerInfo {
+                    pointer_id: Some(PointerId::PRIMARY),
+                    persistent_device_id: None,
+                    pointer_type: PointerType::Mouse,
+                },
+                delta: ScrollDelta::LineDelta(0.0, -3.0),
+                state,
+            });
 
         let batch = app.ui.handle_pointer_event(&scroll_event, &mut app.text);
         assert!(
@@ -1301,7 +1310,12 @@ mod tests {
             is_composing: false,
         };
         let batch = ui.handle_keyboard_event(&submit_event, &mut text);
-        assert!(batch.events().iter().any(|e| matches!(e, Interaction::Submitted(_))));
+        assert!(
+            batch
+                .events()
+                .iter()
+                .any(|e| matches!(e, Interaction::Submitted(_)))
+        );
     }
 
     #[test]
@@ -1439,14 +1453,8 @@ fn dark_theme() -> Theme {
             ThemeKeys::PRIMARY_PRESSED_BACKGROUND,
             Color::from_rgba8(28, 115, 86, 255),
         )
-        .set(
-            ThemeKeys::FOREGROUND,
-            Color::from_rgba8(210, 212, 216, 255),
-        )
-        .set(
-            ThemeKeys::BORDER_COLOR,
-            Color::from_rgba8(58, 58, 62, 255),
-        )
+        .set(ThemeKeys::FOREGROUND, Color::from_rgba8(210, 212, 216, 255))
+        .set(ThemeKeys::BORDER_COLOR, Color::from_rgba8(58, 58, 62, 255))
         .set(ThemeKeys::CORNER_RADIUS, 10.0_f64)
         .set(ThemeKeys::PADDING, 16.0_f64)
         .set(ThemeKeys::GAP, 12.0_f64)

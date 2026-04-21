@@ -38,30 +38,39 @@ fn main() {
     let compose_center = compose_rect.center();
 
     println!("\n== Move to Compose ==");
-    let move_batch = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
-        pointer: primary_pointer(),
-        current: pointer_state(compose_center.x, compose_center.y, 1),
-        coalesced: Vec::new(),
-        predicted: Vec::new(),
-    }), &mut text);
+    let move_batch = ui.handle_pointer_event(
+        &PointerEvent::Move(PointerUpdate {
+            pointer: primary_pointer(),
+            current: pointer_state(compose_center.x, compose_center.y, 1),
+            coalesced: Vec::new(),
+            predicted: Vec::new(),
+        }),
+        &mut text,
+    );
     print_interactions(&move_batch);
     print_scene(&mut ui);
 
     println!("\n== Press Compose ==");
-    let down_batch = ui.handle_pointer_event(&PointerEvent::Down(PointerButtonEvent {
-        button: Some(PointerButton::Primary),
-        pointer: primary_pointer(),
-        state: pointer_state(compose_center.x, compose_center.y, 2),
-    }), &mut text);
+    let down_batch = ui.handle_pointer_event(
+        &PointerEvent::Down(PointerButtonEvent {
+            button: Some(PointerButton::Primary),
+            pointer: primary_pointer(),
+            state: pointer_state(compose_center.x, compose_center.y, 2),
+        }),
+        &mut text,
+    );
     print_interactions(&down_batch);
     print_scene(&mut ui);
 
     println!("\n== Release Compose ==");
-    let up_batch = ui.handle_pointer_event(&PointerEvent::Up(PointerButtonEvent {
-        button: Some(PointerButton::Primary),
-        pointer: primary_pointer(),
-        state: pointer_state(compose_center.x, compose_center.y, 3),
-    }), &mut text);
+    let up_batch = ui.handle_pointer_event(
+        &PointerEvent::Up(PointerButtonEvent {
+            button: Some(PointerButton::Primary),
+            pointer: primary_pointer(),
+            state: pointer_state(compose_center.x, compose_center.y, 3),
+        }),
+        &mut text,
+    );
     print_interactions(&up_batch);
     print_scene(&mut ui);
 
@@ -154,6 +163,7 @@ fn make_button_cascade(ui: &Ui) -> understory_style::StyleCascade {
 }
 
 fn print_scene(ui: &mut Ui) {
+    let mut text = understory_display::TextEngine::new();
     for element in ui.scene(&mut text).resolved() {
         let indent = "  ".repeat(element.depth as usize);
         let background = element.background.to_rgba8();

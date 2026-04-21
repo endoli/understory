@@ -30,11 +30,7 @@ pub fn imaging_scene_from_display_tree(tree: &DisplayTree, scale_factor: f64) ->
     scene
 }
 
-fn record_node(
-    painter: &mut Painter<'_, record::Scene>,
-    node: &DisplayNode,
-    transform: Affine,
-) {
+fn record_node(painter: &mut Painter<'_, record::Scene>, node: &DisplayNode, transform: Affine) {
     match node.kind() {
         DisplayNodeKind::Stack { children } => {
             for child in children {
@@ -130,9 +126,7 @@ fn record_node(
 mod tests {
     use super::*;
     use peniko::{Brush, Color};
-    use understory_display::{
-        BoxConstraints, DisplayAlign, Insets, TextAlign, TextEngine,
-    };
+    use understory_display::{BoxConstraints, DisplayAlign, Insets, TextAlign, TextEngine};
 
     #[test]
     fn display_tree_text_lowering_produces_imaging_commands() {

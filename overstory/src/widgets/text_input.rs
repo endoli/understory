@@ -10,12 +10,14 @@ use core::cell::Cell;
 use kurbo::{Point, Rect, Vec2};
 use parley::PlainEditor;
 use peniko::{Brush, Color};
-use understory_display::{DisplayAlign, DisplayNode, Insets, TextEngine};
 use ui_events::keyboard::{Key, KeyboardEvent, Modifiers, NamedKey};
+use understory_display::{DisplayAlign, DisplayNode, Insets, TextEngine};
 
 use understory_style::ResourceKey;
 
-use crate::{Element, ElementId, Interaction, InteractionBatch, ResolvedElement, ThemeKeys, Widget};
+use crate::{
+    Element, ElementId, Interaction, InteractionBatch, ResolvedElement, ThemeKeys, Widget,
+};
 
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_LABEL_PADDING: f64 = 12.0;
@@ -84,44 +86,34 @@ impl Widget for TextInputWidget {
         available: kurbo::Size,
         ctx: &mut crate::MeasureCtx<'_>,
     ) -> Option<kurbo::Size> {
-        // Subtract label_padding to match what display() uses for text wrapping.
-        // This must match the Insets::symmetric(label_padding, 0.0) in display().
-        let h_padding = DEFAULT_LABEL_PADDING;
+        // Subtract internal padding to match the text content box used by
+        // display() and click(). Text input uses one top-left aligned content
+        // box for measurement, painting, and hit-testing.
+        let padding = DEFAULT_LABEL_PADDING;
         #[allow(
             clippy::cast_possible_truncation,
             reason = "Display coordinates are small positive values."
         )]
-        let text_width = (available.width - h_padding * 2.0).max(1.0) as f32;
+        let text_width = (available.width - padding * 2.0).max(1.0) as f32;
         // Store for refresh_layout to set editor wrap width.
         self.last_content_width.set(Some(text_width));
 
         let text = self.editor.raw_text();
         let font_size = self.editor.get_font_size();
         let line_height = f64::from(font_size) * 1.4;
-        // Vertical padding matches the element's padding (applied by layout).
-        // Use line_height as minimum content height.
         if text.is_empty() {
-            return Some(kurbo::Size::new(available.width, line_height + h_padding * 2.0));
+            return Some(kurbo::Size::new(
+                available.width,
+                line_height + padding * 2.0,
+            ));
         }
         let text_size = ctx.measure_text(text, font_size, "sans-serif", Some(text_width));
-        // If text ends with a newline, the cursor is on an empty line below
-        // the measured text. Add one line height for that cursor line.
-        let trailing_newline_extra = if text.ends_with('\n') {
-            line_height
-        } else {
-            0.0
-        };
-        let content_h = (text_size.height + trailing_newline_extra).max(line_height);
-        let height = (content_h + h_padding * 2.0).min(MAX_HEIGHT);
+        let content_h = text_size.height.max(line_height);
+        let height = (content_h + padding * 2.0).min(MAX_HEIGHT);
         Some(kurbo::Size::new(available.width, height))
     }
 
-    fn display(
-        &self,
-        _id: ElementId,
-        resolved: &ResolvedElement,
-        children: &mut Vec<DisplayNode>,
-    ) {
+    fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
         // Render the text content.
         let is_empty = resolved.label.as_deref().is_none_or(|l| l.is_empty());
         let show_placeholder = is_empty && self.placeholder.is_some();
@@ -170,8 +162,8 @@ impl Widget for TextInputWidget {
             );
             children.push(DisplayNode::align(
                 DisplayAlign::Start,
-                DisplayAlign::Center,
-                DisplayNode::padding(Insets::symmetric(label_padding, 0.0), text_node),
+                DisplayAlign::Start,
+                DisplayNode::padding(Insets::uniform(label_padding), text_node),
             ));
         }
 
@@ -184,7 +176,10 @@ impl Widget for TextInputWidget {
         for sel_rect in &self.cached_selection_rects {
             overlay_nodes.push(DisplayNode::offset(
                 Vec2::new(sel_rect.x0, sel_rect.y0),
-                DisplayNode::fixed_frame(sel_rect.size(), DisplayNode::fill_rect(selection_brush.clone())),
+                DisplayNode::fixed_frame(
+                    sel_rect.size(),
+                    DisplayNode::fill_rect(selection_brush.clone()),
+                ),
             ));
         }
         if let Some(cursor) = &self.cached_cursor_rect {
@@ -196,9 +191,9 @@ impl Widget for TextInputWidget {
         if !overlay_nodes.is_empty() {
             children.push(DisplayNode::align(
                 DisplayAlign::Start,
-                DisplayAlign::Center,
+                DisplayAlign::Start,
                 DisplayNode::padding(
-                    Insets::symmetric(label_padding, 0.0),
+                    Insets::uniform(label_padding),
                     DisplayNode::stack(overlay_nodes),
                 ),
             ));
@@ -279,9 +274,7 @@ impl Widget for TextInputWidget {
                     driver.move_to_line_end();
                     true
                 }
-                NamedKey::Enter
-                    if action_mod || event.modifiers.contains(Modifiers::SHIFT) =>
-                {
+                NamedKey::Enter if action_mod || event.modifiers.contains(Modifiers::SHIFT) => {
                     batch.push(Interaction::Submitted(id));
                     false // don't mark layout dirty
                 }
@@ -311,9 +304,11 @@ impl Widget for TextInputWidget {
             clippy::cast_possible_truncation,
             reason = "Parley move_to_point takes f32; display coordinates are small."
         )]
-        let local_y = (point.y - resolved.rect.y0) as f32;
+        let local_y = (point.y - resolved.rect.y0 - label_padding) as f32;
         let (font_cx, layout_cx) = text.contexts();
-        self.editor.driver(font_cx, layout_cx).move_to_point(local_x, local_y);
+        self.editor
+            .driver(font_cx, layout_cx)
+            .move_to_point(local_x, local_y);
     }
 
     fn refresh_layout(&mut self, text: &mut TextEngine) {
@@ -336,11 +331,7 @@ impl Widget for TextInputWidget {
 
     fn label(&self) -> Option<&str> {
         let text = self.editor.raw_text();
-        if text.is_empty() {
-            None
-        } else {
-            Some(text)
-        }
+        if text.is_empty() { None } else { Some(text) }
     }
 
     fn background_key(&self, _element: &Element) -> Option<ResourceKey> {
@@ -366,5 +357,140 @@ impl Widget for TextInputWidget {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::{boxed::Box, vec::Vec};
+
+    use super::*;
+    use crate::{BorderStyle, ElementId, MeasureCtx, ResolvedElement, TYPE_TEXT_INPUT};
+    use kurbo::{Point, Rect};
+    use peniko::Color;
+    use understory_display::{DisplayNodeKind, TextAlign, TextEngine};
+
+    fn resolved_text_input(rect: Rect, label: &str) -> ResolvedElement {
+        ResolvedElement {
+            id: ElementId::new(1),
+            type_tag: TYPE_TEXT_INPUT,
+            depth: 0,
+            rect,
+            background: Color::WHITE,
+            foreground: Color::BLACK,
+            border: BorderStyle::default(),
+            corner_radius: 0.0,
+            label: Some(Box::<str>::from(label)),
+            hovered: false,
+            pressed: false,
+            focused: true,
+            font_size: DEFAULT_FONT_SIZE,
+            label_padding: DEFAULT_LABEL_PADDING,
+            font_family: Box::<str>::from(DEFAULT_FONT_FAMILY),
+            text_align: TextAlign::Start,
+            clips_content: false,
+            scroll_offset: 0.0,
+            widget: None,
+        }
+    }
+
+    #[test]
+    fn multiline_display_uses_uniform_padding_and_top_alignment() {
+        let widget = TextInputWidget::new(16.0_f32);
+        let resolved = resolved_text_input(Rect::new(0.0, 0.0, 240.0, 96.0), "alpha\nbeta");
+        let mut children = Vec::new();
+
+        widget.display(resolved.id, &resolved, &mut children);
+
+        let Some(text_node) = children.first() else {
+            panic!("expected text node");
+        };
+        let DisplayNodeKind::Align {
+            horizontal,
+            vertical,
+            child,
+        } = text_node.kind()
+        else {
+            panic!("expected align node");
+        };
+        assert_eq!(*horizontal, DisplayAlign::Start);
+        assert_eq!(*vertical, DisplayAlign::Start);
+
+        let DisplayNodeKind::Padding { insets, .. } = child.kind() else {
+            panic!("expected padded text");
+        };
+        assert_eq!(*insets, Insets::uniform(DEFAULT_LABEL_PADDING));
+    }
+
+    #[test]
+    fn multiline_click_targets_second_line_with_padded_origin() {
+        let mut widget = TextInputWidget::new(16.0_f32);
+        widget.editor.set_text("alpha\nbeta");
+
+        let mut text = TextEngine::new();
+        let available = kurbo::Size::new(240.0, f64::INFINITY);
+        let mut measure = MeasureCtx::new(&mut text);
+        let measured = widget
+            .measure(available, &mut measure)
+            .expect("text input should measure");
+        let resolved = resolved_text_input(
+            Rect::from_origin_size(Point::ORIGIN, measured),
+            widget.editor.raw_text(),
+        );
+
+        widget.refresh_layout(&mut text);
+        let (font_cx, layout_cx) = text.contexts();
+        widget
+            .editor
+            .driver(font_cx, layout_cx)
+            .move_to_text_start();
+        widget.refresh_layout(&mut text);
+
+        let initial_cursor = widget
+            .cached_cursor_rect
+            .expect("cursor geometry should exist");
+        assert!(initial_cursor.y0 <= 0.1);
+
+        let line_height = f64::from(widget.editor.get_font_size()) * 1.4;
+        let click_point = Point::new(
+            resolved.rect.x0 + DEFAULT_LABEL_PADDING + 4.0,
+            resolved.rect.y0 + DEFAULT_LABEL_PADDING + line_height + 1.0,
+        );
+        widget.click(resolved.id, click_point, &resolved, &mut text);
+        widget.refresh_layout(&mut text);
+
+        let moved_cursor = widget
+            .cached_cursor_rect
+            .expect("cursor geometry should exist after click");
+        assert!(
+            moved_cursor.y0 >= line_height * 0.5,
+            "cursor should move onto the second line; got {:?}",
+            moved_cursor
+        );
+    }
+
+    #[test]
+    fn trailing_newline_does_not_add_extra_height_beyond_second_line() {
+        let mut text = TextEngine::new();
+        let available = kurbo::Size::new(240.0, f64::INFINITY);
+
+        let mut newline_widget = TextInputWidget::new(16.0_f32);
+        newline_widget.editor.set_text("alpha\n");
+        let mut measure = MeasureCtx::new(&mut text);
+        let newline_size = newline_widget
+            .measure(available, &mut measure)
+            .expect("text input should measure");
+
+        let mut text_widget = TextInputWidget::new(16.0_f32);
+        text_widget.editor.set_text("alpha\nb");
+        let mut measure = MeasureCtx::new(&mut text);
+        let text_size = text_widget
+            .measure(available, &mut measure)
+            .expect("text input should measure");
+
+        assert_eq!(
+            newline_size.height, text_size.height,
+            "entering the first character on a new line should not shrink the widget"
+        );
     }
 }

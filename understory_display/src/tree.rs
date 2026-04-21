@@ -206,7 +206,6 @@ impl DisplayTree {
     pub fn layout(&mut self, text: &mut TextEngine, origin: Point, constraints: BoxConstraints) {
         layout_node(&mut self.root, text, origin, constraints);
     }
-
 }
 
 /// One retained display-tree node.

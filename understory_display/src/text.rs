@@ -131,11 +131,7 @@ impl TextEngine {
 
         let mut layout = builder.build(text);
         layout.break_all_lines(max_width);
-        layout.align(
-            max_width,
-            Alignment::Start,
-            AlignmentOptions::default(),
-        );
+        layout.align(max_width, Alignment::Start, AlignmentOptions::default());
 
         let width = layout.full_width() as f64;
         let height = layout.height() as f64;

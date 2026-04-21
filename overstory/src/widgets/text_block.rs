@@ -43,12 +43,7 @@ impl Widget for TextBlockWidget {
         }
     }
 
-    fn display(
-        &self,
-        _id: ElementId,
-        resolved: &ResolvedElement,
-        children: &mut Vec<DisplayNode>,
-    ) {
+    fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
         let Some(label) = resolved.label.as_deref() else {
             return;
         };
