@@ -135,12 +135,6 @@ pub struct Element {
     pub(crate) classes: IdSet<ClassId>,
     pub(crate) style: Option<StyleCascade>,
     pub(crate) pseudos: PseudoState,
-    /// Current vertical scroll offset (`ScrollView` only).
-    pub(crate) scroll_offset: f64,
-    /// Measured content height from last layout (`ScrollView` only).
-    pub(crate) content_height: f64,
-    /// Viewport height from last layout (`ScrollView` only).
-    pub(crate) viewport_height: f64,
     /// Optional widget handle for kind-specific behavior.
     pub(crate) widget: Option<WidgetHandle>,
 }
@@ -167,9 +161,6 @@ impl Element {
             classes: IdSet::default(),
             style: None,
             pseudos: PseudoState::default(),
-            scroll_offset: 0.0,
-            content_height: 0.0,
-            viewport_height: 0.0,
             widget: None,
         }
     }

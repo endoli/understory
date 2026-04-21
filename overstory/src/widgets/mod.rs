@@ -3,6 +3,8 @@
 
 //! Built-in widget implementations.
 
+mod scroll_view;
 mod text_input;
 
+pub use scroll_view::ScrollViewWidget;
 pub use text_input::TextInputWidget;

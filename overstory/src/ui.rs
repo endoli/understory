@@ -118,10 +118,18 @@ impl Ui {
             element.store.set_local(self.props.pickable, true);
             element.store.set_local(self.props.focusable, true);
         }
-        if matches!(kind, ElementKind::TextInput) {
-            let widget = crate::widgets::TextInputWidget::new(16.0);
-            let handle = self.widget_arena.insert(Box::new(widget));
-            element.widget = Some(handle);
+        match kind {
+            ElementKind::TextInput => {
+                let widget = crate::widgets::TextInputWidget::new(16.0);
+                let handle = self.widget_arena.insert(Box::new(widget));
+                element.widget = Some(handle);
+            }
+            ElementKind::ScrollView => {
+                let widget = crate::widgets::ScrollViewWidget::new();
+                let handle = self.widget_arena.insert(Box::new(widget));
+                element.widget = Some(handle);
+            }
+            _ => {}
         }
         self.elements.push(element);
         if let Some(parent_element) = self.elements.get_mut(parent.index()) {
@@ -190,9 +198,8 @@ impl Ui {
     /// Sets the vertical scroll offset on a `ScrollView` element, clamping to
     /// valid bounds.
     pub fn set_scroll_offset(&mut self, id: ElementId, offset: f64) {
-        if let Some(element) = self.elements.get_mut(id.index()) {
-            let max_offset = (element.content_height - element.viewport_height).max(0.0);
-            element.scroll_offset = offset.clamp(0.0, max_offset);
+        if let Some(w) = self.widget_mut::<crate::widgets::ScrollViewWidget>(id) {
+            w.set_scroll_offset(offset);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
     }
@@ -200,24 +207,22 @@ impl Ui {
     /// Returns the measured content height of a `ScrollView` element.
     #[must_use]
     pub fn content_height(&self, id: ElementId) -> f64 {
-        self.elements
-            .get(id.index())
-            .map_or(0.0, |e| e.content_height)
+        self.widget::<crate::widgets::ScrollViewWidget>(id)
+            .map_or(0.0, |w| w.content_height())
     }
 
     /// Returns the viewport height of a `ScrollView` element from last layout.
     #[must_use]
     pub fn viewport_height(&self, id: ElementId) -> f64 {
-        self.elements
-            .get(id.index())
-            .map_or(0.0, |e| e.viewport_height)
+        self.widget::<crate::widgets::ScrollViewWidget>(id)
+            .map_or(0.0, |w| w.viewport_height())
     }
 
     /// Adjusts the scroll offset by a delta on a `ScrollView` element.
     pub fn scroll_by(&mut self, id: ElementId, delta: f64) {
-        if let Some(element) = self.elements.get(id.index()) {
-            let new_offset = element.scroll_offset + delta;
-            self.set_scroll_offset(id, new_offset);
+        if let Some(w) = self.widget_mut::<crate::widgets::ScrollViewWidget>(id) {
+            w.scroll_by(delta);
+            self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
     }
 
@@ -241,9 +246,8 @@ impl Ui {
     /// Returns the current scroll offset for an element.
     #[must_use]
     pub fn scroll_offset(&self, id: ElementId) -> f64 {
-        self.elements
-            .get(id.index())
-            .map_or(0.0, |e| e.scroll_offset)
+        self.widget::<crate::widgets::ScrollViewWidget>(id)
+            .map_or(0.0, |w| w.scroll_offset())
     }
 
     /// Sets keyboard focus to an element.
@@ -324,9 +328,8 @@ impl Ui {
                 &self.widget_arena,
             );
             for (id, content_h, viewport_h) in scroll_metrics {
-                if let Some(element) = self.elements.get_mut(id.index()) {
-                    element.content_height = content_h;
-                    element.viewport_height = viewport_h;
+                if let Some(w) = self.widget_mut::<crate::widgets::ScrollViewWidget>(id) {
+                    w.set_layout_metrics(content_h, viewport_h);
                 }
             }
             self.scene = Some(snapshot);

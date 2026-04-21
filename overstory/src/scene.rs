@@ -282,7 +282,11 @@ impl<'a> SceneBuilder<'a> {
                 .and_then(|h| self.widget_arena.get(h))
                 .map(|w| w.selection_rects().to_vec())
                 .unwrap_or_default(),
-            scroll_offset: element.scroll_offset,
+            scroll_offset: element
+                .widget
+                .and_then(|h| self.widget_arena.get(h))
+                .and_then(|w| w.as_any().downcast_ref::<crate::widgets::ScrollViewWidget>())
+                .map_or(0.0, |w| w.scroll_offset()),
             font_size: style.font_size,
             label_padding: style.label_padding,
             font_family: style.font_family.clone(),
@@ -407,7 +411,11 @@ impl<'a> SceneBuilder<'a> {
                 {
                     self.tree.set_local_transform(
                         child_node,
-                        Affine::translate((0.0, -element.scroll_offset)),
+                        Affine::translate((0.0, -element
+                            .widget
+                            .and_then(|h| self.widget_arena.get(h))
+                            .and_then(|w| w.as_any().downcast_ref::<crate::widgets::ScrollViewWidget>())
+                            .map_or(0.0, |w| w.scroll_offset()))),
                     );
                 }
             }
