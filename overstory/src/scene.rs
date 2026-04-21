@@ -60,6 +60,8 @@ pub struct ResolvedElement {
     pub hovered: bool,
     /// Press state at snapshot time.
     pub pressed: bool,
+    /// Vertical scroll offset (`ScrollView` only).
+    pub scroll_offset: f64,
 }
 
 /// Full resolved scene snapshot for one Overstory frame.
@@ -240,11 +242,25 @@ impl<'a> SceneBuilder<'a> {
             label: element.label.clone(),
             hovered: element.pseudos.hovered,
             pressed: element.pseudos.pressed,
+            scroll_offset: element.scroll_offset,
         });
+
+        let is_scroll_view = matches!(element.kind, ElementKind::ScrollView);
+        if is_scroll_view {
+            use kurbo::RoundedRect;
+            self.tree.set_local_clip(
+                node,
+                Some(RoundedRect::from_rect(rect, style.corner_radius)),
+            );
+        }
 
         if matches!(
             element.kind,
-            ElementKind::Root | ElementKind::Panel | ElementKind::Row | ElementKind::Column
+            ElementKind::Root
+                | ElementKind::Panel
+                | ElementKind::Row
+                | ElementKind::Column
+                | ElementKind::ScrollView
         ) {
             let content = inset_rect(rect, style.padding);
             let horizontal = matches!(element.kind, ElementKind::Row);
@@ -340,6 +356,16 @@ impl<'a> SceneBuilder<'a> {
                     child_size.height
                 };
                 previous_visible = true;
+
+                // Apply scroll transform to child box-tree nodes.
+                if is_scroll_view
+                    && let Some(child_node) = self.element_to_node[child.index()]
+                {
+                    self.tree.set_local_transform(
+                        child_node,
+                        Affine::translate((0.0, -element.scroll_offset)),
+                    );
+                }
             }
         }
 
@@ -370,7 +396,11 @@ impl<'a> SceneBuilder<'a> {
         match element.kind {
             ElementKind::Button => style.height.max(0.0),
             ElementKind::Spacer => 0.0,
-            ElementKind::Row | ElementKind::Panel | ElementKind::Column | ElementKind::Root => {
+            ElementKind::Row
+            | ElementKind::Panel
+            | ElementKind::Column
+            | ElementKind::Root
+            | ElementKind::ScrollView => {
                 let child_width = (resolve_dim(style.width, available_width)
                     - style.padding * 2.0)
                     .max(0.0);
@@ -413,15 +443,19 @@ impl<'a> SceneBuilder<'a> {
         let border_key = Some(ThemeKeys::BORDER_COLOR);
         let radius_key = Some(ThemeKeys::CORNER_RADIUS);
         let padding_key = match element.kind {
-            ElementKind::Root | ElementKind::Panel | ElementKind::Row | ElementKind::Column => {
-                Some(ThemeKeys::PADDING)
-            }
+            ElementKind::Root
+            | ElementKind::Panel
+            | ElementKind::Row
+            | ElementKind::Column
+            | ElementKind::ScrollView => Some(ThemeKeys::PADDING),
             _ => None,
         };
         let gap_key = match element.kind {
-            ElementKind::Root | ElementKind::Panel | ElementKind::Row | ElementKind::Column => {
-                Some(ThemeKeys::GAP)
-            }
+            ElementKind::Root
+            | ElementKind::Panel
+            | ElementKind::Row
+            | ElementKind::Column
+            | ElementKind::ScrollView => Some(ThemeKeys::GAP),
             _ => None,
         };
         let height_key = match element.kind {
@@ -606,6 +640,7 @@ fn background_resource_for(element: &Element) -> Option<ResourceKey> {
                 (false, false, false) => Some(ThemeKeys::BUTTON_BACKGROUND),
             }
         }
+        ElementKind::ScrollView => Some(ThemeKeys::PANEL_BACKGROUND),
         ElementKind::Row | ElementKind::Column | ElementKind::Spacer => None,
     }
 }

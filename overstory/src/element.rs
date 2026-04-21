@@ -37,6 +37,8 @@ pub enum ElementKind {
     Button,
     /// Non-interactive spacing element.
     Spacer,
+    /// Scrollable vertical container.
+    ScrollView,
 }
 
 /// Type selector for [`ElementKind::Root`].
@@ -51,6 +53,8 @@ pub const TYPE_COLUMN: TypeTag = TypeTag(4);
 pub const TYPE_BUTTON: TypeTag = TypeTag(5);
 /// Type selector for [`ElementKind::Spacer`].
 pub const TYPE_SPACER: TypeTag = TypeTag(6);
+/// Type selector for [`ElementKind::ScrollView`].
+pub const TYPE_SCROLL_VIEW: TypeTag = TypeTag(7);
 
 /// Small class vocabulary for common button styling.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -117,6 +121,10 @@ pub struct Element {
     pub(crate) classes: IdSet<ClassId>,
     pub(crate) style: Option<StyleCascade>,
     pub(crate) pseudos: PseudoState,
+    /// Current vertical scroll offset (`ScrollView` only).
+    pub(crate) scroll_offset: f64,
+    /// Measured content height from last layout (`ScrollView` only).
+    pub(crate) content_height: f64,
 }
 
 impl Element {
@@ -131,6 +139,8 @@ impl Element {
             classes: IdSet::default(),
             style: None,
             pseudos: PseudoState::default(),
+            scroll_offset: 0.0,
+            content_height: 0.0,
         }
     }
 
@@ -171,6 +181,7 @@ impl ElementKind {
             Self::Column => TYPE_COLUMN,
             Self::Button => TYPE_BUTTON,
             Self::Spacer => TYPE_SPACER,
+            Self::ScrollView => TYPE_SCROLL_VIEW,
         }
     }
 }

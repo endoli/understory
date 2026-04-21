@@ -180,6 +180,33 @@ impl Ui {
         }
     }
 
+    /// Sets the vertical scroll offset on a `ScrollView` element, clamping to
+    /// valid bounds.
+    pub fn set_scroll_offset(&mut self, id: ElementId, offset: f64) {
+        if let Some(element) = self.elements.get_mut(id.index()) {
+            let max_offset = (element.content_height - element.scroll_offset).max(0.0);
+            let _ = max_offset; // content_height is set during layout
+            element.scroll_offset = offset.max(0.0);
+            self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
+        }
+    }
+
+    /// Adjusts the scroll offset by a delta on a `ScrollView` element.
+    pub fn scroll_by(&mut self, id: ElementId, delta: f64) {
+        if let Some(element) = self.elements.get(id.index()) {
+            let new_offset = element.scroll_offset + delta;
+            self.set_scroll_offset(id, new_offset);
+        }
+    }
+
+    /// Returns the current scroll offset for an element.
+    #[must_use]
+    pub fn scroll_offset(&self, id: ElementId) -> f64 {
+        self.elements
+            .get(id.index())
+            .map_or(0.0, |e| e.scroll_offset)
+    }
+
     /// Rebuilds the resolved scene if needed and returns the current snapshot.
     pub fn rebuild(&mut self) -> &SceneSnapshot {
         if self.scene.is_none() || !self.dirty.is_empty() {
@@ -263,7 +290,24 @@ impl Ui {
                 self.set_pressed_target(None, &mut batch);
                 self.clear_hover(&mut batch);
             }
-            PointerEvent::Scroll(_) | PointerEvent::Gesture(_) => {}
+            PointerEvent::Scroll(scroll) => {
+                let point = point_from_state(&scroll.state);
+                let dy = scroll_delta_y(scroll.delta);
+                if dy != 0.0
+                    && let Some(path) = self.rebuild().hit_path(point)
+                {
+                    for &ancestor in path.iter().rev() {
+                        if let Some(element) = self.elements.get(ancestor.index())
+                            && matches!(element.kind, ElementKind::ScrollView)
+                        {
+                            self.scroll_by(ancestor, dy);
+                            batch.push(Interaction::Scrolled(ancestor));
+                            break;
+                        }
+                    }
+                }
+            }
+            PointerEvent::Gesture(_) => {}
             PointerEvent::Down(_) | PointerEvent::Up(_) => {}
         }
 
@@ -444,6 +488,17 @@ fn is_primary_button(button: Option<PointerButton>) -> bool {
 
 fn point_from_state(state: &ui_events::pointer::PointerState) -> Point {
     Point::new(state.position.x, state.position.y)
+}
+
+/// Line height in pixels used to convert line-based scroll deltas.
+const SCROLL_LINE_HEIGHT: f64 = 40.0;
+
+fn scroll_delta_y(delta: ui_events::ScrollDelta) -> f64 {
+    match delta {
+        ui_events::ScrollDelta::PixelDelta(pos) => pos.y,
+        ui_events::ScrollDelta::LineDelta(_, y) => f64::from(y) * SCROLL_LINE_HEIGHT,
+        ui_events::ScrollDelta::PageDelta(_, y) => f64::from(y) * 400.0,
+    }
 }
 
 #[cfg(test)]

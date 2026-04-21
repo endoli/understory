@@ -22,6 +22,8 @@ pub enum Interaction {
     PressEnded(ElementId),
     /// Primary click completed on an element.
     Clicked(ElementId),
+    /// Scroll position changed on a `ScrollView` element.
+    Scrolled(ElementId),
 }
 
 /// Batch of high-level interactions emitted during one event.

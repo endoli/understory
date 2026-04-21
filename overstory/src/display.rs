@@ -9,7 +9,7 @@ use kurbo::{Point, Vec2};
 use peniko::Brush;
 use understory_display::{DisplayNode, DisplayTree, Insets, TextAlign};
 
-use crate::{ResolvedElement, SceneSnapshot};
+use crate::{ElementKind, ResolvedElement, SceneSnapshot};
 
 #[derive(Debug)]
 struct ElementDisplayTree<'a> {
@@ -97,11 +97,21 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> Disp
         ));
     }
 
-    children.extend(
-        node.children
-            .iter()
-            .map(|child| display_node_for(element.rect.origin(), child)),
-    );
+    let child_nodes: Vec<DisplayNode> = node
+        .children
+        .iter()
+        .map(|child| display_node_for(element.rect.origin(), child))
+        .collect();
+
+    if matches!(element.kind, ElementKind::ScrollView) && !child_nodes.is_empty() {
+        // Wrap scrolled content in clip + offset for the scroll position.
+        children.push(DisplayNode::clip_rect(DisplayNode::offset(
+            Vec2::new(0.0, -element.scroll_offset),
+            DisplayNode::stack(child_nodes),
+        )));
+    } else {
+        children.extend(child_nodes);
+    }
 
     DisplayNode::offset(
         Vec2::new(

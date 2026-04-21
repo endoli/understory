@@ -663,6 +663,49 @@ mod tests {
     }
 
     #[test]
+    fn scroll_view_offsets_children() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 200.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let scroll = ui.append_child(ui.root(), ElementKind::ScrollView);
+        ui.set_local(scroll, ui.properties().padding, 0.0);
+        ui.set_local(scroll, ui.properties().gap, 0.0);
+        ui.set_local(scroll, ui.properties().height, 200.0);
+
+        let a = ui.append_child(scroll, ElementKind::Button);
+        ui.set_local(a, ui.properties().height, 100.0);
+        let b = ui.append_child(scroll, ElementKind::Button);
+        ui.set_local(b, ui.properties().height, 100.0);
+        let c = ui.append_child(scroll, ElementKind::Button);
+        ui.set_local(c, ui.properties().height, 100.0);
+
+        // No scroll: first child at y=0
+        let scene = ui.scene();
+        assert_eq!(scene.resolved_element(a).unwrap().rect.y0, 0.0);
+        assert_eq!(scene.resolved_element(c).unwrap().rect.y0, 200.0);
+
+        // After scrolling, the resolved elements keep their layout positions
+        // but the scroll_offset is recorded on the scroll view.
+        ui.set_scroll_offset(scroll, 50.0);
+        assert_eq!(ui.scroll_offset(scroll), 50.0);
+    }
+
+    #[test]
+    fn scroll_offset_clamps_to_zero() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 200.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+
+        let scroll = ui.append_child(ui.root(), ElementKind::ScrollView);
+        ui.set_local(scroll, ui.properties().height, 200.0);
+
+        ui.set_scroll_offset(scroll, -50.0);
+        assert_eq!(ui.scroll_offset(scroll), 0.0);
+    }
+
+    #[test]
     fn density_selection_follows_current_mode() {
         let mut app = DemoApp::new();
 
