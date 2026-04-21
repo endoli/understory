@@ -58,6 +58,7 @@ mod runtime;
 mod scene;
 mod ui;
 mod widget;
+pub mod widgets;
 
 pub use element::{
     ButtonClass, Element, ElementId, ElementKind, LayoutClass, PSEUDO_DISABLED, PSEUDO_HOVER,

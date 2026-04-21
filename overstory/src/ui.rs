@@ -118,6 +118,11 @@ impl Ui {
             element.store.set_local(self.props.pickable, true);
             element.store.set_local(self.props.focusable, true);
         }
+        if matches!(kind, ElementKind::TextInput) {
+            let widget = crate::widgets::TextInputWidget::new(16.0);
+            let handle = self.widget_arena.insert(Box::new(widget));
+            element.widget = Some(handle);
+        }
         self.elements.push(element);
         if let Some(parent_element) = self.elements.get_mut(parent.index()) {
             parent_element.children.push(id);
@@ -261,143 +266,48 @@ impl Ui {
     /// Returns the current text buffer for a `TextInput` element.
     #[must_use]
     pub fn text_buffer(&self, id: ElementId) -> &str {
-        self.elements
-            .get(id.index())
-            .map_or("", |e| e.editor.raw_text())
+        self.widget::<crate::widgets::TextInputWidget>(id)
+            .map_or("", |w| w.text())
     }
 
     /// Clears the text buffer for a `TextInput` element.
     pub fn clear_text_buffer(&mut self, id: ElementId, text: &mut understory_display::TextEngine) {
-        if let Some(element) = self.elements.get_mut(id.index()) {
-            element.editor.set_text("");
-            let (font_cx, layout_cx) = text.contexts();
-            element.editor.driver(font_cx, layout_cx).move_to_text_start();
+        if let Some(w) = self.widget_mut::<crate::widgets::TextInputWidget>(id) {
+            w.clear(text);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
     }
 
     /// Handles one keyboard event from `ui-events`.
     ///
-    /// The `text` engine is needed to create a `PlainEditorDriver` for text
-    /// input elements.
+    /// Delegates to the focused element's widget if it has one.
     pub fn handle_keyboard_event(
         &mut self,
         event: &ui_events::keyboard::KeyboardEvent,
         text: &mut understory_display::TextEngine,
     ) -> InteractionBatch {
-        use ui_events::keyboard::{Key, Modifiers, NamedKey};
-
         let mut batch = InteractionBatch::default();
         let Some(focused) = self.runtime.focused else {
             return batch;
         };
-        if !event.state.is_down() {
-            return batch;
-        }
-
-        if let Some(element) = self.elements.get_mut(focused.index()) {
-            let (font_cx, layout_cx) = text.contexts();
-            let mut driver = element.editor.driver(font_cx, layout_cx);
-            let action_mod = event.modifiers.contains(Modifiers::META)
-                || event.modifiers.contains(Modifiers::CONTROL);
-
-            match &event.key {
-                Key::Character(ch) if action_mod && ch.as_str() == "a" => {
-                    driver.select_all();
-                    self.mark_dirty(DirtyChannels::PAINT.into_set());
-                }
-                Key::Character(ch) => {
-                    driver.insert_or_replace_selection(ch);
-                    self.mark_dirty(
-                        DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
-                    );
-                }
-                Key::Named(named) => match named {
-                    NamedKey::Backspace if action_mod => {
-                        driver.backdelete_word();
-                        self.mark_dirty(
-                            DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
-                        );
-                    }
-                    NamedKey::Backspace => {
-                        driver.backdelete();
-                        self.mark_dirty(
-                            DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
-                        );
-                    }
-                    NamedKey::Delete => {
-                        driver.delete();
-                        self.mark_dirty(
-                            DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
-                        );
-                    }
-                    NamedKey::ArrowLeft if action_mod => {
-                        driver.move_to_line_start();
-                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                    }
-                    NamedKey::ArrowRight if action_mod => {
-                        driver.move_to_line_end();
-                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                    }
-                    NamedKey::ArrowLeft if event.modifiers.contains(Modifiers::SHIFT) => {
-                        driver.select_left();
-                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                    }
-                    NamedKey::ArrowRight if event.modifiers.contains(Modifiers::SHIFT) => {
-                        driver.select_right();
-                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                    }
-                    NamedKey::ArrowLeft => {
-                        driver.move_left();
-                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                    }
-                    NamedKey::ArrowRight => {
-                        driver.move_right();
-                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                    }
-                    NamedKey::Home => {
-                        driver.move_to_line_start();
-                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                    }
-                    NamedKey::End => {
-                        driver.move_to_line_end();
-                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                    }
-                    NamedKey::Enter if action_mod || event.modifiers.contains(Modifiers::SHIFT) => {
-                        batch.push(Interaction::Submitted(focused));
-                    }
-                    NamedKey::Enter => {
-                        driver.insert_or_replace_selection("\n");
-                        self.mark_dirty(
-                            DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
-                        );
-                    }
-                    _ => {}
-                },
+        if let Some(handle) = self.elements.get(focused.index()).and_then(|e| e.widget)
+            && let Some(widget) = self.widget_arena.get_mut(handle)
+        {
+            let handled = widget.keyboard_event(focused, event, text, &mut batch);
+            if handled {
+                self.mark_dirty(
+                    DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
+                );
             }
         }
         batch
     }
 
-    /// Refreshes editor layouts for all `TextInput` elements and caches their
+    /// Refreshes widget layouts (e.g., text editor glyph positions) before
     /// cursor/selection geometry.
     pub fn refresh_editors(&mut self, text: &mut understory_display::TextEngine) {
-        let (font_cx, layout_cx) = text.contexts();
-        for element in &mut self.elements {
-            if matches!(element.kind, ElementKind::TextInput) {
-                element.editor.refresh_layout(font_cx, layout_cx);
-                element.cached_cursor_rect = element
-                    .editor
-                    .cursor_geometry(2.0)
-                    .map(|bb| Rect::new(bb.x0, bb.y0, bb.x1, bb.y1));
-                let mut rects = Vec::new();
-                element
-                    .editor
-                    .selection_geometry_with(|bb, _line| {
-                        rects.push(Rect::new(bb.x0, bb.y0, bb.x1, bb.y1));
-                    });
-                element.cached_selection_rects = rects;
-            }
+        for (_handle, widget) in self.widget_arena.iter_mut() {
+            widget.refresh_layout(text);
         }
     }
 
@@ -411,6 +321,7 @@ impl Ui {
                 &self.registry,
                 &self.props,
                 &self.theme,
+                &self.widget_arena,
             );
             for (id, content_h, viewport_h) in scroll_metrics {
                 if let Some(element) = self.elements.get_mut(id.index()) {
@@ -487,32 +398,14 @@ impl Ui {
                             {
                                 self.set_focus(id);
                                 batch.push(Interaction::FocusChanged(id));
-                                // Position cursor at click point.
-                                if let Some(resolved) =
-                                    self.rebuild().resolved_element(id)
+                                // Delegate click-to-position to widget.
+                                if let Some(resolved) = self.rebuild().resolved_element(id).cloned()
+                                    && let Some(handle) =
+                                        self.elements.get(id.index()).and_then(|e| e.widget)
+                                    && let Some(widget) = self.widget_arena.get_mut(handle)
                                 {
-                                    let label_padding = resolved.label_padding;
-                                    #[allow(
-                                        clippy::cast_possible_truncation,
-                                        reason = "Parley move_to_point takes f32; display coordinates are small."
-                                    )]
-                                    let local_x =
-                                        (point.x - resolved.rect.x0 - label_padding) as f32;
-                                    #[allow(
-                                        clippy::cast_possible_truncation,
-                                        reason = "Parley move_to_point takes f32; display coordinates are small."
-                                    )]
-                                    let local_y =
-                                        (point.y - resolved.rect.y0) as f32;
-                                    let (font_cx, layout_cx) = text.contexts();
-                                    if let Some(el) =
-                                        self.elements.get_mut(id.index())
-                                    {
-                                        el.editor
-                                            .driver(font_cx, layout_cx)
-                                            .move_to_point(local_x, local_y);
-                                        self.mark_dirty(DirtyChannels::PAINT.into_set());
-                                    }
+                                    widget.click(id, point, &resolved, text);
+                                    self.mark_dirty(DirtyChannels::PAINT.into_set());
                                 }
                             }
                         }

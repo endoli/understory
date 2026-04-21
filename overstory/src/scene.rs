@@ -96,6 +96,7 @@ impl SceneSnapshot {
         registry: &PropertyRegistry,
         props: &BuiltInProperties,
         theme: &Theme,
+        widget_arena: &crate::WidgetArena,
     ) -> (Self, Vec<(ElementId, f64, f64)>) {
         let mut tree = Tree::new();
         let mut resolved = Vec::new();
@@ -107,6 +108,7 @@ impl SceneSnapshot {
             registry,
             props,
             theme,
+            widget_arena,
             tree: &mut tree,
             resolved: &mut resolved,
             element_to_node: &mut element_to_node,
@@ -191,6 +193,7 @@ struct SceneBuilder<'a> {
     registry: &'a PropertyRegistry,
     props: &'a BuiltInProperties,
     theme: &'a Theme,
+    widget_arena: &'a crate::WidgetArena,
     tree: &'a mut Tree,
     resolved: &'a mut Vec<ResolvedElement>,
     element_to_node: &'a mut [Option<NodeId>],
@@ -259,21 +262,26 @@ impl<'a> SceneBuilder<'a> {
                 width: style.border_width,
             },
             corner_radius: style.corner_radius,
-            label: if matches!(element.kind, ElementKind::TextInput) {
-                let raw = element.editor.raw_text();
-                if raw.is_empty() {
-                    None
-                } else {
-                    Some(Box::from(raw))
-                }
+            label: if let Some(handle) = element.widget {
+                self.widget_arena
+                    .get(handle)
+                    .and_then(|w| w.label())
+                    .map(Box::from)
             } else {
                 element.label.clone()
             },
             hovered: element.pseudos.hovered,
             pressed: element.pseudos.pressed,
             focused: element.pseudos.focused,
-            cursor_rect: element.cached_cursor_rect,
-            selection_rects: element.cached_selection_rects.clone(),
+            cursor_rect: element
+                .widget
+                .and_then(|h| self.widget_arena.get(h))
+                .and_then(|w| w.cursor_rect()),
+            selection_rects: element
+                .widget
+                .and_then(|h| self.widget_arena.get(h))
+                .map(|w| w.selection_rects().to_vec())
+                .unwrap_or_default(),
             scroll_offset: element.scroll_offset,
             font_size: style.font_size,
             label_padding: style.label_padding,

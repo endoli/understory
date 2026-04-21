@@ -5,8 +5,6 @@
 
 use alloc::{boxed::Box, vec::Vec};
 
-use parley::PlainEditor;
-use peniko::Brush;
 use understory_property::{DependencyObject, PropertyStore};
 
 use crate::WidgetHandle;
@@ -143,12 +141,6 @@ pub struct Element {
     pub(crate) content_height: f64,
     /// Viewport height from last layout (`ScrollView` only).
     pub(crate) viewport_height: f64,
-    /// Text editor for `TextInput` elements.
-    pub(crate) editor: PlainEditor<Brush>,
-    /// Cached cursor rect from last editor layout refresh.
-    pub(crate) cached_cursor_rect: Option<kurbo::Rect>,
-    /// Cached selection rects from last editor layout refresh.
-    pub(crate) cached_selection_rects: Vec<kurbo::Rect>,
     /// Optional widget handle for kind-specific behavior.
     pub(crate) widget: Option<WidgetHandle>,
 }
@@ -178,9 +170,6 @@ impl Element {
             scroll_offset: 0.0,
             content_height: 0.0,
             viewport_height: 0.0,
-            editor: PlainEditor::new(16.0),
-            cached_cursor_rect: None,
-            cached_selection_rects: Vec::new(),
             widget: None,
         }
     }
