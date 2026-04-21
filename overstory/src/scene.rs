@@ -90,11 +90,12 @@ impl SceneSnapshot {
         registry: &PropertyRegistry,
         props: &BuiltInProperties,
         theme: &Theme,
-    ) -> Self {
+    ) -> (Self, Vec<(ElementId, f64)>) {
         let mut tree = Tree::new();
         let mut resolved = Vec::new();
         let mut element_to_node = vec![None; elements.len()];
         let mut node_to_element = HashMap::new();
+        let mut content_heights = Vec::new();
         let mut builder = SceneBuilder {
             elements,
             registry,
@@ -104,6 +105,7 @@ impl SceneSnapshot {
             resolved: &mut resolved,
             element_to_node: &mut element_to_node,
             node_to_element: &mut node_to_element,
+            content_heights: &mut content_heights,
             next_z: 0,
         };
         let _ = builder.layout_element(
@@ -114,13 +116,16 @@ impl SceneSnapshot {
             0,
         );
         let _ = tree.commit();
-        Self {
-            view_rect,
-            tree,
-            resolved,
-            element_to_node,
-            node_to_element,
-        }
+        (
+            Self {
+                view_rect,
+                tree,
+                resolved,
+                element_to_node,
+                node_to_element,
+            },
+            content_heights,
+        )
     }
 
     /// Returns the view rectangle used to build the snapshot.
@@ -184,6 +189,7 @@ struct SceneBuilder<'a> {
     resolved: &'a mut Vec<ResolvedElement>,
     element_to_node: &'a mut [Option<NodeId>],
     node_to_element: &'a mut HashMap<NodeId, ElementId>,
+    content_heights: &'a mut Vec<(ElementId, f64)>,
     next_z: i32,
 }
 
@@ -378,6 +384,13 @@ impl<'a> SceneBuilder<'a> {
                         Affine::translate((0.0, -element.scroll_offset)),
                     );
                 }
+            }
+
+            // Record measured content extent for ScrollView write-back.
+            if is_scroll_view {
+                let content_start = if horizontal { content.x0 } else { content.y0 };
+                self.content_heights
+                    .push((id, (cursor - content_start).max(0.0)));
             }
         }
 

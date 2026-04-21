@@ -184,11 +184,17 @@ impl Ui {
     /// valid bounds.
     pub fn set_scroll_offset(&mut self, id: ElementId, offset: f64) {
         if let Some(element) = self.elements.get_mut(id.index()) {
-            let max_offset = (element.content_height - element.scroll_offset).max(0.0);
-            let _ = max_offset; // content_height is set during layout
             element.scroll_offset = offset.max(0.0);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
+    }
+
+    /// Returns the measured content height of a `ScrollView` element.
+    #[must_use]
+    pub fn content_height(&self, id: ElementId) -> f64 {
+        self.elements
+            .get(id.index())
+            .map_or(0.0, |e| e.content_height)
     }
 
     /// Adjusts the scroll offset by a delta on a `ScrollView` element.
@@ -210,7 +216,7 @@ impl Ui {
     /// Rebuilds the resolved scene if needed and returns the current snapshot.
     pub fn rebuild(&mut self) -> &SceneSnapshot {
         if self.scene.is_none() || !self.dirty.is_empty() {
-            let snapshot = SceneSnapshot::build(
+            let (snapshot, content_heights) = SceneSnapshot::build(
                 &self.elements,
                 self.root,
                 self.view_rect,
@@ -218,6 +224,11 @@ impl Ui {
                 &self.props,
                 &self.theme,
             );
+            for (id, height) in content_heights {
+                if let Some(element) = self.elements.get_mut(id.index()) {
+                    element.content_height = height;
+                }
+            }
             self.scene = Some(snapshot);
             self.dirty = ChannelSet::empty();
         }

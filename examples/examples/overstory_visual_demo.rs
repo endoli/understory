@@ -940,6 +940,29 @@ mod tests {
     }
 
     #[test]
+    fn scroll_view_tracks_content_height() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 200.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let scroll = ui.append_child(ui.root(), ElementKind::ScrollView);
+        ui.set_local(scroll, ui.properties().padding, 0.0);
+        ui.set_local(scroll, ui.properties().gap, 0.0);
+        ui.set_local(scroll, ui.properties().height, 200.0);
+
+        let a = ui.append_child(scroll, ElementKind::Button);
+        ui.set_local(a, ui.properties().height, 100.0);
+        let b = ui.append_child(scroll, ElementKind::Button);
+        ui.set_local(b, ui.properties().height, 100.0);
+        let c = ui.append_child(scroll, ElementKind::Button);
+        ui.set_local(c, ui.properties().height, 100.0);
+
+        let _ = ui.scene();
+        assert_eq!(ui.content_height(scroll), 300.0);
+    }
+
+    #[test]
     fn scroll_offset_clamps_to_zero() {
         let mut ui = Ui::new(default_theme());
         ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 200.0));
