@@ -66,6 +66,10 @@ pub struct ResolvedElement {
     pub font_size: f64,
     /// Resolved horizontal label padding.
     pub label_padding: f64,
+    /// Font family for label text.
+    pub font_family: Box<str>,
+    /// Text alignment for label text.
+    pub text_align: understory_display::TextAlign,
 }
 
 /// Full resolved scene snapshot for one Overstory frame.
@@ -249,6 +253,8 @@ impl<'a> SceneBuilder<'a> {
             scroll_offset: element.scroll_offset,
             font_size: style.font_size,
             label_padding: style.label_padding,
+            font_family: style.font_family.clone(),
+            text_align: style.text_align,
         });
 
         let is_scroll_view = matches!(element.kind, ElementKind::ScrollView);
@@ -554,6 +560,20 @@ impl<'a> SceneBuilder<'a> {
                 element.style.as_ref(),
                 Some(ThemeKeys::LABEL_PADDING),
             ),
+            font_family: cx.get_value_with_theme(
+                element,
+                &inputs,
+                self.props.font_family,
+                element.style.as_ref(),
+                Some(ThemeKeys::FONT_FAMILY),
+            ),
+            text_align: cx.get_value_with_theme(
+                element,
+                &inputs,
+                self.props.text_align,
+                element.style.as_ref(),
+                Some(ThemeKeys::TEXT_ALIGN),
+            ),
         }
     }
     fn alloc_z(&mut self) -> i32 {
@@ -563,7 +583,7 @@ impl<'a> SceneBuilder<'a> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct ResolvedStyle {
     width: f64,
     height: f64,
@@ -580,10 +600,12 @@ struct ResolvedStyle {
     fill: bool,
     font_size: f64,
     label_padding: f64,
+    font_family: Box<str>,
+    text_align: understory_display::TextAlign,
 }
 
 impl ResolvedStyle {
-    fn flags_for(self, kind: ElementKind) -> NodeFlags {
+    fn flags_for(&self, kind: ElementKind) -> NodeFlags {
         let mut flags = NodeFlags::VISIBLE;
         if self.pickable || matches!(kind, ElementKind::Button) {
             flags |= NodeFlags::PICKABLE;

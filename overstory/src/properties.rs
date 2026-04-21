@@ -3,8 +3,11 @@
 
 //! Built-in dependency properties and theme keys for Overstory.
 
+use alloc::boxed::Box;
+
 use invalidation::Channel;
 use peniko::Color;
+use understory_display::TextAlign;
 use understory_property::{Property, PropertyMetadataBuilder, PropertyRegistry};
 use understory_style::ResourceKey;
 
@@ -62,6 +65,10 @@ impl ThemeKeys {
     pub const FONT_SIZE: ResourceKey = ResourceKey::new(15);
     /// Default label padding.
     pub const LABEL_PADDING: ResourceKey = ResourceKey::new(16);
+    /// Default font family.
+    pub const FONT_FAMILY: ResourceKey = ResourceKey::new(17);
+    /// Default text alignment.
+    pub const TEXT_ALIGN: ResourceKey = ResourceKey::new(18);
 }
 
 /// Built-in dependency properties for layout and visuals.
@@ -97,6 +104,10 @@ pub struct BuiltInProperties {
     pub font_size: Property<f64>,
     /// Horizontal label padding.
     pub label_padding: Property<f64>,
+    /// Font family for label text.
+    pub font_family: Property<Box<str>>,
+    /// Text alignment for label text.
+    pub text_align: Property<TextAlign>,
 }
 
 impl BuiltInProperties {
@@ -204,6 +215,20 @@ impl BuiltInProperties {
                 PropertyMetadataBuilder::new(0.0_f64)
                     .coerce(|value| value.max(0.0))
                     .affects_channels(layout)
+                    .build(),
+            ),
+            font_family: registry.register(
+                "FontFamily",
+                PropertyMetadataBuilder::new(Box::<str>::from(""))
+                    .inherits(true)
+                    .affects_channels(layout_paint)
+                    .build(),
+            ),
+            text_align: registry.register(
+                "TextAlign",
+                PropertyMetadataBuilder::new(TextAlign::Start)
+                    .inherits(true)
+                    .affects_channels(layout_paint)
                     .build(),
             ),
         }

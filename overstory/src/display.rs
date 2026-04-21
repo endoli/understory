@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use kurbo::{Point, Vec2};
 use peniko::Brush;
-use understory_display::{DisplayNode, DisplayTree, Insets, TextAlign};
+use understory_display::{DisplayNode, DisplayTree, Insets};
 
 use crate::{ElementKind, ResolvedElement, SceneSnapshot};
 
@@ -15,6 +15,8 @@ use crate::{ElementKind, ResolvedElement, SceneSnapshot};
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 /// Default horizontal label padding when no property or theme value is set.
 const DEFAULT_LABEL_PADDING: f64 = 12.0;
+/// Default font family when no property or theme value is set.
+const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
 #[derive(Debug)]
 struct ElementDisplayTree<'a> {
@@ -96,6 +98,11 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> Disp
         } else {
             DEFAULT_LABEL_PADDING
         };
+        let font_family = if element.font_family.is_empty() {
+            DEFAULT_FONT_FAMILY
+        } else {
+            &element.font_family
+        };
         #[allow(
             clippy::cast_possible_truncation,
             reason = "Font size is a small positive value; f32 is sufficient."
@@ -109,8 +116,8 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> Disp
                     label,
                     Brush::Solid(element.foreground),
                     font_size as f32,
-                    "sans-serif",
-                    TextAlign::Start,
+                    font_family,
+                    element.text_align,
                 ),
             ),
         ));

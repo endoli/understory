@@ -440,6 +440,14 @@ pub fn default_theme() -> Theme {
         .set(ThemeKeys::BUTTON_HEIGHT, 44.0_f64)
         .set(ThemeKeys::FONT_SIZE, 16.0_f64)
         .set(ThemeKeys::LABEL_PADDING, 12.0_f64)
+        .set(
+            ThemeKeys::FONT_FAMILY,
+            Box::<str>::from("sans-serif"),
+        )
+        .set(
+            ThemeKeys::TEXT_ALIGN,
+            understory_display::TextAlign::Start,
+        )
         .build()
 }
 
