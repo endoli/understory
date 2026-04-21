@@ -442,6 +442,35 @@ impl Ui {
         (tree, view_rect)
     }
 
+    /// Builds a surface plan — the semantic visual output of Overstory.
+    ///
+    /// The plan contains one or more surfaces in painter/compositing order.
+    /// Currently produces a single root surface. Overlay surfaces (popups,
+    /// tooltips) will be added as widgets request promotion.
+    ///
+    /// Use `SurfacePlan::flatten_to_display_tree()` for compatibility with
+    /// hosts that don't support layered composition.
+    pub fn surface_plan(&mut self, text: &mut TextEngine) -> crate::SurfacePlan {
+        let _ = self.rebuild(text);
+        let snapshot = self.scene.as_ref().expect("scene just rebuilt");
+        let display_tree = snapshot.display_tree(&self.widget_arena);
+        let view_rect = snapshot.view_rect();
+
+        let mut plan = crate::SurfacePlan::new();
+        plan.push(crate::SurfaceEntry {
+            element_id: self.root,
+            role: crate::SurfaceRole::Root,
+            transform: kurbo::Affine::IDENTITY,
+            bounds: view_rect,
+            clip: None,
+            opacity: 1.0,
+            blend: crate::BlendModeHint::Normal,
+            anchor: None,
+            content: crate::SurfaceContent::Display(Box::new(display_tree)),
+        });
+        plan
+    }
+
     /// Handles one pointer event from `ui-events`.
     pub fn handle_pointer_event(
         &mut self,

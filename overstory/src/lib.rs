@@ -56,6 +56,7 @@ mod element;
 mod properties;
 mod runtime;
 mod scene;
+mod surface;
 mod ui;
 mod widget;
 pub mod widgets;
@@ -72,6 +73,10 @@ pub use properties::{BuiltInProperties, DirtyChannels, ThemeKeys};
 pub use runtime::{Interaction, InteractionBatch};
 pub(crate) use runtime::RuntimeState;
 pub use scene::{BorderStyle, ResolvedElement, SceneSnapshot};
+pub use surface::{
+    AnchorKind, BlendModeHint, ExternalSurface, ExternalSurfaceKind, SurfaceAnchor,
+    SurfaceContent, SurfaceEntry, SurfacePlan, SurfaceRole,
+};
 pub use ui::{Ui, default_theme};
 pub use widget::{MeasureCtx, Widget, WidgetArena, WidgetHandle};
 

@@ -543,7 +543,10 @@ impl DemoApp {
 
         let scale_factor = window.scale_factor();
         self.ui.refresh_editors(&mut self.text);
-        let (mut display_tree, view_rect) = self.ui.display_tree(&mut self.text);
+        let plan = self.ui.surface_plan(&mut self.text);
+        let (mut display_tree, view_rect) = plan
+            .flatten_to_display_tree()
+            .expect("surface plan should have a root display surface");
         display_tree.layout(
             &mut self.text,
             view_rect.origin(),
