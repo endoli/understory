@@ -266,7 +266,7 @@ impl Ui {
         event: &ui_events::keyboard::KeyboardEvent,
         text: &mut understory_display::TextEngine,
     ) -> InteractionBatch {
-        use ui_events::keyboard::{Key, NamedKey};
+        use ui_events::keyboard::{Key, Modifiers, NamedKey};
 
         let mut batch = InteractionBatch::default();
         let Some(focused) = self.runtime.focused else {
@@ -279,7 +279,14 @@ impl Ui {
         if let Some(element) = self.elements.get_mut(focused.index()) {
             let (font_cx, layout_cx) = text.contexts();
             let mut driver = element.editor.driver(font_cx, layout_cx);
+            let action_mod = event.modifiers.contains(Modifiers::META)
+                || event.modifiers.contains(Modifiers::CONTROL);
+
             match &event.key {
+                Key::Character(ch) if action_mod && ch.as_str() == "a" => {
+                    driver.select_all();
+                    self.mark_dirty(DirtyChannels::PAINT.into_set());
+                }
                 Key::Character(ch) => {
                     driver.insert_or_replace_selection(ch);
                     self.mark_dirty(
@@ -287,6 +294,12 @@ impl Ui {
                     );
                 }
                 Key::Named(named) => match named {
+                    NamedKey::Backspace if action_mod => {
+                        driver.backdelete_word();
+                        self.mark_dirty(
+                            DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
+                        );
+                    }
                     NamedKey::Backspace => {
                         driver.backdelete();
                         self.mark_dirty(
@@ -298,6 +311,22 @@ impl Ui {
                         self.mark_dirty(
                             DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
                         );
+                    }
+                    NamedKey::ArrowLeft if action_mod => {
+                        driver.move_to_line_start();
+                        self.mark_dirty(DirtyChannels::PAINT.into_set());
+                    }
+                    NamedKey::ArrowRight if action_mod => {
+                        driver.move_to_line_end();
+                        self.mark_dirty(DirtyChannels::PAINT.into_set());
+                    }
+                    NamedKey::ArrowLeft if event.modifiers.contains(Modifiers::SHIFT) => {
+                        driver.select_left();
+                        self.mark_dirty(DirtyChannels::PAINT.into_set());
+                    }
+                    NamedKey::ArrowRight if event.modifiers.contains(Modifiers::SHIFT) => {
+                        driver.select_right();
+                        self.mark_dirty(DirtyChannels::PAINT.into_set());
                     }
                     NamedKey::ArrowLeft => {
                         driver.move_left();
