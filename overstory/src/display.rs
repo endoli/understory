@@ -107,20 +107,27 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> Disp
             clippy::cast_possible_truncation,
             reason = "Font size is a small positive value; f32 is sufficient."
         )]
-        children.push(DisplayNode::align(
-            understory_display::DisplayAlign::Start,
-            understory_display::DisplayAlign::Center,
-            DisplayNode::padding(
-                Insets::symmetric(label_padding, 0.0),
-                DisplayNode::text(
-                    label,
-                    Brush::Solid(element.foreground),
-                    font_size as f32,
-                    font_family,
-                    element.text_align,
-                ),
-            ),
-        ));
+        let text_node = DisplayNode::text(
+            label,
+            Brush::Solid(element.foreground),
+            font_size as f32,
+            font_family,
+            element.text_align,
+        );
+        if matches!(element.kind, ElementKind::TextBlock) {
+            // TextBlock: top-left aligned, padded, wraps at container width.
+            children.push(DisplayNode::padding(
+                Insets::uniform(element.label_padding.max(0.0)),
+                text_node,
+            ));
+        } else {
+            // Button/other: horizontally padded, vertically centered.
+            children.push(DisplayNode::align(
+                understory_display::DisplayAlign::Start,
+                understory_display::DisplayAlign::Center,
+                DisplayNode::padding(Insets::symmetric(label_padding, 0.0), text_node),
+            ));
+        }
     }
 
     let child_nodes: Vec<DisplayNode> = node

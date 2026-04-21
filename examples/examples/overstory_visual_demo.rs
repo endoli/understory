@@ -736,6 +736,64 @@ mod tests {
     }
 
     #[test]
+    fn text_block_measures_height_from_label() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 400.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let column = ui.append_child(ui.root(), ElementKind::Column);
+        ui.set_local(column, ui.properties().padding, 0.0);
+        ui.set_local(column, ui.properties().gap, 8.0);
+
+        let short = ui.append_child(column, ElementKind::TextBlock);
+        ui.set_label(short, "Hello");
+
+        let long = ui.append_child(column, ElementKind::TextBlock);
+        ui.set_label(
+            long,
+            "This is a much longer message that should wrap to multiple lines in a narrow container",
+        );
+
+        let scene = ui.scene();
+        let short_rect = scene.resolved_element(short).unwrap().rect;
+        let long_rect = scene.resolved_element(long).unwrap().rect;
+
+        assert!(short_rect.height() > 0.0, "short text should have height");
+        assert!(
+            long_rect.height() > short_rect.height(),
+            "longer text should be taller: short={} long={}",
+            short_rect.height(),
+            long_rect.height()
+        );
+    }
+
+    #[test]
+    fn text_block_stacks_in_column() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 300.0, 600.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let column = ui.append_child(ui.root(), ElementKind::Column);
+        ui.set_local(column, ui.properties().padding, 0.0);
+        ui.set_local(column, ui.properties().gap, 0.0);
+
+        let a = ui.append_child(column, ElementKind::TextBlock);
+        ui.set_label(a, "First message");
+
+        let b = ui.append_child(column, ElementKind::TextBlock);
+        ui.set_label(b, "Second message");
+
+        let scene = ui.scene();
+        let a_rect = scene.resolved_element(a).unwrap().rect;
+        let b_rect = scene.resolved_element(b).unwrap().rect;
+
+        assert_eq!(a_rect.y0, 0.0);
+        assert_eq!(b_rect.y0, a_rect.y1, "second block should start where first ends");
+    }
+
+    #[test]
     fn density_selection_follows_current_mode() {
         let mut app = DemoApp::new();
 

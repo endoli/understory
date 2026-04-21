@@ -39,6 +39,8 @@ pub enum ElementKind {
     Spacer,
     /// Scrollable vertical container.
     ScrollView,
+    /// Multiline wrapped text block.
+    TextBlock,
 }
 
 /// Type selector for [`ElementKind::Root`].
@@ -55,6 +57,8 @@ pub const TYPE_BUTTON: TypeTag = TypeTag(5);
 pub const TYPE_SPACER: TypeTag = TypeTag(6);
 /// Type selector for [`ElementKind::ScrollView`].
 pub const TYPE_SCROLL_VIEW: TypeTag = TypeTag(7);
+/// Type selector for [`ElementKind::TextBlock`].
+pub const TYPE_TEXT_BLOCK: TypeTag = TypeTag(8);
 
 /// Small class vocabulary for common button styling.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -182,6 +186,7 @@ impl ElementKind {
             Self::Button => TYPE_BUTTON,
             Self::Spacer => TYPE_SPACER,
             Self::ScrollView => TYPE_SCROLL_VIEW,
+            Self::TextBlock => TYPE_TEXT_BLOCK,
         }
     }
 }

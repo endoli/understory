@@ -408,6 +408,27 @@ impl<'a> SceneBuilder<'a> {
         match element.kind {
             ElementKind::Button => style.height.max(0.0),
             ElementKind::Spacer => 0.0,
+            ElementKind::TextBlock => {
+                // Estimate wrapped text height from label length and available width.
+                let font_size = if style.font_size > 0.0 {
+                    style.font_size
+                } else {
+                    16.0
+                };
+                let line_height = font_size * 1.4;
+                let label_padding = if style.label_padding > 0.0 {
+                    style.label_padding
+                } else {
+                    0.0
+                };
+                let content_width =
+                    (resolve_dim(style.width, available_width) - label_padding * 2.0).max(1.0);
+                let char_count = element.label.as_deref().map_or(0, |l| l.len());
+                let avg_char_width = font_size * 0.55;
+                let estimated_text_width = char_count as f64 * avg_char_width;
+                let lines = (estimated_text_width / content_width).ceil().max(1.0);
+                (lines * line_height + style.padding * 2.0).max(0.0)
+            }
             ElementKind::Row
             | ElementKind::Panel
             | ElementKind::Column
@@ -685,6 +706,8 @@ fn background_resource_for(element: &Element) -> Option<ResourceKey> {
             }
         }
         ElementKind::ScrollView => Some(ThemeKeys::PANEL_BACKGROUND),
-        ElementKind::Row | ElementKind::Column | ElementKind::Spacer => None,
+        ElementKind::Row | ElementKind::Column | ElementKind::Spacer | ElementKind::TextBlock => {
+            None
+        }
     }
 }

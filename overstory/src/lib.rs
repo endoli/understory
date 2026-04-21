@@ -61,7 +61,7 @@ mod ui;
 pub use element::{
     ButtonClass, Element, ElementId, ElementKind, LayoutClass, PSEUDO_DISABLED, PSEUDO_HOVER,
     PSEUDO_PRESSED, PseudoState, TYPE_BUTTON, TYPE_COLUMN, TYPE_PANEL, TYPE_ROOT, TYPE_ROW,
-    TYPE_SCROLL_VIEW, TYPE_SPACER,
+    TYPE_SCROLL_VIEW, TYPE_SPACER, TYPE_TEXT_BLOCK,
 };
 /// Re-export `peniko` so Overstory callers can use the shared color vocabulary
 /// and palettes without adding another direct dependency for basic styling.
