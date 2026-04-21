@@ -92,12 +92,12 @@ impl SceneSnapshot {
         registry: &PropertyRegistry,
         props: &BuiltInProperties,
         theme: &Theme,
-    ) -> (Self, Vec<(ElementId, f64)>) {
+    ) -> (Self, Vec<(ElementId, f64, f64)>) {
         let mut tree = Tree::new();
         let mut resolved = Vec::new();
         let mut element_to_node = vec![None; elements.len()];
         let mut node_to_element = HashMap::new();
-        let mut content_heights = Vec::new();
+        let mut scroll_metrics = Vec::new();
         let mut builder = SceneBuilder {
             elements,
             registry,
@@ -107,7 +107,7 @@ impl SceneSnapshot {
             resolved: &mut resolved,
             element_to_node: &mut element_to_node,
             node_to_element: &mut node_to_element,
-            content_heights: &mut content_heights,
+            scroll_metrics: &mut scroll_metrics,
             next_z: 0,
         };
         let _ = builder.layout_element(
@@ -126,7 +126,7 @@ impl SceneSnapshot {
                 element_to_node,
                 node_to_element,
             },
-            content_heights,
+            scroll_metrics,
         )
     }
 
@@ -191,7 +191,7 @@ struct SceneBuilder<'a> {
     resolved: &'a mut Vec<ResolvedElement>,
     element_to_node: &'a mut [Option<NodeId>],
     node_to_element: &'a mut HashMap<NodeId, ElementId>,
-    content_heights: &'a mut Vec<(ElementId, f64)>,
+    scroll_metrics: &'a mut Vec<(ElementId, f64, f64)>,
     next_z: i32,
 }
 
@@ -400,8 +400,8 @@ impl<'a> SceneBuilder<'a> {
             // Record measured content extent for ScrollView write-back.
             if is_scroll_view {
                 let content_start = if horizontal { content.x0 } else { content.y0 };
-                self.content_heights
-                    .push((id, (cursor - content_start).max(0.0)));
+                self.scroll_metrics
+                    .push((id, (cursor - content_start).max(0.0), height));
             }
         }
 

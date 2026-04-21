@@ -184,7 +184,8 @@ impl Ui {
     /// valid bounds.
     pub fn set_scroll_offset(&mut self, id: ElementId, offset: f64) {
         if let Some(element) = self.elements.get_mut(id.index()) {
-            element.scroll_offset = offset.max(0.0);
+            let max_offset = (element.content_height - element.viewport_height).max(0.0);
+            element.scroll_offset = offset.clamp(0.0, max_offset);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
     }
@@ -288,7 +289,7 @@ impl Ui {
     /// Rebuilds the resolved scene if needed and returns the current snapshot.
     pub fn rebuild(&mut self) -> &SceneSnapshot {
         if self.scene.is_none() || !self.dirty.is_empty() {
-            let (snapshot, content_heights) = SceneSnapshot::build(
+            let (snapshot, scroll_metrics) = SceneSnapshot::build(
                 &self.elements,
                 self.root,
                 self.view_rect,
@@ -296,9 +297,10 @@ impl Ui {
                 &self.props,
                 &self.theme,
             );
-            for (id, height) in content_heights {
+            for (id, content_h, viewport_h) in scroll_metrics {
                 if let Some(element) = self.elements.get_mut(id.index()) {
-                    element.content_height = height;
+                    element.content_height = content_h;
+                    element.viewport_height = viewport_h;
                 }
             }
             self.scene = Some(snapshot);
