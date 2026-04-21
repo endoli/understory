@@ -76,6 +76,8 @@ pub struct ResolvedElement {
     pub font_family: Box<str>,
     /// Text alignment for label text.
     pub text_align: understory_display::TextAlign,
+    /// Widget handle for delegating display to the widget.
+    pub widget: Option<crate::WidgetHandle>,
 }
 
 /// Full resolved scene snapshot for one Overstory frame.
@@ -291,6 +293,7 @@ impl<'a> SceneBuilder<'a> {
             label_padding: style.label_padding,
             font_family: style.font_family.clone(),
             text_align: style.text_align,
+            widget: element.widget,
         });
 
         let is_scroll_view = matches!(element.kind, ElementKind::ScrollView);

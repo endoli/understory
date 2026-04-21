@@ -549,12 +549,11 @@ impl DemoApp {
 
         let scale_factor = window.scale_factor();
         self.ui.refresh_editors(&mut self.text);
-        let snapshot = self.ui.scene();
-        let mut display_tree = snapshot.display_tree();
+        let (mut display_tree, view_rect) = self.ui.display_tree();
         display_tree.layout(
             &mut self.text,
-            snapshot.view_rect().origin(),
-            BoxConstraints::tight(snapshot.view_rect().size()),
+            view_rect.origin(),
+            BoxConstraints::tight(view_rect.size()),
         );
         let imaging_scene = imaging_scene_from_display_tree(&display_tree, scale_factor);
 

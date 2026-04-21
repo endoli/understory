@@ -7,16 +7,9 @@ use alloc::vec::Vec;
 
 use kurbo::{Point, Vec2};
 use peniko::Brush;
-use understory_display::{DisplayNode, DisplayTree, Insets};
+use understory_display::{DisplayNode, DisplayTree};
 
-use crate::{ElementKind, ResolvedElement, SceneSnapshot};
-
-/// Default font size when no property or theme value is set.
-const DEFAULT_FONT_SIZE: f64 = 16.0;
-/// Default horizontal label padding when no property or theme value is set.
-const DEFAULT_LABEL_PADDING: f64 = 12.0;
-/// Default font family when no property or theme value is set.
-const DEFAULT_FONT_FAMILY: &str = "sans-serif";
+use crate::{ElementKind, ResolvedElement, SceneSnapshot, WidgetArena};
 
 #[derive(Debug)]
 struct ElementDisplayTree<'a> {
@@ -31,12 +24,12 @@ impl SceneSnapshot {
     /// while giving embedders a direct retained visual tree to measure, place,
     /// and lower into paint backends.
     #[must_use]
-    pub fn display_tree(&self) -> DisplayTree {
+    pub fn display_tree(&self, widget_arena: &WidgetArena) -> DisplayTree {
         let root_origin = Point::new(self.view_rect().x0, self.view_rect().y0);
         let mut index = 0;
         let display_root = build_element_tree(self.resolved(), &mut index)
             .expect("scene snapshot should contain a root resolved element");
-        DisplayTree::new(display_node_for(root_origin, &display_root))
+        DisplayTree::new(display_node_for(root_origin, &display_root, widget_arena))
     }
 }
 
@@ -63,7 +56,7 @@ fn build_element_tree<'a>(
     Some(ElementDisplayTree { element, children })
 }
 
-fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> DisplayNode {
+fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>, widget_arena: &WidgetArena) -> DisplayNode {
     let element = node.element;
     let mut children = Vec::new();
     let size = element.rect.size();
@@ -87,98 +80,19 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>) -> Disp
         });
     }
 
-    let label_text = element.label.as_deref();
-
-    if let Some(label) = label_text
-        && !label.is_empty()
+    // Delegate label and visual content rendering to the widget if present.
+    if let Some(handle) = element.widget
+        && let Some(widget) = widget_arena.get(handle)
     {
-        let font_size = if element.font_size > 0.0 {
-            element.font_size
-        } else {
-            DEFAULT_FONT_SIZE
-        };
-        let label_padding = if element.label_padding > 0.0 {
-            element.label_padding
-        } else {
-            DEFAULT_LABEL_PADDING
-        };
-        let font_family = if element.font_family.is_empty() {
-            DEFAULT_FONT_FAMILY
-        } else {
-            &element.font_family
-        };
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "Font size is a small positive value; f32 is sufficient."
-        )]
-        let text_node = DisplayNode::text(
-            label,
-            Brush::Solid(element.foreground),
-            font_size as f32,
-            font_family,
-            element.text_align,
-        );
-        if matches!(element.kind, ElementKind::TextBlock) {
-            // TextBlock: top-left aligned, padded, wraps at container width.
-            children.push(DisplayNode::padding(
-                Insets::uniform(element.label_padding.max(0.0)),
-                text_node,
-            ));
-        } else {
-            // Button/TextInput/other: horizontally padded, vertically centered.
-            children.push(DisplayNode::align(
-                understory_display::DisplayAlign::Start,
-                understory_display::DisplayAlign::Center,
-                DisplayNode::padding(Insets::symmetric(label_padding, 0.0), text_node),
-            ));
-        }
+        widget.display(element.id, element, &mut children);
     }
 
-    // Render selection highlights and cursor for focused TextInput elements.
-    if matches!(element.kind, ElementKind::TextInput) && element.focused {
-        let label_padding = if element.label_padding > 0.0 {
-            element.label_padding
-        } else {
-            DEFAULT_LABEL_PADDING
-        };
-        let selection_brush = Brush::Solid(peniko::Color::from_rgba8(80, 140, 220, 100));
-        let cursor_brush = Brush::Solid(element.foreground);
 
-        let mut overlay_nodes = Vec::new();
-        for sel_rect in &element.selection_rects {
-            overlay_nodes.push(DisplayNode::offset(
-                Vec2::new(sel_rect.x0, sel_rect.y0),
-                DisplayNode::fixed_frame(
-                    sel_rect.size(),
-                    DisplayNode::fill_rect(selection_brush.clone()),
-                ),
-            ));
-        }
-        if let Some(cursor) = &element.cursor_rect {
-            overlay_nodes.push(DisplayNode::offset(
-                Vec2::new(cursor.x0, cursor.y0),
-                DisplayNode::fixed_frame(
-                    cursor.size(),
-                    DisplayNode::fill_rect(cursor_brush),
-                ),
-            ));
-        }
-        if !overlay_nodes.is_empty() {
-            children.push(DisplayNode::align(
-                understory_display::DisplayAlign::Start,
-                understory_display::DisplayAlign::Center,
-                DisplayNode::padding(
-                    Insets::symmetric(label_padding, 0.0),
-                    DisplayNode::stack(overlay_nodes),
-                ),
-            ));
-        }
-    }
 
     let child_nodes: Vec<DisplayNode> = node
         .children
         .iter()
-        .map(|child| display_node_for(element.rect.origin(), child))
+        .map(|child| display_node_for(element.rect.origin(), child, widget_arena))
         .collect();
 
     if matches!(element.kind, ElementKind::ScrollView) && !child_nodes.is_empty() {
@@ -226,7 +140,7 @@ mod tests {
         let right = ui.append_child(shell, ElementKind::Panel);
         ui.set_local(right, ui.properties().padding, 8.0);
 
-        let tree = ui.scene().display_tree();
+        let tree = ui.scene().display_tree(ui.widget_arena());
         let root = tree.root();
         let understory_display::DisplayNodeKind::Offset { child, .. } = root.kind() else {
             panic!("expected root offset node");

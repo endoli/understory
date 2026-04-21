@@ -118,18 +118,16 @@ impl Ui {
             element.store.set_local(self.props.pickable, true);
             element.store.set_local(self.props.focusable, true);
         }
-        match kind {
-            ElementKind::TextInput => {
-                let widget = crate::widgets::TextInputWidget::new(16.0);
-                let handle = self.widget_arena.insert(Box::new(widget));
-                element.widget = Some(handle);
-            }
-            ElementKind::ScrollView => {
-                let widget = crate::widgets::ScrollViewWidget::new();
-                let handle = self.widget_arena.insert(Box::new(widget));
-                element.widget = Some(handle);
-            }
-            _ => {}
+        let widget: Option<Box<dyn crate::Widget>> = match kind {
+            ElementKind::Button => Some(Box::new(crate::widgets::ButtonWidget::new())),
+            ElementKind::TextBlock => Some(Box::new(crate::widgets::TextBlockWidget::new())),
+            ElementKind::TextInput => Some(Box::new(crate::widgets::TextInputWidget::new(16.0))),
+            ElementKind::ScrollView => Some(Box::new(crate::widgets::ScrollViewWidget::new())),
+            _ => None,
+        };
+        if let Some(w) = widget {
+            let handle = self.widget_arena.insert(w);
+            element.widget = Some(handle);
         }
         self.elements.push(element);
         if let Some(parent_element) = self.elements.get_mut(parent.index()) {
@@ -243,6 +241,12 @@ impl Ui {
             .downcast_mut::<W>()
     }
 
+    /// Returns a reference to the widget arena.
+    #[must_use]
+    pub fn widget_arena(&self) -> &WidgetArena {
+        &self.widget_arena
+    }
+
     /// Returns the current scroll offset for an element.
     #[must_use]
     pub fn scroll_offset(&self, id: ElementId) -> f64 {
@@ -341,6 +345,16 @@ impl Ui {
     /// Returns the current resolved scene, rebuilding first if necessary.
     pub fn scene(&mut self) -> &SceneSnapshot {
         self.rebuild()
+    }
+
+    /// Rebuilds the scene if needed and returns a display tree with widget
+    /// rendering applied.
+    pub fn display_tree(&mut self) -> (understory_display::DisplayTree, Rect) {
+        let _ = self.rebuild();
+        let snapshot = self.scene.as_ref().expect("scene just rebuilt");
+        let tree = snapshot.display_tree(&self.widget_arena);
+        let view_rect = snapshot.view_rect();
+        (tree, view_rect)
     }
 
     /// Handles one pointer event from `ui-events`.
