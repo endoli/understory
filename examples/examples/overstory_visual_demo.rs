@@ -266,20 +266,24 @@ impl DemoApp {
         app
     }
 
-    fn auto_scroll_if_tailed(&mut self) {
-        // Rebuild to get current content_height and viewport after sync_messages.
-        let scene = self.ui.scene();
-        let viewport_h = scene
-            .resolved_element(self.ids.messages)
-            .map_or(0.0, |e| e.rect.height());
+    /// Returns true if the messages ScrollView is currently scrolled to the
+    /// bottom (or content fits within the viewport).
+    fn is_at_tail(&self) -> bool {
         let offset = self.ui.scroll_offset(self.ids.messages);
         let content_h = self.ui.content_height(self.ids.messages);
-        let was_at_tail = content_h <= viewport_h || offset + viewport_h >= content_h - 1.0;
+        let viewport_h = self.ui.viewport_height(self.ids.messages);
+        content_h <= viewport_h || offset + viewport_h >= content_h - 1.0
+    }
 
-        if was_at_tail {
-            let new_offset = (content_h - viewport_h).max(0.0);
-            self.ui.set_scroll_offset(self.ids.messages, new_offset);
-        }
+    /// Scrolls the messages ScrollView to the bottom.
+    fn scroll_to_tail(&mut self) {
+        let _ = self.ui.scene(); // rebuild to get updated content_height
+        let content_h = self.ui.content_height(self.ids.messages);
+        let viewport_h = self.ui.viewport_height(self.ids.messages);
+        self.ui.set_scroll_offset(
+            self.ids.messages,
+            (content_h - viewport_h).max(0.0),
+        );
     }
 
     fn sync_messages(&mut self) {
@@ -369,10 +373,13 @@ impl DemoApp {
             {
                 let text = self.ui.text_buffer(self.ids.input).to_owned();
                 if !text.is_empty() {
+                    let was_at_tail = self.is_at_tail();
                     self.transcript
                         .append(NewEntry::message(MessageRole::User, text.as_str()));
                     self.sync_messages();
-                    self.auto_scroll_if_tailed();
+                    if was_at_tail {
+                        self.scroll_to_tail();
+                    }
                     self.ui.clear_text_buffer(self.ids.input);
                 }
             }

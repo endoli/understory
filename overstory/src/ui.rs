@@ -198,6 +198,14 @@ impl Ui {
             .map_or(0.0, |e| e.content_height)
     }
 
+    /// Returns the viewport height of a `ScrollView` element from last layout.
+    #[must_use]
+    pub fn viewport_height(&self, id: ElementId) -> f64 {
+        self.elements
+            .get(id.index())
+            .map_or(0.0, |e| e.viewport_height)
+    }
+
     /// Adjusts the scroll offset by a delta on a `ScrollView` element.
     pub fn scroll_by(&mut self, id: ElementId, delta: f64) {
         if let Some(element) = self.elements.get(id.index()) {
