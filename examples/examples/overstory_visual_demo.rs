@@ -58,6 +58,7 @@ struct DemoIds {
     settings: ElementId,
     deploy: ElementId,
     messages: ElementId,
+    input: ElementId,
 }
 
 enum RenderState {
@@ -261,6 +262,7 @@ impl DemoApp {
         };
         app.sync_messages();
         app.apply_density(true);
+        app.ui.set_focus(app.ids.input);
         app
     }
 
@@ -344,6 +346,17 @@ impl DemoApp {
                         );
                     }
                     _ => {}
+                }
+            }
+            if let Interaction::Submitted(target) = *interaction
+                && target == self.ids.input
+            {
+                let text = self.ui.text_buffer(self.ids.input).to_owned();
+                if !text.is_empty() {
+                    self.transcript
+                        .append(NewEntry::message(MessageRole::User, text.as_str()));
+                    self.sync_messages();
+                    self.ui.clear_text_buffer(self.ids.input);
                 }
             }
         }
@@ -650,7 +663,7 @@ impl ApplicationHandler for DemoApp {
 
         if let Some(translation) = self.reducer.reduce(window.scale_factor(), &event) {
             match translation {
-                WindowEventTranslation::Keyboard(keyboard) => {
+                WindowEventTranslation::Keyboard(ref keyboard) => {
                     if keyboard.state.is_down()
                         && matches!(
                             keyboard.key,
@@ -662,6 +675,10 @@ impl ApplicationHandler for DemoApp {
                         event_loop.exit();
                         return;
                     }
+                    let interactions = self.ui.handle_keyboard_event(keyboard);
+                    self.apply_interactions(&interactions);
+                    window.request_redraw();
+                    return;
                 }
                 WindowEventTranslation::Pointer(_) => {
                     self.process_pointer_translation(translation, &window);
@@ -768,6 +785,13 @@ fn build_demo_ui() -> (Ui, DemoIds) {
 
     // Messages are populated from the transcript via DemoApp::sync_messages.
 
+    // Text input at the bottom.
+    let input = ui.append_child(content_column, ElementKind::TextInput);
+    ui.set_local(input, ui.properties().height, 40.0);
+    ui.set_local(input, ui.properties().padding, 8.0);
+    ui.set_local(input, ui.properties().border_width, 1.0);
+    ui.set_local(input, ui.properties().corner_radius, 6.0);
+
     (
         ui,
         DemoIds {
@@ -782,6 +806,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
             settings,
             deploy,
             messages,
+            input,
         },
     )
 }
