@@ -8,13 +8,13 @@ use core::any::Any;
 
 use kurbo::{Point, Rect, Vec2};
 use parley::PlainEditor;
-use peniko::Brush;
+use peniko::{Brush, Color};
 use understory_display::{DisplayAlign, DisplayNode, Insets, TextEngine};
 use ui_events::keyboard::{Key, KeyboardEvent, Modifiers, NamedKey};
 
 use understory_style::ResourceKey;
 
-use crate::{ElementId, Interaction, InteractionBatch, ResolvedElement, ThemeKeys, Widget};
+use crate::{Element, ElementId, Interaction, InteractionBatch, ResolvedElement, ThemeKeys, Widget};
 
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_LABEL_PADDING: f64 = 12.0;
@@ -120,7 +120,7 @@ impl Widget for TextInputWidget {
 
         // Render selection and cursor overlays.
         let label_padding = resolved.label_padding;
-        let selection_brush = Brush::Solid(peniko::Color::from_rgba8(80, 140, 220, 100));
+        let selection_brush = Brush::Solid(Color::from_rgba8(80, 140, 220, 100));
         let cursor_brush = Brush::Solid(resolved.foreground);
 
         let mut overlay_nodes = Vec::new();
@@ -282,7 +282,7 @@ impl Widget for TextInputWidget {
         }
     }
 
-    fn background_key(&self, _element: &crate::Element) -> Option<ResourceKey> {
+    fn background_key(&self, _element: &Element) -> Option<ResourceKey> {
         Some(ThemeKeys::PANEL_BACKGROUND)
     }
 

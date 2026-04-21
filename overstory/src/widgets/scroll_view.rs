@@ -9,7 +9,7 @@ use understory_display::TextEngine;
 
 use understory_style::ResourceKey;
 
-use crate::{ThemeKeys, Widget};
+use crate::{Element, ThemeKeys, Widget};
 
 /// Scrollable container widget that tracks scroll offset, content height,
 /// and viewport height.
@@ -67,7 +67,7 @@ impl ScrollViewWidget {
 }
 
 impl Widget for ScrollViewWidget {
-    fn background_key(&self, _element: &crate::Element) -> Option<ResourceKey> {
+    fn background_key(&self, _element: &Element) -> Option<ResourceKey> {
         Some(ThemeKeys::PANEL_BACKGROUND)
     }
 

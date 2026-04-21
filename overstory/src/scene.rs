@@ -10,11 +10,13 @@ use kurbo::{Affine, Point, Rect};
 use understory_box_tree::{LocalNode, NodeFlags, NodeId, QueryFilter, Tree};
 use understory_property::{PropertyRegistry, PropertyStore};
 use understory_responder::adapters::box_tree::top_hit_for_point;
-use understory_style::{ResolveCx, ResourceKey, Theme};
+use understory_display::TextAlign;
+use understory_style::{PseudoClassId, ResolveCx, ResourceKey, Theme, TypeTag};
 
 use crate::{
-    BuiltInProperties, Color, Element, ElementId, LayoutClass,
-    PSEUDO_DISABLED, PSEUDO_FOCUSED, PSEUDO_HOVER, PSEUDO_PRESSED, ThemeKeys,
+    BuiltInProperties, Color, Element, ElementId, LayoutClass, Widget, WidgetArena, WidgetHandle,
+    PSEUDO_DISABLED, PSEUDO_FOCUSED, PSEUDO_HOVER, PSEUDO_PRESSED, TYPE_PANEL, TYPE_SCROLL_VIEW,
+    ThemeKeys,
 };
 
 /// Border styling for one resolved element.
@@ -41,7 +43,7 @@ pub struct ResolvedElement {
     /// Retained element id.
     pub id: ElementId,
     /// Style type tag.
-    pub type_tag: understory_style::TypeTag,
+    pub type_tag: TypeTag,
     /// Depth in the retained tree.
     pub depth: u16,
     /// Final rectangle in view space.
@@ -69,13 +71,13 @@ pub struct ResolvedElement {
     /// Font family for label text.
     pub font_family: Box<str>,
     /// Text alignment for label text.
-    pub text_align: understory_display::TextAlign,
+    pub text_align: TextAlign,
     /// Whether this element clips its children to its bounds.
     pub clips_content: bool,
     /// Vertical scroll offset applied to children.
     pub scroll_offset: f64,
     /// Widget handle for delegating display to the widget.
-    pub widget: Option<crate::WidgetHandle>,
+    pub widget: Option<WidgetHandle>,
 }
 
 /// Full resolved scene snapshot for one Overstory frame.
@@ -96,7 +98,7 @@ impl SceneSnapshot {
         registry: &PropertyRegistry,
         props: &BuiltInProperties,
         theme: &Theme,
-        widget_arena: &crate::WidgetArena,
+        widget_arena: &WidgetArena,
     ) -> (Self, Vec<(ElementId, f64, f64)>) {
         let mut tree = Tree::new();
         let mut resolved = Vec::new();
@@ -193,7 +195,7 @@ struct SceneBuilder<'a> {
     registry: &'a PropertyRegistry,
     props: &'a BuiltInProperties,
     theme: &'a Theme,
-    widget_arena: &'a crate::WidgetArena,
+    widget_arena: &'a WidgetArena,
     tree: &'a mut Tree,
     resolved: &'a mut Vec<ResolvedElement>,
     element_to_node: &'a mut [Option<NodeId>],
@@ -278,8 +280,8 @@ impl<'a> SceneBuilder<'a> {
             label_padding: style.label_padding,
             font_family: style.font_family.clone(),
             text_align: style.text_align,
-            clips_content: element.widget.is_some() && element.type_tag == crate::TYPE_SCROLL_VIEW,
-            scroll_offset: if element.widget.is_some() && element.type_tag == crate::TYPE_SCROLL_VIEW {
+            clips_content: element.widget.is_some() && element.type_tag == TYPE_SCROLL_VIEW,
+            scroll_offset: if element.widget.is_some() && element.type_tag == TYPE_SCROLL_VIEW {
                 element
                     .widget
                     .and_then(|h| self.widget_arena.get(h))
@@ -294,7 +296,7 @@ impl<'a> SceneBuilder<'a> {
             widget: element.widget,
         });
 
-        let is_scroll_view = element.widget.is_some() && element.type_tag == crate::TYPE_SCROLL_VIEW;
+        let is_scroll_view = element.widget.is_some() && element.type_tag == TYPE_SCROLL_VIEW;
         if is_scroll_view {
             use kurbo::RoundedRect;
             self.tree.set_local_clip(
@@ -643,11 +645,11 @@ struct ResolvedStyle {
     font_size: f64,
     label_padding: f64,
     font_family: Box<str>,
-    text_align: understory_display::TextAlign,
+    text_align: TextAlign,
 }
 
 impl ResolvedStyle {
-    fn flags_for(&self, widget: Option<&dyn crate::Widget>) -> NodeFlags {
+    fn flags_for(&self, widget: Option<&dyn Widget>) -> NodeFlags {
         let mut flags = NodeFlags::VISIBLE;
         if self.pickable || widget.is_some_and(|w| w.default_pickable()) {
             flags |= NodeFlags::PICKABLE;
@@ -672,7 +674,7 @@ impl LayoutSize {
     };
 }
 
-fn build_pseudos(element: &Element) -> Vec<understory_style::PseudoClassId> {
+fn build_pseudos(element: &Element) -> Vec<PseudoClassId> {
     let mut pseudos = Vec::with_capacity(3);
     if element.pseudos.hovered {
         pseudos.push(PSEUDO_HOVER);
@@ -712,7 +714,7 @@ fn inset_rect(rect: Rect, inset: f64) -> Rect {
 fn default_background_key(element: &Element) -> Option<ResourceKey> {
     if element.is_root {
         Some(ThemeKeys::ROOT_BACKGROUND)
-    } else if element.type_tag == crate::TYPE_PANEL {
+    } else if element.type_tag == TYPE_PANEL {
         if element.classes.contains(LayoutClass::Sidebar.class_id()) {
             Some(ThemeKeys::SIDEBAR_BACKGROUND)
         } else {

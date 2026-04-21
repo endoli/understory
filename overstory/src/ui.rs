@@ -10,12 +10,16 @@ use invalidation::ChannelSet;
 use kurbo::{Point, Rect};
 use peniko::Color;
 use ui_events::pointer::{PointerButton, PointerEvent, PointerInfo};
+use understory_box_tree::NodeFlags;
+use understory_display::{TextAlign, TextEngine};
 use understory_property::{DependencyObjectExt, Property, PropertyRegistry};
-use understory_style::{ClassId, IdSet, StyleCascade, Theme, ThemeBuilder};
+use understory_style::{ClassId, IdSet, StyleCascade, Theme, ThemeBuilder, TypeTag};
 
 use crate::{
     BuiltInProperties, ButtonClass, DirtyChannels, Element, ElementId, Interaction,
-    InteractionBatch, LayoutClass, RuntimeState, SceneSnapshot, ThemeKeys, WidgetArena,
+    InteractionBatch, LayoutClass, RuntimeState, SceneSnapshot, ThemeKeys, Widget, WidgetArena,
+    TYPE_BUTTON, TYPE_COLUMN, TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW,
+    TYPE_SPACER, TYPE_TEXT_BLOCK, TYPE_TEXT_INPUT,
 };
 
 /// Retained Overstory UI state.
@@ -41,7 +45,7 @@ impl Ui {
         let props = BuiltInProperties::register(&mut registry);
         let root = ElementId::new(0);
         let mut elements = Vec::new();
-        let mut root_element = Element::new(root, None, crate::TYPE_ROOT);
+        let mut root_element = Element::new(root, None, TYPE_ROOT);
         root_element.store.set_local(props.visible, true);
         root_element.is_root = true;
         root_element.is_container = true;
@@ -117,8 +121,8 @@ impl Ui {
     pub fn append_child_with(
         &mut self,
         parent: ElementId,
-        type_tag: understory_style::TypeTag,
-        widget: Option<Box<dyn crate::Widget>>,
+        type_tag: TypeTag,
+        widget: Option<Box<dyn Widget>>,
     ) -> ElementId {
         let id = ElementId::new(self.elements.len());
         let mut element = Element::new(id, Some(parent), type_tag);
@@ -150,7 +154,7 @@ impl Ui {
     pub fn append_container(
         &mut self,
         parent: ElementId,
-        type_tag: understory_style::TypeTag,
+        type_tag: TypeTag,
         horizontal: bool,
     ) -> ElementId {
         let id = self.append_child_with(parent, type_tag, None);
@@ -168,13 +172,8 @@ impl Ui {
     pub fn append_child(
         &mut self,
         parent: ElementId,
-        type_tag: understory_style::TypeTag,
+        type_tag: TypeTag,
     ) -> ElementId {
-        use crate::{
-            TYPE_BUTTON, TYPE_COLUMN, TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW,
-            TYPE_SPACER, TYPE_TEXT_BLOCK, TYPE_TEXT_INPUT,
-        };
-
         match type_tag {
             TYPE_ROOT | TYPE_PANEL | TYPE_COLUMN => self.append_container(parent, type_tag, false),
             TYPE_ROW => self.append_container(parent, type_tag, true),
@@ -292,14 +291,14 @@ impl Ui {
 
     /// Returns a typed reference to the widget attached to an element.
     #[must_use]
-    pub fn widget<W: crate::Widget + 'static>(&self, id: ElementId) -> Option<&W> {
+    pub fn widget<W: Widget + 'static>(&self, id: ElementId) -> Option<&W> {
         let handle = self.elements.get(id.index())?.widget?;
         self.widget_arena.get(handle)?.as_any().downcast_ref::<W>()
     }
 
     /// Returns a typed mutable reference to the widget attached to an element.
     #[must_use]
-    pub fn widget_mut<W: crate::Widget + 'static>(&mut self, id: ElementId) -> Option<&mut W> {
+    pub fn widget_mut<W: Widget + 'static>(&mut self, id: ElementId) -> Option<&mut W> {
         let handle = self.elements.get(id.index())?.widget?;
         self.widget_arena
             .get_mut(handle)?
@@ -345,7 +344,7 @@ impl Ui {
     }
 
     /// Clears the text buffer for a `TextInput` element.
-    pub fn clear_text_buffer(&mut self, id: ElementId, text: &mut understory_display::TextEngine) {
+    pub fn clear_text_buffer(&mut self, id: ElementId, text: &mut TextEngine) {
         if let Some(w) = self.widget_mut::<crate::widgets::TextInputWidget>(id) {
             w.clear(text);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
@@ -358,7 +357,7 @@ impl Ui {
     pub fn handle_keyboard_event(
         &mut self,
         event: &ui_events::keyboard::KeyboardEvent,
-        text: &mut understory_display::TextEngine,
+        text: &mut TextEngine,
     ) -> InteractionBatch {
         let mut batch = InteractionBatch::default();
         let Some(focused) = self.runtime.focused else {
@@ -379,7 +378,7 @@ impl Ui {
 
     /// Refreshes widget layouts (e.g., text editor glyph positions) before
     /// cursor/selection geometry.
-    pub fn refresh_editors(&mut self, text: &mut understory_display::TextEngine) {
+    pub fn refresh_editors(&mut self, text: &mut TextEngine) {
         for (_handle, widget) in self.widget_arena.iter_mut() {
             widget.refresh_layout(text);
         }
@@ -446,7 +445,7 @@ impl Ui {
     pub fn handle_pointer_event(
         &mut self,
         event: &PointerEvent,
-        text: &mut understory_display::TextEngine,
+        text: &mut TextEngine,
     ) -> InteractionBatch {
         let mut batch = InteractionBatch::default();
         let _ = self.rebuild();
@@ -500,7 +499,7 @@ impl Ui {
                                 .node_for(id)
                                 .and_then(|node| scene.box_tree().flags(node))
                                 .is_some_and(|f| {
-                                    f.contains(understory_box_tree::NodeFlags::FOCUSABLE)
+                                    f.contains(NodeFlags::FOCUSABLE)
                                 });
                             if is_focusable {
                                 self.set_focus(id);
@@ -684,7 +683,7 @@ pub fn default_theme() -> Theme {
         )
         .set(
             ThemeKeys::TEXT_ALIGN,
-            understory_display::TextAlign::Start,
+            TextAlign::Start,
         )
         .build()
 }
@@ -769,13 +768,13 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let column = ui.append_child(ui.root(), crate::TYPE_COLUMN);
+        let column = ui.append_child(ui.root(), TYPE_COLUMN);
         ui.set_local(column, ui.properties().padding, 0.0);
         ui.set_local(column, ui.properties().gap, 8.0);
 
-        let first = ui.append_child(column, crate::TYPE_BUTTON);
+        let first = ui.append_child(column, TYPE_BUTTON);
         ui.set_local(first, ui.properties().height, 20.0);
-        let second = ui.append_child(column, crate::TYPE_BUTTON);
+        let second = ui.append_child(column, TYPE_BUTTON);
         ui.set_local(second, ui.properties().height, 30.0);
 
         let scene = ui.rebuild();
@@ -793,7 +792,7 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let button = ui.append_child(ui.root(), crate::TYPE_BUTTON);
+        let button = ui.append_child(ui.root(), TYPE_BUTTON);
         ui.add_button_class(button, ButtonClass::Primary);
 
         let base = StyleBuilder::new()
@@ -803,9 +802,9 @@ mod tests {
             .set(ui.properties().border_width, 4.0)
             .build();
         let selector = Selector {
-            type_tag: Some(crate::TYPE_BUTTON),
+            type_tag: Some(TYPE_BUTTON),
             required_classes: IdSet::from_ids([ButtonClass::Primary.class_id()]),
-            required_pseudos: IdSet::from_ids([crate::PSEUDO_HOVER]),
+            required_pseudos: IdSet::from_ids([PSEUDO_HOVER]),
         };
         let sheet = StyleSheetBuilder::new().rule(selector, hover).build();
         let cascade = StyleCascadeBuilder::new()
@@ -837,7 +836,7 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let button = ui.append_child(ui.root(), crate::TYPE_BUTTON);
+        let button = ui.append_child(ui.root(), TYPE_BUTTON);
         ui.set_label(button, "Launch");
 
         let mut text = TextEngine::new();
@@ -881,15 +880,15 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), crate::TYPE_ROW);
+        let row = ui.append_child(ui.root(), TYPE_ROW);
         ui.set_local(row, ui.properties().padding, 0.0);
         ui.set_local(row, ui.properties().gap, 12.0);
 
-        let left = ui.append_child(row, crate::TYPE_PANEL);
+        let left = ui.append_child(row, TYPE_PANEL);
         ui.set_local(left, ui.properties().width, 100.0);
         ui.set_local(left, ui.properties().height, 80.0);
 
-        let right = ui.append_child(row, crate::TYPE_PANEL);
+        let right = ui.append_child(row, TYPE_PANEL);
         ui.set_local(right, ui.properties().height, 80.0);
 
         let scene = ui.rebuild();
