@@ -8,6 +8,8 @@ use alloc::{boxed::Box, vec::Vec};
 use parley::PlainEditor;
 use peniko::Brush;
 use understory_property::{DependencyObject, PropertyStore};
+
+use crate::WidgetHandle;
 use understory_style::{ClassId, IdSet, PseudoClassId, SelectorInputs, StyleCascade, TypeTag};
 
 /// Stable identifier for a retained element.
@@ -147,6 +149,8 @@ pub struct Element {
     pub(crate) cached_cursor_rect: Option<kurbo::Rect>,
     /// Cached selection rects from last editor layout refresh.
     pub(crate) cached_selection_rects: Vec<kurbo::Rect>,
+    /// Optional widget handle for kind-specific behavior.
+    pub(crate) widget: Option<WidgetHandle>,
 }
 
 impl core::fmt::Debug for Element {
@@ -177,6 +181,7 @@ impl Element {
             editor: PlainEditor::new(16.0),
             cached_cursor_rect: None,
             cached_selection_rects: Vec::new(),
+            widget: None,
         }
     }
 

@@ -15,7 +15,7 @@ use understory_style::{ClassId, IdSet, StyleCascade, Theme, ThemeBuilder};
 
 use crate::{
     BuiltInProperties, ButtonClass, DirtyChannels, Element, ElementId, ElementKind, Interaction,
-    InteractionBatch, LayoutClass, RuntimeState, SceneSnapshot, ThemeKeys,
+    InteractionBatch, LayoutClass, RuntimeState, SceneSnapshot, ThemeKeys, WidgetArena,
 };
 
 /// Retained Overstory UI state.
@@ -30,6 +30,7 @@ pub struct Ui {
     scene: Option<SceneSnapshot>,
     view_rect: Rect,
     dirty: ChannelSet,
+    widget_arena: WidgetArena,
 }
 
 impl Ui {
@@ -55,6 +56,7 @@ impl Ui {
             dirty: DirtyChannels::STRUCTURE.into_set()
                 | DirtyChannels::LAYOUT.into_set()
                 | DirtyChannels::PAINT.into_set(),
+            widget_arena: WidgetArena::new(),
         }
     }
 
@@ -212,6 +214,23 @@ impl Ui {
             let new_offset = element.scroll_offset + delta;
             self.set_scroll_offset(id, new_offset);
         }
+    }
+
+    /// Returns a typed reference to the widget attached to an element.
+    #[must_use]
+    pub fn widget<W: crate::Widget + 'static>(&self, id: ElementId) -> Option<&W> {
+        let handle = self.elements.get(id.index())?.widget?;
+        self.widget_arena.get(handle)?.as_any().downcast_ref::<W>()
+    }
+
+    /// Returns a typed mutable reference to the widget attached to an element.
+    #[must_use]
+    pub fn widget_mut<W: crate::Widget + 'static>(&mut self, id: ElementId) -> Option<&mut W> {
+        let handle = self.elements.get(id.index())?.widget?;
+        self.widget_arena
+            .get_mut(handle)?
+            .as_any_mut()
+            .downcast_mut::<W>()
     }
 
     /// Returns the current scroll offset for an element.
