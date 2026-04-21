@@ -37,6 +37,7 @@ pub struct TextInputWidget {
     editor: PlainEditor<Brush>,
     cached_cursor_rect: Option<Rect>,
     cached_selection_rects: Vec<Rect>,
+    placeholder: Option<alloc::string::String>,
 }
 
 impl TextInputWidget {
@@ -47,6 +48,7 @@ impl TextInputWidget {
             editor: PlainEditor::new(font_size),
             cached_cursor_rect: None,
             cached_selection_rects: Vec::new(),
+            placeholder: None,
         }
     }
 
@@ -54,6 +56,11 @@ impl TextInputWidget {
     #[must_use]
     pub fn text(&self) -> &str {
         self.editor.raw_text()
+    }
+
+    /// Sets the placeholder text shown when the input is empty and unfocused.
+    pub fn set_placeholder(&mut self, placeholder: impl Into<alloc::string::String>) {
+        self.placeholder = Some(placeholder.into());
     }
 
     /// Clears the text buffer and resets the cursor to the start.
@@ -72,7 +79,16 @@ impl Widget for TextInputWidget {
         children: &mut Vec<DisplayNode>,
     ) {
         // Render the text content.
-        if let Some(label) = resolved.label.as_deref()
+        let is_empty = resolved.label.as_deref().is_none_or(|l| l.is_empty());
+        let show_placeholder = is_empty && self.placeholder.is_some();
+
+        let display_text = if show_placeholder {
+            self.placeholder.as_deref()
+        } else {
+            resolved.label.as_deref()
+        };
+
+        if let Some(label) = display_text
             && !label.is_empty()
         {
             let font_size = if resolved.font_size > 0.0 {
@@ -90,13 +106,20 @@ impl Widget for TextInputWidget {
             } else {
                 &resolved.font_family
             };
+            let text_brush = if show_placeholder {
+                // Dim the placeholder text.
+                let fg = resolved.foreground.to_rgba8();
+                Brush::Solid(Color::from_rgba8(fg.r, fg.g, fg.b, 100))
+            } else {
+                Brush::Solid(resolved.foreground)
+            };
             #[allow(
                 clippy::cast_possible_truncation,
                 reason = "Font size is a small positive value; f32 is sufficient."
             )]
             let text_node = DisplayNode::text(
                 label,
-                Brush::Solid(resolved.foreground),
+                text_brush,
                 font_size as f32,
                 font_family,
                 resolved.text_align,

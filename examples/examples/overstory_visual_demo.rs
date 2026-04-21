@@ -828,6 +828,9 @@ fn build_demo_ui() -> (Ui, DemoIds) {
     ui.set_local(input, ui.properties().padding, 8.0);
     ui.set_local(input, ui.properties().border_width, 1.0);
     ui.set_local(input, ui.properties().corner_radius, 6.0);
+    if let Some(w) = ui.widget_mut::<overstory::widgets::TextInputWidget>(input) {
+        w.set_placeholder("Type a message... (Cmd+Enter to send)");
+    }
 
     (
         ui,
