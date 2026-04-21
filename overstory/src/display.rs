@@ -9,7 +9,7 @@ use kurbo::{Point, Vec2};
 use peniko::Brush;
 use understory_display::{DisplayNode, DisplayTree};
 
-use crate::{ElementKind, ResolvedElement, SceneSnapshot, WidgetArena};
+use crate::{ResolvedElement, SceneSnapshot, WidgetArena};
 
 #[derive(Debug)]
 struct ElementDisplayTree<'a> {
@@ -95,13 +95,11 @@ fn display_node_for(parent_origin: Point, node: &ElementDisplayTree<'_>, widget_
         .map(|child| display_node_for(element.rect.origin(), child, widget_arena))
         .collect();
 
-    if matches!(element.kind, ElementKind::ScrollView) && !child_nodes.is_empty() {
-        // Wrap scrolled content in clip + offset for the scroll position.
-        children.push(DisplayNode::clip_rect(DisplayNode::offset(
-            Vec2::new(0.0, -element.scroll_offset),
-            DisplayNode::stack(child_nodes),
-        )));
-    } else {
+    let handled = element
+        .widget
+        .and_then(|h| widget_arena.get(h))
+        .is_some_and(|w| w.wrap_children(element, child_nodes.clone(), &mut children));
+    if !handled {
         children.extend(child_nodes);
     }
 

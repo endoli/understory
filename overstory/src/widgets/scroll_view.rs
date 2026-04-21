@@ -3,11 +3,13 @@
 
 //! Scroll view widget with vertical scroll offset and content tracking.
 
+use alloc::vec::Vec;
 use core::any::Any;
 
-use understory_display::TextEngine;
+use kurbo::Vec2;
+use understory_display::{DisplayNode, TextEngine};
 
-use crate::Widget;
+use crate::{ResolvedElement, Widget};
 
 /// Scrollable container widget that tracks scroll offset, content height,
 /// and viewport height.
@@ -65,6 +67,22 @@ impl ScrollViewWidget {
 }
 
 impl Widget for ScrollViewWidget {
+    fn wrap_children(
+        &self,
+        _resolved: &ResolvedElement,
+        child_nodes: Vec<DisplayNode>,
+        parent_children: &mut Vec<DisplayNode>,
+    ) -> bool {
+        if child_nodes.is_empty() {
+            return true;
+        }
+        parent_children.push(DisplayNode::clip_rect(DisplayNode::offset(
+            Vec2::new(0.0, -self.scroll_offset),
+            DisplayNode::stack(child_nodes),
+        )));
+        true
+    }
+
     fn refresh_layout(&mut self, _text: &mut TextEngine) {}
 
     fn as_any(&self) -> &dyn Any {

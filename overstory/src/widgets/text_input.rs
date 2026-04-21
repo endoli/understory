@@ -59,6 +59,16 @@ impl TextInputWidget {
 }
 
 impl Widget for TextInputWidget {
+    fn measure_height(
+        &self,
+        _available_width: f64,
+        style_height: f64,
+        _style_padding: f64,
+        _label: Option<&str>,
+    ) -> Option<f64> {
+        Some(style_height.max(0.0))
+    }
+
     fn display(
         &self,
         _id: ElementId,
@@ -226,14 +236,6 @@ impl Widget for TextInputWidget {
         } else {
             Some(text)
         }
-    }
-
-    fn cursor_rect(&self) -> Option<Rect> {
-        self.cached_cursor_rect
-    }
-
-    fn selection_rects(&self) -> &[Rect] {
-        &self.cached_selection_rects
     }
 
     fn as_any(&self) -> &dyn Any {

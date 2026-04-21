@@ -62,12 +62,6 @@ pub struct ResolvedElement {
     pub pressed: bool,
     /// Focus state at snapshot time.
     pub focused: bool,
-    /// Cursor rectangle relative to the text origin (`TextInput` only).
-    pub cursor_rect: Option<Rect>,
-    /// Selection highlight rectangles relative to the text origin (`TextInput` only).
-    pub selection_rects: Vec<Rect>,
-    /// Vertical scroll offset (`ScrollView` only).
-    pub scroll_offset: f64,
     /// Resolved font size for label text.
     pub font_size: f64,
     /// Resolved horizontal label padding.
@@ -275,20 +269,6 @@ impl<'a> SceneBuilder<'a> {
             hovered: element.pseudos.hovered,
             pressed: element.pseudos.pressed,
             focused: element.pseudos.focused,
-            cursor_rect: element
-                .widget
-                .and_then(|h| self.widget_arena.get(h))
-                .and_then(|w| w.cursor_rect()),
-            selection_rects: element
-                .widget
-                .and_then(|h| self.widget_arena.get(h))
-                .map(|w| w.selection_rects().to_vec())
-                .unwrap_or_default(),
-            scroll_offset: element
-                .widget
-                .and_then(|h| self.widget_arena.get(h))
-                .and_then(|w| w.as_any().downcast_ref::<crate::widgets::ScrollViewWidget>())
-                .map_or(0.0, |w| w.scroll_offset()),
             font_size: style.font_size,
             label_padding: style.label_padding,
             font_family: style.font_family.clone(),
@@ -451,30 +431,24 @@ impl<'a> SceneBuilder<'a> {
             return style.height;
         }
 
-        match element.kind {
-            ElementKind::Button | ElementKind::TextInput => style.height.max(0.0),
-            ElementKind::Spacer => 0.0,
-            ElementKind::TextBlock => {
-                // Estimate wrapped text height from label length and available width.
-                let font_size = if style.font_size > 0.0 {
-                    style.font_size
-                } else {
-                    16.0
-                };
-                let line_height = font_size * 1.4;
-                let label_padding = if style.label_padding > 0.0 {
-                    style.label_padding
-                } else {
-                    0.0
-                };
-                let content_width =
-                    (resolve_dim(style.width, available_width) - label_padding * 2.0).max(1.0);
-                let char_count = element.label.as_deref().map_or(0, |l| l.len());
-                let avg_char_width = font_size * 0.55;
-                let estimated_text_width = char_count as f64 * avg_char_width;
-                let lines = (estimated_text_width / content_width).ceil().max(1.0);
-                (lines * line_height + style.padding * 2.0).max(0.0)
+        // Delegate to widget if it provides a measure_height.
+        if let Some(handle) = element.widget
+            && let Some(widget) = self.widget_arena.get(handle)
+        {
+            let width = resolve_dim(style.width, available_width);
+            if let Some(h) = widget.measure_height(
+                width,
+                style.height,
+                style.padding,
+                element.label.as_deref(),
+            ) {
+                return h;
             }
+        }
+
+        match element.kind {
+            ElementKind::Spacer | ElementKind::Button | ElementKind::TextInput => 0.0,
+            ElementKind::TextBlock => 0.0, // handled by widget above
             ElementKind::Row
             | ElementKind::Panel
             | ElementKind::Column

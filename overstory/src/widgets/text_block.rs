@@ -33,6 +33,23 @@ impl TextBlockWidget {
 }
 
 impl Widget for TextBlockWidget {
+    fn measure_height(
+        &self,
+        available_width: f64,
+        _style_height: f64,
+        style_padding: f64,
+        label: Option<&str>,
+    ) -> Option<f64> {
+        let font_size = DEFAULT_FONT_SIZE;
+        let line_height = font_size * 1.4;
+        let content_width = (available_width - style_padding * 2.0).max(1.0);
+        let char_count = label.map_or(0, |l| l.len());
+        let avg_char_width = font_size * 0.55;
+        let estimated_text_width = char_count as f64 * avg_char_width;
+        let lines = (estimated_text_width / content_width).ceil().max(1.0);
+        Some((lines * line_height + style_padding * 2.0).max(0.0))
+    }
+
     fn display(
         &self,
         _id: ElementId,

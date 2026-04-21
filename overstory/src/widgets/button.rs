@@ -32,6 +32,16 @@ impl ButtonWidget {
 }
 
 impl Widget for ButtonWidget {
+    fn measure_height(
+        &self,
+        _available_width: f64,
+        style_height: f64,
+        _style_padding: f64,
+        _label: Option<&str>,
+    ) -> Option<f64> {
+        Some(style_height.max(0.0))
+    }
+
     fn display(
         &self,
         _id: ElementId,

@@ -11,7 +11,7 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::any::Any;
 
-use kurbo::{Point, Rect};
+use kurbo::Point;
 use understory_display::{DisplayNode, TextEngine};
 
 use crate::{ElementId, InteractionBatch, ResolvedElement};
@@ -24,11 +24,40 @@ use crate::{ElementId, InteractionBatch, ResolvedElement};
 /// All methods have default no-op implementations so widgets only need to
 /// override what they care about.
 pub trait Widget {
+    /// Measure the widget's natural height given available width and resolved style.
+    ///
+    /// Return `Some(height)` to override the default height calculation.
+    /// Return `None` to fall through to the standard container layout.
+    fn measure_height(
+        &self,
+        _available_width: f64,
+        _style_height: f64,
+        _style_padding: f64,
+        _label: Option<&str>,
+    ) -> Option<f64> {
+        None
+    }
+
     /// Produce display nodes for this widget's visual content.
     ///
     /// Called during display tree projection. Nodes are added to `children`
     /// alongside the element's background, border, and label nodes.
     fn display(&self, _id: ElementId, _resolved: &ResolvedElement, _children: &mut Vec<DisplayNode>) {}
+
+    /// Transform the element's child display nodes before they are added to
+    /// the parent stack. Called with the child nodes; should push results
+    /// directly into `parent_children`. Return `true` if handled (children
+    /// were consumed), `false` to use the default (extend directly).
+    ///
+    /// `ScrollView` uses this to wrap children in clip + offset.
+    fn wrap_children(
+        &self,
+        _resolved: &ResolvedElement,
+        _child_nodes: Vec<DisplayNode>,
+        _parent_children: &mut Vec<DisplayNode>,
+    ) -> bool {
+        false
+    }
 
     /// Handle a keyboard event when this widget is focused.
     ///
@@ -69,16 +98,6 @@ pub trait Widget {
     /// widgets that generate their own text content (e.g., text input buffers).
     fn label(&self) -> Option<&str> {
         None
-    }
-
-    /// Return cursor geometry from the widget's last layout, if any.
-    fn cursor_rect(&self) -> Option<Rect> {
-        None
-    }
-
-    /// Return selection highlight geometry from the widget's last layout.
-    fn selection_rects(&self) -> &[Rect] {
-        &[]
     }
 
     /// Downcast to a concrete type for typed accessors.
