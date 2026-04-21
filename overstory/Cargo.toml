@@ -11,6 +11,7 @@ categories = ["gui", "data-structures"]
 
 [dependencies]
 kurbo.workspace = true
+parley = { workspace = true, features = ["libm"] }
 peniko.workspace = true
 hashbrown.workspace = true
 invalidation.workspace = true

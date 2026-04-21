@@ -256,10 +256,11 @@ impl<'a> SceneBuilder<'a> {
             },
             corner_radius: style.corner_radius,
             label: if matches!(element.kind, ElementKind::TextInput) {
-                if element.text_buffer.is_empty() {
+                let raw = element.editor.raw_text();
+                if raw.is_empty() {
                     None
                 } else {
-                    Some(Box::from(element.text_buffer.as_str()))
+                    Some(Box::from(raw))
                 }
             } else {
                 element.label.clone()

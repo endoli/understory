@@ -244,22 +244,30 @@ impl Ui {
     pub fn text_buffer(&self, id: ElementId) -> &str {
         self.elements
             .get(id.index())
-            .map_or("", |e| &e.text_buffer)
+            .map_or("", |e| e.editor.raw_text())
     }
 
     /// Clears the text buffer for a `TextInput` element.
-    pub fn clear_text_buffer(&mut self, id: ElementId) {
+    pub fn clear_text_buffer(&mut self, id: ElementId, text: &mut understory_display::TextEngine) {
         if let Some(element) = self.elements.get_mut(id.index()) {
-            element.text_buffer.clear();
+            element.editor.set_text("");
+            let (font_cx, layout_cx) = text.contexts();
+            element.editor.driver(font_cx, layout_cx).move_to_text_start();
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
     }
 
     /// Handles one keyboard event from `ui-events`.
+    ///
+    /// The `text` engine is needed to create a `PlainEditorDriver` for text
+    /// input elements.
     pub fn handle_keyboard_event(
         &mut self,
         event: &ui_events::keyboard::KeyboardEvent,
+        text: &mut understory_display::TextEngine,
     ) -> InteractionBatch {
+        use ui_events::keyboard::{Key, NamedKey};
+
         let mut batch = InteractionBatch::default();
         let Some(focused) = self.runtime.focused else {
             return batch;
@@ -267,29 +275,52 @@ impl Ui {
         if !event.state.is_down() {
             return batch;
         }
-        match &event.key {
-            ui_events::keyboard::Key::Character(ch) => {
-                if let Some(element) = self.elements.get_mut(focused.index()) {
-                    element.text_buffer.push_str(ch);
+
+        if let Some(element) = self.elements.get_mut(focused.index()) {
+            let (font_cx, layout_cx) = text.contexts();
+            let mut driver = element.editor.driver(font_cx, layout_cx);
+            match &event.key {
+                Key::Character(ch) => {
+                    driver.insert_or_replace_selection(ch);
                     self.mark_dirty(
                         DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
                     );
                 }
-            }
-            ui_events::keyboard::Key::Named(named) => match named {
-                ui_events::keyboard::NamedKey::Backspace => {
-                    if let Some(element) = self.elements.get_mut(focused.index()) {
-                        element.text_buffer.pop();
+                Key::Named(named) => match named {
+                    NamedKey::Backspace => {
+                        driver.backdelete();
                         self.mark_dirty(
                             DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
                         );
                     }
-                }
-                ui_events::keyboard::NamedKey::Enter => {
-                    batch.push(Interaction::Submitted(focused));
-                }
-                _ => {}
-            },
+                    NamedKey::Delete => {
+                        driver.delete();
+                        self.mark_dirty(
+                            DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
+                        );
+                    }
+                    NamedKey::ArrowLeft => {
+                        driver.move_left();
+                        self.mark_dirty(DirtyChannels::PAINT.into_set());
+                    }
+                    NamedKey::ArrowRight => {
+                        driver.move_right();
+                        self.mark_dirty(DirtyChannels::PAINT.into_set());
+                    }
+                    NamedKey::Home => {
+                        driver.move_to_line_start();
+                        self.mark_dirty(DirtyChannels::PAINT.into_set());
+                    }
+                    NamedKey::End => {
+                        driver.move_to_line_end();
+                        self.mark_dirty(DirtyChannels::PAINT.into_set());
+                    }
+                    NamedKey::Enter => {
+                        batch.push(Interaction::Submitted(focused));
+                    }
+                    _ => {}
+                },
+            }
         }
         batch
     }

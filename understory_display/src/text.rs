@@ -30,6 +30,11 @@ impl fmt::Debug for TextEngine {
 }
 
 impl TextEngine {
+    /// Returns mutable references to both the font context and layout context.
+    pub fn contexts(&mut self) -> (&mut FontContext, &mut LayoutContext<Brush>) {
+        (&mut self.font_cx, &mut self.layout_cx)
+    }
+
     /// Creates a new text engine with its own Parley font and layout contexts.
     #[must_use]
     pub fn new() -> Self {

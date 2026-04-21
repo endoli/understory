@@ -380,7 +380,7 @@ impl DemoApp {
                     if was_at_tail {
                         self.scroll_to_tail();
                     }
-                    self.ui.clear_text_buffer(self.ids.input);
+                    self.ui.clear_text_buffer(self.ids.input, &mut self.text);
                 }
             }
         }
@@ -700,7 +700,7 @@ impl ApplicationHandler for DemoApp {
                         event_loop.exit();
                         return;
                     }
-                    let interactions = self.ui.handle_keyboard_event(keyboard);
+                    let interactions = self.ui.handle_keyboard_event(keyboard, &mut self.text);
                     self.apply_interactions(&interactions);
                     window.request_redraw();
                     return;
@@ -1242,6 +1242,7 @@ mod tests {
         };
 
         let mut ui = Ui::new(default_theme());
+        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 400.0, 200.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
 
@@ -1259,14 +1260,14 @@ mod tests {
             is_composing: false,
         };
 
-        let _ = ui.handle_keyboard_event(&key_event(Key::Character("H".into())));
-        let _ = ui.handle_keyboard_event(&key_event(Key::Character("i".into())));
+        let _ = ui.handle_keyboard_event(&key_event(Key::Character("H".into())), &mut text);
+        let _ = ui.handle_keyboard_event(&key_event(Key::Character("i".into())), &mut text);
         assert_eq!(ui.text_buffer(input), "Hi");
 
-        let _ = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Backspace)));
+        let _ = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Backspace)), &mut text);
         assert_eq!(ui.text_buffer(input), "H");
 
-        let batch = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Enter)));
+        let batch = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Enter)), &mut text);
         assert!(batch.events().iter().any(|e| matches!(e, Interaction::Submitted(_))));
     }
 

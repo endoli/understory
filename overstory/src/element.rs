@@ -3,8 +3,10 @@
 
 //! Retained element tree primitives.
 
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 
+use parley::PlainEditor;
+use peniko::Brush;
 use understory_property::{DependencyObject, PropertyStore};
 use understory_style::{ClassId, IdSet, PseudoClassId, SelectorInputs, StyleCascade, TypeTag};
 
@@ -122,7 +124,7 @@ pub const PSEUDO_DISABLED: PseudoClassId = PseudoClassId(3);
 pub const PSEUDO_FOCUSED: PseudoClassId = PseudoClassId(4);
 
 /// One retained element in the Overstory tree.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Element {
     pub(crate) id: ElementId,
     pub(crate) parent: Option<ElementId>,
@@ -139,8 +141,18 @@ pub struct Element {
     pub(crate) content_height: f64,
     /// Viewport height from last layout (`ScrollView` only).
     pub(crate) viewport_height: f64,
-    /// Text buffer for `TextInput` elements.
-    pub(crate) text_buffer: String,
+    /// Text editor for `TextInput` elements.
+    pub(crate) editor: PlainEditor<Brush>,
+}
+
+impl core::fmt::Debug for Element {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Element")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("children", &self.children.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Element {
@@ -158,7 +170,7 @@ impl Element {
             scroll_offset: 0.0,
             content_height: 0.0,
             viewport_height: 0.0,
-            text_buffer: String::new(),
+            editor: PlainEditor::new(16.0),
         }
     }
 
