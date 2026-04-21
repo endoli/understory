@@ -344,8 +344,14 @@ impl Ui {
                         driver.move_to_line_end();
                         self.mark_dirty(DirtyChannels::PAINT.into_set());
                     }
-                    NamedKey::Enter => {
+                    NamedKey::Enter if action_mod || event.modifiers.contains(Modifiers::SHIFT) => {
                         batch.push(Interaction::Submitted(focused));
+                    }
+                    NamedKey::Enter => {
+                        driver.insert_or_replace_selection("\n");
+                        self.mark_dirty(
+                            DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set(),
+                        );
                     }
                     _ => {}
                 },
@@ -405,7 +411,11 @@ impl Ui {
     }
 
     /// Handles one pointer event from `ui-events`.
-    pub fn handle_pointer_event(&mut self, event: &PointerEvent) -> InteractionBatch {
+    pub fn handle_pointer_event(
+        &mut self,
+        event: &PointerEvent,
+        text: &mut understory_display::TextEngine,
+    ) -> InteractionBatch {
         let mut batch = InteractionBatch::default();
         let _ = self.rebuild();
 
@@ -458,6 +468,33 @@ impl Ui {
                             {
                                 self.set_focus(id);
                                 batch.push(Interaction::FocusChanged(id));
+                                // Position cursor at click point.
+                                if let Some(resolved) =
+                                    self.rebuild().resolved_element(id)
+                                {
+                                    let label_padding = resolved.label_padding;
+                                    #[allow(
+                                        clippy::cast_possible_truncation,
+                                        reason = "Parley move_to_point takes f32; display coordinates are small."
+                                    )]
+                                    let local_x =
+                                        (point.x - resolved.rect.x0 - label_padding) as f32;
+                                    #[allow(
+                                        clippy::cast_possible_truncation,
+                                        reason = "Parley move_to_point takes f32; display coordinates are small."
+                                    )]
+                                    let local_y =
+                                        (point.y - resolved.rect.y0) as f32;
+                                    let (font_cx, layout_cx) = text.contexts();
+                                    if let Some(el) =
+                                        self.elements.get_mut(id.index())
+                                    {
+                                        el.editor
+                                            .driver(font_cx, layout_cx)
+                                            .move_to_point(local_x, local_y);
+                                        self.mark_dirty(DirtyChannels::PAINT.into_set());
+                                    }
+                                }
                             }
                         }
                         understory_event_state::click::ClickResult::Suppressed(_) => {}

@@ -325,7 +325,7 @@ impl DemoApp {
         let WindowEventTranslation::Pointer(event) = pointer else {
             return;
         };
-        let interactions = self.ui.handle_pointer_event(&event);
+        let interactions = self.ui.handle_pointer_event(&event, &mut self.text);
         self.apply_interactions(&interactions);
         window.request_redraw();
     }
@@ -1221,7 +1221,7 @@ mod tests {
             state,
         });
 
-        let batch = app.ui.handle_pointer_event(&scroll_event);
+        let batch = app.ui.handle_pointer_event(&scroll_event, &mut app.text);
         assert!(
             app.ui.scroll_offset(app.ids.messages) > 0.0,
             "scroll offset should have changed, got {}",
@@ -1268,7 +1268,20 @@ mod tests {
         let _ = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Backspace)), &mut text);
         assert_eq!(ui.text_buffer(input), "H");
 
-        let batch = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Enter)), &mut text);
+        // Plain Enter inserts newline now; Cmd+Enter submits.
+        let _ = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Enter)), &mut text);
+        assert_eq!(ui.text_buffer(input), "H\n");
+
+        let submit_event = KeyboardEvent {
+            key: Key::Named(NamedKey::Enter),
+            code: Code::Unidentified,
+            state: KeyState::Down,
+            modifiers: Modifiers::META,
+            location: Location::Standard,
+            repeat: false,
+            is_composing: false,
+        };
+        let batch = ui.handle_keyboard_event(&submit_event, &mut text);
         assert!(batch.events().iter().any(|e| matches!(e, Interaction::Submitted(_))));
     }
 
