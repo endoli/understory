@@ -119,6 +119,8 @@ fn record_node(painter: &mut Painter<'_, record::Scene>, node: &DisplayNode, tra
                     .draw(&peniko::Style::Fill(peniko::Fill::NonZero), &glyphs);
             }
         }
+        // Placeholders produce no visual output — they reserve space only.
+        DisplayNodeKind::Placeholder { .. } => {}
     }
 }
 

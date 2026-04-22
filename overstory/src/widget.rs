@@ -74,6 +74,31 @@ pub fn text_label_node(label: &str, brush: peniko::Brush, resolved: &ResolvedEle
     )
 }
 
+/// Builds a text display node with an explicit max width for line breaking.
+///
+/// Use this when measurement and rendering must agree on wrapping width
+/// (e.g., text inputs, constrained paragraphs).
+#[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "Font size and max_width are small display values."
+)]
+pub fn text_label_node_constrained(
+    label: &str,
+    brush: peniko::Brush,
+    resolved: &ResolvedElement,
+    max_width: f64,
+) -> DisplayNode {
+    DisplayNode::text_constrained(
+        label,
+        brush,
+        resolved.font_size as f32,
+        &*resolved.font_family,
+        resolved.text_align,
+        max_width as f32,
+    )
+}
+
 /// Thin behavioral interface for element-attached widgets.
 ///
 /// Widgets provide kind-specific state, layout, rendering, and event handling

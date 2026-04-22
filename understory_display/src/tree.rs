@@ -388,6 +388,48 @@ impl DisplayNode {
         }
     }
 
+    /// Creates a placeholder leaf that reserves space for external content.
+    ///
+    /// The placeholder has an intrinsic size but produces no visual output.
+    /// Useful for embedding video, images, or other externally-rendered content
+    /// that needs to participate in layout.
+    #[must_use]
+    pub fn placeholder(size: Size) -> Self {
+        Self {
+            semantic_id: None,
+            layout: DisplayLayout::default(),
+            kind: DisplayNodeKind::Placeholder { size },
+        }
+    }
+
+    /// Creates a text leaf with an explicit max width for line breaking.
+    ///
+    /// Unlike [`Self::text`], this variant carries its own width constraint
+    /// so measurement and rendering always use the same wrapping width,
+    /// regardless of parent layout constraints.
+    #[must_use]
+    pub fn text_constrained(
+        text: impl Into<Box<str>>,
+        brush: Brush,
+        font_size: f32,
+        font_family: impl Into<Box<str>>,
+        alignment: TextAlign,
+        max_width: f32,
+    ) -> Self {
+        Self {
+            semantic_id: None,
+            layout: DisplayLayout::default(),
+            kind: DisplayNodeKind::Text(DisplayText::with_max_width(
+                text,
+                brush,
+                font_size,
+                font_family,
+                alignment,
+                max_width,
+            )),
+        }
+    }
+
     /// Attaches a semantic/provenance id to the node.
     #[must_use]
     pub fn with_semantic_id(mut self, semantic_id: SemanticId) -> Self {
@@ -495,6 +537,11 @@ pub enum DisplayNodeKind {
     },
     /// One retained text node.
     Text(DisplayText),
+    /// Placeholder that reserves space for external content (image, video, etc.).
+    Placeholder {
+        /// Intrinsic size of the placeholder.
+        size: Size,
+    },
 }
 
 /// Retained text node state.
@@ -505,6 +552,9 @@ pub struct DisplayText {
     font_size: f32,
     font_family: Box<str>,
     alignment: TextAlign,
+    /// Explicit max width constraint set at construction time.
+    /// When `Some`, this takes priority over parent constraints during layout.
+    max_width: Option<f32>,
     cached_max_advance: Option<f32>,
     runs: Vec<DisplayGlyphRun>,
     measured_size: Size,
@@ -526,6 +576,34 @@ impl DisplayText {
             font_size,
             font_family: font_family.into(),
             alignment,
+            max_width: None,
+            cached_max_advance: None,
+            runs: Vec::new(),
+            measured_size: Size::ZERO,
+        }
+    }
+
+    /// Creates a new retained text node with an explicit max width.
+    ///
+    /// The max width constrains line breaking independently of parent layout
+    /// constraints. This ensures measurement and rendering use the same
+    /// wrapping width.
+    #[must_use]
+    pub fn with_max_width(
+        text: impl Into<Box<str>>,
+        brush: Brush,
+        font_size: f32,
+        font_family: impl Into<Box<str>>,
+        alignment: TextAlign,
+        max_width: f32,
+    ) -> Self {
+        Self {
+            text: text.into(),
+            brush,
+            font_size,
+            font_family: font_family.into(),
+            alignment,
+            max_width: Some(max_width),
             cached_max_advance: None,
             runs: Vec::new(),
             measured_size: Size::ZERO,
@@ -594,8 +672,14 @@ fn measure_node(
         | DisplayNodeKind::StrokeRect { .. }
         | DisplayNodeKind::FillRoundedRect { .. }
         | DisplayNodeKind::StrokeRoundedRect { .. } => Size::ZERO,
+        DisplayNodeKind::Placeholder { size } => constraints.constrain(*size),
         DisplayNodeKind::Text(display_text) => {
-            let max_advance = max_advance(constraints.max.width);
+            // Use the text's explicit max_width if set, otherwise derive
+            // from parent constraints. This ensures measurement matches
+            // the wrapping width the widget intended.
+            let max_advance = display_text
+                .max_width
+                .or_else(|| max_advance(constraints.max.width));
             display_text.ensure_shaped(text, max_advance);
             constraints.constrain(display_text.measured_size)
         }
@@ -715,7 +799,9 @@ fn layout_node(
             node.layout = DisplayLayout { rect, bounds };
         }
         DisplayNodeKind::Text(display_text) => {
-            let max_advance = max_advance(size.width);
+            let max_advance = display_text
+                .max_width
+                .or_else(|| max_advance(size.width));
             display_text.ensure_shaped(text, max_advance);
             let text_bounds = union_run_bounds(&display_text.runs).unwrap_or(Rect::ZERO);
             let delta = origin - text_bounds.origin();
@@ -726,6 +812,9 @@ fn layout_node(
                 rect,
                 bounds: union_run_bounds(&display_text.runs).unwrap_or(rect),
             };
+        }
+        DisplayNodeKind::Placeholder { .. } => {
+            node.layout = DisplayLayout { rect, bounds: rect };
         }
     }
 

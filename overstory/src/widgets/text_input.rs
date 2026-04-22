@@ -16,7 +16,7 @@ use understory_style::ResourceKey;
 
 use crate::{
     Element, ElementId, Interaction, InteractionBatch, ResolvedElement, ThemeKeys, Widget,
-    content_box, text_label_node,
+    content_box, text_label_node, text_label_node_constrained,
 };
 
 /// Label padding used for content box calculation in `measure`.
@@ -167,7 +167,11 @@ impl Widget for TextInputWidget {
             } else {
                 Brush::Solid(resolved.foreground)
             };
-            let text_node = text_label_node(label, text_brush, resolved);
+            let text_node = if let Some(w) = self.last_content_width.get() {
+                text_label_node_constrained(label, text_brush, resolved, f64::from(w))
+            } else {
+                text_label_node(label, text_brush, resolved)
+            };
             children.push(content_box(
                 text_node,
                 DisplayAlign::Start,
