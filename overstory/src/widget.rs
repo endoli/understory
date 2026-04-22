@@ -130,6 +130,9 @@ pub trait Widget {
     ) {
     }
 
+    /// Called when a timer fires for this widget's element.
+    fn on_timer(&mut self, _id: crate::TimerId, _now: u64) {}
+
     /// Refresh any internal layout state before scene resolution.
     ///
     /// Called before each scene rebuild for widgets that cache layout data

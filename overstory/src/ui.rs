@@ -35,6 +35,7 @@ pub struct Ui {
     view_rect: Rect,
     dirty: ChannelSet,
     widget_arena: WidgetArena,
+    timers: crate::TimerQueue,
 }
 
 impl Ui {
@@ -63,6 +64,7 @@ impl Ui {
                 | DirtyChannels::LAYOUT.into_set()
                 | DirtyChannels::PAINT.into_set(),
             widget_arena: WidgetArena::new(),
+            timers: crate::TimerQueue::new(),
         }
     }
 
@@ -306,6 +308,55 @@ impl Ui {
     #[must_use]
     pub fn widget_arena(&self) -> &WidgetArena {
         &self.widget_arena
+    }
+
+    /// Requests a timer for a widget. `now` is the current monotonic time
+    /// in nanoseconds. `delay` is in nanoseconds. If `repeat` is true, the
+    /// timer re-arms after firing.
+    pub fn request_timer(
+        &mut self,
+        element_id: ElementId,
+        now: u64,
+        delay: u64,
+        repeat: bool,
+    ) -> crate::TimerId {
+        self.timers.request(
+            element_id,
+            now,
+            delay,
+            if repeat { Some(delay) } else { None },
+        )
+    }
+
+    /// Cancels a pending timer.
+    pub fn cancel_timer(&mut self, id: crate::TimerId) {
+        self.timers.cancel(id);
+    }
+
+    /// Returns the next timer deadline in nanoseconds, or `None` if no
+    /// timers are pending.
+    #[must_use]
+    pub fn next_deadline(&self) -> Option<u64> {
+        self.timers.next_deadline()
+    }
+
+    /// Advances timers to `now_nanos`, firing expired timers by calling
+    /// `Widget::on_timer` on each. Returns `true` if any timer fired
+    /// (the caller should request a redraw).
+    pub fn tick(&mut self, now_nanos: u64) -> bool {
+        let fired = self.timers.drain_expired(now_nanos);
+        if fired.is_empty() {
+            return false;
+        }
+        for (timer_id, element_id) in &fired {
+            if let Some(handle) = self.elements.get(element_id.index()).and_then(|e| e.widget)
+                && let Some(widget) = self.widget_arena.get_mut(handle)
+            {
+                widget.on_timer(*timer_id, now_nanos);
+            }
+        }
+        self.mark_dirty(DirtyChannels::PAINT.into_set());
+        true
     }
 
     /// Returns the current scroll offset for an element.

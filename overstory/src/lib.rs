@@ -57,6 +57,7 @@ mod properties;
 mod runtime;
 mod scene;
 mod surface;
+mod timer;
 mod ui;
 mod widget;
 pub mod widgets;
@@ -77,6 +78,7 @@ pub use surface::{
     AnchorKind, BlendModeHint, ExternalSurface, ExternalSurfaceKind, SurfaceAnchor, SurfaceContent,
     SurfaceEntry, SurfacePlan, SurfaceRole,
 };
+pub use timer::{TimerId, TimerQueue};
 pub use ui::{Ui, default_theme};
 pub use widget::{MeasureCtx, Widget, WidgetArena, WidgetHandle, content_box, text_label_node};
 
