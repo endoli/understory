@@ -801,6 +801,8 @@ impl DemoApp {
             self.ui.set_local(block, self.ui.properties().padding, 1.0);
             self.ui
                 .set_local(block, self.ui.properties().font_size, 11.0);
+            self.ui
+                .set_local(block, self.ui.properties().pickable, true);
             self.tree_row_elements.push(block);
         }
 
