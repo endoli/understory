@@ -43,6 +43,10 @@ pub struct TextInputWidget {
     placeholder: Option<alloc::string::String>,
     /// Last measured content width, used to set editor wrap width in `refresh_layout`.
     last_content_width: Cell<Option<f32>>,
+    /// Whether the cursor is currently visible (toggles for blink).
+    cursor_visible: bool,
+    /// Timer ID for the blink timer, if active.
+    blink_timer: Option<crate::TimerId>,
 }
 
 impl TextInputWidget {
@@ -55,6 +59,8 @@ impl TextInputWidget {
             cached_selection_rects: Vec::new(),
             placeholder: None,
             last_content_width: Cell::new(None),
+            cursor_visible: true,
+            blink_timer: None,
         }
     }
 
@@ -67,6 +73,34 @@ impl TextInputWidget {
     /// Sets the placeholder text shown when the input is empty and unfocused.
     pub fn set_placeholder(&mut self, placeholder: impl Into<alloc::string::String>) {
         self.placeholder = Some(placeholder.into());
+    }
+
+    /// Starts cursor blink. Called when the input gains focus.
+    pub fn start_blink(
+        &mut self,
+        ui_timers: &mut crate::TimerQueue,
+        element_id: ElementId,
+        now: u64,
+    ) {
+        self.cursor_visible = true;
+        if self.blink_timer.is_none() {
+            const BLINK_INTERVAL: u64 = 500_000_000; // 500ms in nanos
+            let id = ui_timers.request(element_id, now, BLINK_INTERVAL, Some(BLINK_INTERVAL));
+            self.blink_timer = Some(id);
+        }
+    }
+
+    /// Stops cursor blink. Called when the input loses focus.
+    pub fn stop_blink(&mut self, ui_timers: &mut crate::TimerQueue) {
+        if let Some(id) = self.blink_timer.take() {
+            ui_timers.cancel(id);
+        }
+        self.cursor_visible = true;
+    }
+
+    /// Resets the blink cycle (cursor becomes visible). Called on typing.
+    pub fn reset_blink(&mut self) {
+        self.cursor_visible = true;
     }
 
     /// Clears the text buffer and resets the cursor to the start.
@@ -157,7 +191,9 @@ impl Widget for TextInputWidget {
                 ),
             ));
         }
-        if let Some(cursor) = &self.cached_cursor_rect {
+        if let Some(cursor) = &self.cached_cursor_rect
+            && self.cursor_visible
+        {
             overlay_nodes.push(DisplayNode::offset(
                 Vec2::new(cursor.x0, cursor.y0),
                 DisplayNode::fixed_frame(cursor.size(), DisplayNode::fill_rect(cursor_brush)),
@@ -173,6 +209,12 @@ impl Widget for TextInputWidget {
         }
     }
 
+    fn on_timer(&mut self, id: crate::TimerId, _now: u64) {
+        if self.blink_timer == Some(id) {
+            self.cursor_visible = !self.cursor_visible;
+        }
+    }
+
     fn keyboard_event(
         &mut self,
         id: ElementId,
@@ -183,6 +225,9 @@ impl Widget for TextInputWidget {
         if !event.state.is_down() {
             return false;
         }
+
+        // Reset blink cycle — cursor becomes visible on any keypress.
+        self.reset_blink();
 
         let (font_cx, layout_cx) = text.contexts();
         let mut driver = self.editor.driver(font_cx, layout_cx);

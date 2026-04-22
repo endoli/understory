@@ -36,6 +36,9 @@ pub struct Ui {
     dirty: ChannelSet,
     widget_arena: WidgetArena,
     timers: crate::TimerQueue,
+    /// Current monotonic time in nanoseconds, set by the host before
+    /// each event cycle via `set_now`.
+    now: u64,
 }
 
 impl Ui {
@@ -65,6 +68,7 @@ impl Ui {
                 | DirtyChannels::PAINT.into_set(),
             widget_arena: WidgetArena::new(),
             timers: crate::TimerQueue::new(),
+            now: 0,
         }
     }
 
@@ -310,6 +314,13 @@ impl Ui {
         &self.widget_arena
     }
 
+    /// Sets the current monotonic time. Call this before processing events
+    /// each frame so timer-dependent operations (focus, blink) use the
+    /// correct time.
+    pub fn set_now(&mut self, now_nanos: u64) {
+        self.now = now_nanos;
+    }
+
     /// Requests a timer for a widget. `now` is the current monotonic time
     /// in nanoseconds. `delay` is in nanoseconds. If `repeat` is true, the
     /// timer re-arms after firing.
@@ -367,18 +378,35 @@ impl Ui {
     }
 
     /// Sets keyboard focus to an element.
+    /// Sets keyboard focus to an element. Uses the current monotonic time
+    /// (set via `set_now`) to start cursor blink timers.
     pub fn set_focus(&mut self, id: ElementId) {
+        let now = self.now;
         if self.runtime.focused == Some(id) {
             return;
         }
-        if let Some(prev) = self.runtime.focused.take()
-            && let Some(element) = self.elements.get_mut(prev.index())
-        {
-            element.pseudos.focused = false;
+        // Stop blink on previously focused element.
+        if let Some(prev) = self.runtime.focused.take() {
+            if let Some(element) = self.elements.get_mut(prev.index()) {
+                element.pseudos.focused = false;
+            }
+            if let Some(handle) = self.elements.get(prev.index()).and_then(|e| e.widget)
+                && let Some(w) = self.widget_arena.get_mut(handle)
+                && let Some(ti) = w.as_any_mut().downcast_mut::<crate::widgets::TextInputWidget>()
+            {
+                ti.stop_blink(&mut self.timers);
+            }
         }
         self.runtime.focused = Some(id);
         if let Some(element) = self.elements.get_mut(id.index()) {
             element.pseudos.focused = true;
+        }
+        // Start blink on newly focused TextInput.
+        if let Some(handle) = self.elements.get(id.index()).and_then(|e| e.widget)
+            && let Some(w) = self.widget_arena.get_mut(handle)
+            && let Some(ti) = w.as_any_mut().downcast_mut::<crate::widgets::TextInputWidget>()
+        {
+            ti.start_blink(&mut self.timers, id, now);
         }
         self.mark_dirty(DirtyChannels::PAINT.into_set());
     }
