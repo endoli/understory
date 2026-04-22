@@ -384,6 +384,8 @@ struct DemoApp {
     tree_row_elements: Vec<ElementId>,
     /// UI elements representing property rows.
     prop_row_elements: Vec<ElementId>,
+    /// Whether the inspector tree has been initially expanded.
+    inspector_initialized: bool,
 }
 
 impl DemoApp {
@@ -430,6 +432,7 @@ impl DemoApp {
             selected_element: None,
             tree_row_elements: Vec::new(),
             prop_row_elements: Vec::new(),
+            inspector_initialized: false,
         };
         app.sync_messages();
         app.apply_density(true);
@@ -761,31 +764,23 @@ impl DemoApp {
         self.inspector.mark_dirty();
         self.inspector.sync();
 
-        // Expand all nodes so the full tree is visible.
-        let all_keys: Vec<_> = self
-            .inspector
-            .visible_rows()
-            .iter()
-            .filter(|r| r.has_children && !r.is_expanded)
-            .map(|r| r.key)
-            .collect();
-        for key in all_keys {
-            let _ = self.inspector.expand(key);
-        }
-        // Expanding reveals new rows that may also need expanding.
-        for _ in 0..10 {
-            let more: Vec<_> = self
-                .inspector
-                .visible_rows()
-                .iter()
-                .filter(|r| r.has_children && !r.is_expanded)
-                .map(|r| r.key)
-                .collect();
-            if more.is_empty() {
-                break;
-            }
-            for key in more {
-                let _ = self.inspector.expand(key);
+        // Expand all nodes on first sync so the tree starts fully open.
+        if !self.inspector_initialized {
+            self.inspector_initialized = true;
+            for _ in 0..10 {
+                let unexpanded: Vec<_> = self
+                    .inspector
+                    .visible_rows()
+                    .iter()
+                    .filter(|r| r.has_children && !r.is_expanded)
+                    .map(|r| r.key)
+                    .collect();
+                if unexpanded.is_empty() {
+                    break;
+                }
+                for key in unexpanded {
+                    let _ = self.inspector.expand(key);
+                }
             }
         }
 
