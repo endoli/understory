@@ -212,7 +212,7 @@ impl Ui {
     pub fn set_label(&mut self, id: ElementId, label: impl Into<Box<str>>) {
         if let Some(element) = self.elements.get_mut(id.index()) {
             element.label = Some(label.into());
-            self.mark_dirty(DirtyChannels::PAINT.into_set());
+            self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
     }
 
