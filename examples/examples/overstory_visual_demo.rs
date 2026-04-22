@@ -20,9 +20,9 @@ use std::sync::Arc;
 use imaging_vello_hybrid::VelloHybridRenderer;
 use kurbo::Rect;
 use overstory::peniko::color::palette;
+use overstory::widgets::{DockPaneController, DockPaneIds, DockPaneStyle};
 use overstory::{
-    ButtonClass, Color, DockPaneController, DockPaneIds, DockPaneStyle, ElementId, Interaction,
-    LayoutClass, ThemeKeys, Ui, default_theme,
+    ButtonClass, Color, ElementId, Interaction, LayoutClass, ThemeKeys, Ui, default_theme,
 };
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
 use understory_display::{BoxConstraints, TextEngine};

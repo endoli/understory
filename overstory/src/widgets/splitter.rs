@@ -7,12 +7,11 @@ use alloc::vec::Vec;
 
 use kurbo::Size;
 use peniko::{Brush, Color};
+use ui_events::pointer::PointerEvent;
 use understory_display::{DisplayAlign, DisplayNode};
 use understory_style::ResourceKey;
 
-use crate::{
-    Element, ElementId, ResolvedElement, ThemeKeys, Widget, WidgetPointerEvent, content_box,
-};
+use crate::{Element, ElementId, ResolvedElement, ThemeKeys, Widget, content_box};
 
 /// Axis/orientation for a splitter handle.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -226,7 +225,7 @@ impl Widget for SplitterWidget {
     fn handle_pointer_event(
         &mut self,
         id: ElementId,
-        event: &WidgetPointerEvent,
+        event: &PointerEvent,
         resolved: &ResolvedElement,
         ctx: &mut crate::PointerEventCtx<'_>,
         _text: &mut understory_display::TextEngine,
@@ -235,14 +234,18 @@ impl Widget for SplitterWidget {
         let Some(target) = self.target else {
             return false;
         };
-        match *event {
-            WidgetPointerEvent::Down { point } => {
+        match event {
+            PointerEvent::Down(button) => {
+                let point = button.state.logical_position();
+                let point = kurbo::Point::new(point.x, point.y);
                 self.dragging = true;
                 self.drag_offset =
                     self.point_coordinate(point) - self.center_coordinate(resolved.rect);
                 true
             }
-            WidgetPointerEvent::Move { point } if self.dragging => {
+            PointerEvent::Move(update) if self.dragging => {
+                let point = update.current.logical_position();
+                let point = kurbo::Point::new(point.x, point.y);
                 let Some(target_resolved) = ctx.resolved_element(target) else {
                     return false;
                 };
@@ -257,7 +260,7 @@ impl Widget for SplitterWidget {
                 self.apply_primary_extent(target, extent, ctx);
                 true
             }
-            WidgetPointerEvent::Up { .. } | WidgetPointerEvent::Cancel if self.dragging => {
+            PointerEvent::Up(_) | PointerEvent::Cancel(_) if self.dragging => {
                 self.dragging = false;
                 true
             }

@@ -4,6 +4,7 @@
 //! Built-in widget implementations.
 
 mod button;
+mod dock;
 mod scroll_view;
 mod splitter;
 mod text_block;
@@ -11,6 +12,7 @@ mod text_input;
 mod tooltip;
 
 pub use button::ButtonWidget;
+pub use dock::{DockPaneController, DockPaneIds, DockPaneStyle};
 pub use scroll_view::ScrollViewWidget;
 pub use splitter::{SplitterAxis, SplitterSide, SplitterWidget};
 pub use text_block::TextBlockWidget;

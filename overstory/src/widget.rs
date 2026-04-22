@@ -12,7 +12,8 @@ use alloc::{boxed::Box, vec::Vec};
 use core::any::Any;
 
 use invalidation::ChannelSet;
-use kurbo::{Point, Rect, Size};
+use kurbo::{Rect, Size};
+use ui_events::pointer::PointerEvent;
 use understory_display::{DisplayNode, TextEngine};
 use understory_property::{DependencyObjectExt, Property, PropertyRegistry};
 use understory_style::ResourceKey;
@@ -54,28 +55,6 @@ impl<'a> MeasureCtx<'a> {
         self.text
             .measure_text(text, font_size, font_family, max_width)
     }
-}
-
-/// Pointer event delivered to a widget from the retained UI runtime.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum WidgetPointerEvent {
-    /// Primary press began over this widget.
-    Down {
-        /// Pointer location in view-space.
-        point: Point,
-    },
-    /// Pointer moved while this widget owns the active press.
-    Move {
-        /// Pointer location in view-space.
-        point: Point,
-    },
-    /// Primary press ended after being delivered to this widget.
-    Up {
-        /// Pointer location in view-space.
-        point: Point,
-    },
-    /// Active pointer interaction was cancelled.
-    Cancel,
 }
 
 /// Narrow mutation/read context for widget pointer handlers.
@@ -252,13 +231,13 @@ pub trait Widget {
 
     /// Handle one pointer event on this widget.
     ///
-    /// Events are delivered in view-space coordinates. During an active press,
-    /// move and up/cancel continue to be delivered to the pressed widget so
-    /// drag-like interactions can own their state cleanly.
+    /// Events use the shared `ui_events` pointer vocabulary. During an active
+    /// press, move and up/cancel continue to be delivered to the pressed
+    /// widget so drag-like interactions can own their state cleanly.
     fn handle_pointer_event(
         &mut self,
         _id: ElementId,
-        _event: &WidgetPointerEvent,
+        _event: &PointerEvent,
         _resolved: &ResolvedElement,
         _ctx: &mut PointerEventCtx<'_>,
         _text: &mut TextEngine,

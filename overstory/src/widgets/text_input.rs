@@ -6,10 +6,11 @@
 use alloc::vec::Vec;
 use core::cell::Cell;
 
-use kurbo::{Rect, Vec2};
+use kurbo::{Point, Rect, Vec2};
 use parley::PlainEditor;
 use peniko::{Brush, Color};
 use ui_events::keyboard::{Key, KeyboardEvent, Modifiers, NamedKey};
+use ui_events::pointer::PointerEvent;
 use understory_display::{DisplayAlign, DisplayNode, Insets, TextEngine};
 
 use understory_style::ResourceKey;
@@ -312,15 +313,17 @@ impl Widget for TextInputWidget {
     fn handle_pointer_event(
         &mut self,
         _id: ElementId,
-        event: &crate::WidgetPointerEvent,
+        event: &PointerEvent,
         resolved: &ResolvedElement,
         _ctx: &mut crate::PointerEventCtx<'_>,
         text: &mut TextEngine,
         _batch: &mut InteractionBatch,
     ) -> bool {
-        let crate::WidgetPointerEvent::Down { point } = *event else {
+        let PointerEvent::Down(button) = event else {
             return false;
         };
+        let point = button.state.logical_position();
+        let point = Point::new(point.x, point.y);
         let label_padding = resolved.label_padding;
         #[allow(
             clippy::cast_possible_truncation,
@@ -390,6 +393,13 @@ mod tests {
     use crate::{BorderStyle, ElementId, MeasureCtx, ResolvedElement, TYPE_TEXT_INPUT};
     use kurbo::{Point, Rect};
     use peniko::Color;
+    use ui_events::{
+        keyboard::Modifiers,
+        pointer::{
+            ContactGeometry, PointerButton, PointerButtonEvent, PointerButtons, PointerEvent,
+            PointerId, PointerInfo, PointerOrientation, PointerState, PointerType,
+        },
+    };
     use understory_display::{DisplayNodeKind, TextAlign, TextEngine};
 
     fn resolved_text_input(rect: Rect, label: &str) -> ResolvedElement {
@@ -414,6 +424,34 @@ mod tests {
             scroll_offset: 0.0,
             widget: None,
         }
+    }
+
+    #[allow(
+        clippy::field_reassign_with_default,
+        reason = "PointerState does not expose a convenient public position constructor here."
+    )]
+    fn pointer_down(point: Point) -> PointerEvent {
+        let mut state = PointerState::default();
+        state.time = 1;
+        state.position.x = point.x;
+        state.position.y = point.y;
+        state.buttons = PointerButtons::new();
+        state.modifiers = Modifiers::empty();
+        state.count = 1;
+        state.contact_geometry = ContactGeometry::default();
+        state.orientation = PointerOrientation::default();
+        state.pressure = 0.0;
+        state.tangential_pressure = 0.0;
+        state.scale_factor = 1.0;
+        PointerEvent::Down(PointerButtonEvent {
+            button: Some(PointerButton::Primary),
+            pointer: PointerInfo {
+                pointer_id: Some(PointerId::PRIMARY),
+                persistent_device_id: None,
+                pointer_type: PointerType::Mouse,
+            },
+            state,
+        })
     }
 
     #[test]
@@ -494,7 +532,7 @@ mod tests {
         let mut batch = InteractionBatch::default();
         let handled = widget.handle_pointer_event(
             resolved.id,
-            &crate::WidgetPointerEvent::Down { point: click_point },
+            &pointer_down(click_point),
             &resolved,
             &mut ctx,
             &mut text,

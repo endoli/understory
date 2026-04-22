@@ -187,8 +187,9 @@ impl DockPaneController {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloc::vec;
+
+    use super::*;
     use crate::{TYPE_BUTTON, TYPE_PANEL, TYPE_SPLITTER, default_theme};
     use kurbo::Rect;
     use understory_display::TextEngine;

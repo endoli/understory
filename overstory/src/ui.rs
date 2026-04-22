@@ -19,7 +19,7 @@ use crate::{
     BuiltInProperties, ButtonClass, DirtyChannels, Element, ElementId, Interaction,
     InteractionBatch, LayoutClass, RuntimeState, SceneSnapshot, TYPE_BUTTON, TYPE_COLUMN,
     TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW, TYPE_SPACER, TYPE_SPLITTER, TYPE_TEXT_BLOCK,
-    TYPE_TEXT_INPUT, ThemeKeys, Widget, WidgetArena, WidgetPointerEvent,
+    TYPE_TEXT_INPUT, ThemeKeys, Widget, WidgetArena,
 };
 
 /// Retained Overstory UI state.
@@ -679,12 +679,7 @@ impl Ui {
                     .on_move(pointer_id(update.pointer), point);
                 self.update_hover(point, &mut batch, text);
                 if let Some(target) = self.runtime.pressed_target {
-                    let _ = self.dispatch_widget_pointer_event(
-                        target,
-                        WidgetPointerEvent::Move { point },
-                        text,
-                        &mut batch,
-                    );
+                    let _ = self.dispatch_widget_pointer_event(target, event, text, &mut batch);
                 }
             }
             PointerEvent::Down(button) if is_primary_button(button.button) => {
@@ -701,12 +696,7 @@ impl Ui {
                         point,
                         button.state.time,
                     );
-                    let _ = self.dispatch_widget_pointer_event(
-                        target,
-                        WidgetPointerEvent::Down { point },
-                        text,
-                        &mut batch,
-                    );
+                    let _ = self.dispatch_widget_pointer_event(target, event, text, &mut batch);
                 }
             }
             PointerEvent::Up(button) if is_primary_button(button.button) => {
@@ -714,12 +704,7 @@ impl Ui {
                 self.update_hover(point, &mut batch, text);
                 let current_target = self.rebuild(text).top_hit(point);
                 if let Some(target) = self.runtime.pressed_target {
-                    let _ = self.dispatch_widget_pointer_event(
-                        target,
-                        WidgetPointerEvent::Up { point },
-                        text,
-                        &mut batch,
-                    );
+                    let _ = self.dispatch_widget_pointer_event(target, event, text, &mut batch);
                 }
                 self.set_pressed_target(None, &mut batch);
                 if let Some(target) = current_target {
@@ -751,12 +736,7 @@ impl Ui {
             PointerEvent::Cancel(pointer) => {
                 let _ = self.runtime.clicks.cancel(pointer_id(*pointer));
                 if let Some(target) = self.runtime.pressed_target {
-                    let _ = self.dispatch_widget_pointer_event(
-                        target,
-                        WidgetPointerEvent::Cancel,
-                        text,
-                        &mut batch,
-                    );
+                    let _ = self.dispatch_widget_pointer_event(target, event, text, &mut batch);
                 }
                 self.set_pressed_target(None, &mut batch);
                 self.clear_hover(&mut batch);
@@ -792,7 +772,7 @@ impl Ui {
     fn dispatch_widget_pointer_event(
         &mut self,
         id: ElementId,
-        event: WidgetPointerEvent,
+        event: &PointerEvent,
         text: &mut TextEngine,
         batch: &mut InteractionBatch,
     ) -> bool {
@@ -820,7 +800,7 @@ impl Ui {
         let Some(widget) = self.widget_arena.get_mut(handle) else {
             return false;
         };
-        widget.handle_pointer_event(id, &event, &resolved, &mut ctx, text, batch)
+        widget.handle_pointer_event(id, event, &resolved, &mut ctx, text, batch)
     }
 
     fn mark_dirty(&mut self, channels: ChannelSet) {
