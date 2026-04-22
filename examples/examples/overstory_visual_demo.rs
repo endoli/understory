@@ -26,9 +26,9 @@ use overstory::{
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
 use understory_display::{BoxConstraints, TextEngine};
 use understory_examples::llm_api::{self, ApiConfig, StreamEvent};
+use understory_examples::overstory_display::imaging_scene_from_display_tree;
 use understory_inspector::{Inspector, InspectorConfig, InspectorModel};
 use understory_outline::OutlineModel;
-use understory_examples::overstory_display::imaging_scene_from_display_tree;
 use understory_style::{
     IdSet, Selector, StyleBuilder, StyleCascade, StyleCascadeBuilder, StyleOrigin,
     StyleSheetBuilder, Theme, ThemeBuilder, TypeTag,
@@ -164,6 +164,7 @@ fn type_tag_name(tag: TypeTag) -> &'static str {
         overstory::TYPE_BUTTON => "Button",
         overstory::TYPE_SPACER => "Spacer",
         overstory::TYPE_SCROLL_VIEW => "ScrollView",
+        overstory::TYPE_SPLITTER => "Splitter",
         overstory::TYPE_TEXT_BLOCK => "TextBlock",
         overstory::TYPE_TEXT_INPUT => "TextInput",
         overstory::TYPE_TOOLTIP => "Tooltip",
@@ -181,7 +182,13 @@ struct DemoIds {
     roomy: ElementId,
     compact: ElementId,
     sidebar: ElementId,
+    splitter: ElementId,
     content: ElementId,
+    inspector_splitter: ElementId,
+    inspector_panel: ElementId,
+    inspector_toggle: ElementId,
+    inspector_tree_label: ElementId,
+    inspector_props_label: ElementId,
     search: ElementId,
     settings: ElementId,
     deploy: ElementId,
@@ -189,6 +196,36 @@ struct DemoIds {
     input: ElementId,
     inspector_tree: ElementId,
     inspector_props: ElementId,
+}
+
+#[derive(Clone, Debug)]
+struct PropertyBadge {
+    label: String,
+    background: Color,
+    foreground: Color,
+}
+
+#[derive(Clone, Debug)]
+enum PropertyValue {
+    Text(String),
+    Color(Color),
+    Badges(Vec<PropertyBadge>),
+}
+
+#[derive(Clone, Debug)]
+struct PropertyRow {
+    name: String,
+    value: PropertyValue,
+}
+
+#[derive(Clone, Debug)]
+struct PropertyRowElements {
+    row: ElementId,
+    name: ElementId,
+    detail: ElementId,
+    swatch: ElementId,
+    value: ElementId,
+    chips: Vec<ElementId>,
 }
 
 #[allow(
@@ -372,6 +409,8 @@ struct DemoApp {
     entry_elements: Vec<(EntryId, ElementId)>,
     /// Messages sent to the LLM (for context continuity).
     api_messages: Vec<llm_api::Message>,
+    /// Accumulated text for the current assistant stream.
+    streaming_api_text: String,
     /// API configuration.
     api_config: ApiConfig,
     /// Monotonic epoch for converting between Instant and u64 nanos.
@@ -383,9 +422,11 @@ struct DemoApp {
     /// UI elements representing tree rows.
     tree_row_elements: Vec<ElementId>,
     /// UI elements representing property rows.
-    prop_row_elements: Vec<ElementId>,
+    prop_row_elements: Vec<PropertyRowElements>,
     /// Whether the inspector tree has been initially expanded.
     inspector_initialized: bool,
+    inspector_collapsed: bool,
+    inspector_expanded_width: f64,
 }
 
 impl DemoApp {
@@ -403,14 +444,8 @@ impl DemoApp {
             ),
         ));
 
-        let inspector_model = ElementTreeModel::from_ui(
-            &ui,
-            vec![ids.inspector_tree, ids.inspector_props],
-        );
-        let inspector = Inspector::new(
-            inspector_model,
-            InspectorConfig::fixed_rows(16.0, 200.0),
-        );
+        let inspector_model = ElementTreeModel::from_ui(&ui, vec![ids.inspector_panel]);
+        let inspector = Inspector::new(inspector_model, InspectorConfig::fixed_rows(16.0, 200.0));
 
         let mut app = Self {
             ui,
@@ -426,6 +461,7 @@ impl DemoApp {
             pending_tool_calls: Vec::new(),
             entry_elements: Vec::new(),
             api_messages: Vec::new(),
+            streaming_api_text: String::new(),
             api_config: config,
             epoch: std::time::Instant::now(),
             inspector,
@@ -433,6 +469,8 @@ impl DemoApp {
             tree_row_elements: Vec::new(),
             prop_row_elements: Vec::new(),
             inspector_initialized: false,
+            inspector_collapsed: false,
+            inspector_expanded_width: current_inspector_width(true),
         };
         app.sync_messages();
         app.apply_density(true);
@@ -480,33 +518,14 @@ impl DemoApp {
     }
 
     fn send_to_llm(&mut self) {
-        // Build messages from transcript, with system prompt first.
-        let mut messages = vec![llm_api::Message::text(
-            "system",
-            "You are an AI assistant embedded in the Overstory UI demo. \
-             You can help the user and also control the UI using tools. \
-             Keep responses concise.",
-        )];
-        for entry in self.transcript.entries() {
-            if let understory_transcript::EntryKind::Message(msg) = &entry.kind {
-                let role = match msg.role {
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                    _ => continue,
-                };
-                let text = msg.body.as_text().unwrap_or("").to_string();
-                messages.push(llm_api::Message::text(role, &text));
-            }
-        }
-
-        self.api_messages = messages.clone();
+        let messages = self.current_api_request_messages();
         let tools = Self::build_tools();
         self.api_receiver = Some(llm_api::send_streaming(&self.api_config, messages, tools));
+        self.streaming_api_text.clear();
 
         // Create an in-progress assistant entry as a typing indicator.
         let entry_id = self.transcript.append(
-            NewEntry::message(MessageRole::Assistant, "")
-                .with_status(EntryStatus::InProgress),
+            NewEntry::message(MessageRole::Assistant, "").with_status(EntryStatus::InProgress),
         );
         self.streaming_entry = Some(entry_id);
         self.sync_messages();
@@ -527,6 +546,17 @@ impl DemoApp {
         Some((text, visible))
     }
 
+    fn current_api_request_messages(&self) -> Vec<llm_api::Message> {
+        let mut messages = vec![llm_api::Message::text(
+            "system",
+            "You are an AI assistant embedded in the Overstory UI demo. \
+             You can help the user and also control the UI using tools. \
+             Keep responses concise.",
+        )];
+        messages.extend(self.api_messages.clone());
+        messages
+    }
+
     fn refresh_entry_element(&mut self, entry_id: EntryId) {
         let Some(element) = self.element_for_entry(entry_id) else {
             return;
@@ -539,11 +569,23 @@ impl DemoApp {
             .set_local(element, self.ui.properties().visible, visible);
     }
 
+    fn finish_streaming_without_tools(&mut self) {
+        self.complete_streaming_entry();
+        if !self.streaming_api_text.is_empty() {
+            self.api_messages.push(llm_api::Message::text(
+                "assistant",
+                &self.streaming_api_text,
+            ));
+        }
+        self.streaming_api_text.clear();
+    }
+
     fn poll_api(&mut self) {
         let Some(rx) = self.api_receiver.take() else {
             return;
         };
 
+        let was_at_tail = self.is_at_tail();
         let mut needs_redraw = false;
         let mut done = false;
 
@@ -552,6 +594,7 @@ impl DemoApp {
                 StreamEvent::TextDelta(text) => {
                     if let Some(eid) = self.streaming_entry {
                         let _ = self.transcript.append_chunk(eid, text.as_str());
+                        self.streaming_api_text.push_str(&text);
                         self.refresh_entry_element(eid);
                     }
                     needs_redraw = true;
@@ -573,10 +616,12 @@ impl DemoApp {
                     needs_redraw = true;
                 }
                 StreamEvent::Done => {
-                    self.complete_streaming_entry();
                     // If there were tool calls, send tool results back.
                     if !self.pending_tool_calls.is_empty() {
+                        self.complete_streaming_entry();
                         self.send_tool_results();
+                    } else {
+                        self.finish_streaming_without_tools();
                     }
                     done = true;
                     needs_redraw = true;
@@ -588,6 +633,7 @@ impl DemoApp {
                         if let Some(element) = self.element_for_entry(eid) {
                             self.ui.set_label(element, format!("[error: {err}]"));
                         }
+                        self.streaming_api_text.clear();
                     } else {
                         self.transcript.append(NewEntry::message(
                             MessageRole::Assistant,
@@ -608,11 +654,8 @@ impl DemoApp {
             self.api_receiver = Some(rx);
         }
 
-        if needs_redraw {
-            let was_at_tail = self.is_at_tail();
-            if was_at_tail {
-                self.scroll_to_tail();
-            }
+        if needs_redraw && was_at_tail {
+            self.scroll_to_tail();
         }
     }
 
@@ -667,16 +710,8 @@ impl DemoApp {
     fn send_tool_results(&mut self) {
         let tool_calls = core::mem::take(&mut self.pending_tool_calls);
 
-        // Build the assistant message with tool_calls.
-        // Include any streamed text as the content.
-        let content = self
-            .streaming_entry
-            .and_then(|eid| self.transcript.entry(eid))
-            .and_then(|e| e.kind.body())
-            .and_then(|b| b.as_text())
-            .filter(|t| !t.is_empty())
-            .map(|t| t.to_string());
-        self.streaming_entry = None;
+        let content =
+            (!self.streaming_api_text.is_empty()).then(|| self.streaming_api_text.clone());
         let tc_messages: Vec<llm_api::ToolCallMessage> = tool_calls
             .iter()
             .map(|(id, name, input, _)| llm_api::ToolCallMessage {
@@ -689,23 +724,23 @@ impl DemoApp {
             })
             .collect();
 
-        let mut messages = self.api_messages.clone();
-        messages.push(llm_api::Message::assistant_with_tools(content, tc_messages));
+        self.api_messages
+            .push(llm_api::Message::assistant_with_tools(content, tc_messages));
 
         // Add individual tool result messages.
         for (id, _, _, result) in &tool_calls {
-            messages.push(llm_api::Message::tool_result(id, result));
+            self.api_messages
+                .push(llm_api::Message::tool_result(id, result));
         }
 
-        self.api_messages = messages.clone();
+        let messages = self.current_api_request_messages();
         let tools = Self::build_tools();
-        self.api_receiver =
-            Some(llm_api::send_streaming(&self.api_config, messages, tools));
+        self.api_receiver = Some(llm_api::send_streaming(&self.api_config, messages, tools));
+        self.streaming_api_text.clear();
 
         // Create a new in-progress entry for the follow-up response.
         let entry_id = self.transcript.append(
-            NewEntry::message(MessageRole::Assistant, "")
-                .with_status(EntryStatus::InProgress),
+            NewEntry::message(MessageRole::Assistant, "").with_status(EntryStatus::InProgress),
         );
         self.streaming_entry = Some(entry_id);
         self.sync_messages();
@@ -757,10 +792,8 @@ impl DemoApp {
 
     fn sync_inspector(&mut self) {
         // Rebuild model from current UI state, excluding the inspector panels.
-        *self.inspector.model_mut() = ElementTreeModel::from_ui(
-            &self.ui,
-            vec![self.ids.inspector_tree, self.ids.inspector_props],
-        );
+        *self.inspector.model_mut() =
+            ElementTreeModel::from_ui(&self.ui, vec![self.ids.inspector_panel]);
         self.inspector.mark_dirty();
         self.inspector.sync();
 
@@ -826,68 +859,290 @@ impl DemoApp {
     }
 
     fn sync_property_grid(&mut self) {
-        let props: Vec<(String, String)> = if let Some(sel) = self.selected_element {
+        let primary_bg = *self
+            .ui
+            .theme()
+            .get(ThemeKeys::PRIMARY_BACKGROUND)
+            .expect("primary background in theme");
+        let button_bg = *self
+            .ui
+            .theme()
+            .get(ThemeKeys::BUTTON_BACKGROUND)
+            .expect("button background in theme");
+        let foreground = *self
+            .ui
+            .theme()
+            .get(ThemeKeys::FOREGROUND)
+            .expect("foreground in theme");
+        let props: Vec<PropertyRow> = if let Some(sel) = self.selected_element {
             let scene = self.ui.scene(&mut self.text);
-            if let Some(resolved) = scene.resolved_element(sel) {
+            if let Some(resolved) = scene.resolved_element(sel).cloned() {
                 let name = type_tag_name(resolved.type_tag);
                 let mut p = vec![
-                    ("type".into(), name.into()),
-                    ("id".into(), format!("{sel:?}")),
+                    PropertyRow {
+                        name: "type".into(),
+                        value: PropertyValue::Text(name.into()),
+                    },
+                    PropertyRow {
+                        name: "id".into(),
+                        value: PropertyValue::Text(format!("{sel:?}")),
+                    },
                 ];
                 if let Some(label) = &resolved.label {
-                    p.push(("label".into(), label.to_string()));
+                    p.push(PropertyRow {
+                        name: "label".into(),
+                        value: PropertyValue::Text(label.to_string()),
+                    });
                 }
                 let r = resolved.rect;
-                p.push(("rect".into(), format!("{:.0}x{:.0} @ ({:.0},{:.0})", r.width(), r.height(), r.x0, r.y0)));
-                p.push(("background".into(), format!("{:?}", resolved.background)));
-                p.push(("foreground".into(), format!("{:?}", resolved.foreground)));
-                p.push(("font_size".into(), format!("{:.1}", resolved.font_size)));
-                p.push(("corner_radius".into(), format!("{:.1}", resolved.corner_radius)));
+                p.push(PropertyRow {
+                    name: "x".into(),
+                    value: PropertyValue::Text(format!("{:.0}", r.x0)),
+                });
+                p.push(PropertyRow {
+                    name: "y".into(),
+                    value: PropertyValue::Text(format!("{:.0}", r.y0)),
+                });
+                p.push(PropertyRow {
+                    name: "width".into(),
+                    value: PropertyValue::Text(format!("{:.0}", r.width())),
+                });
+                p.push(PropertyRow {
+                    name: "height".into(),
+                    value: PropertyValue::Text(format!("{:.0}", r.height())),
+                });
+                p.push(PropertyRow {
+                    name: "background".into(),
+                    value: PropertyValue::Color(resolved.background),
+                });
+                p.push(PropertyRow {
+                    name: "foreground".into(),
+                    value: PropertyValue::Color(resolved.foreground),
+                });
+                p.push(PropertyRow {
+                    name: "font_size".into(),
+                    value: PropertyValue::Text(format!("{:.1}", resolved.font_size)),
+                });
+                p.push(PropertyRow {
+                    name: "font_family".into(),
+                    value: PropertyValue::Text(resolved.font_family.to_string()),
+                });
+                p.push(PropertyRow {
+                    name: "text_align".into(),
+                    value: PropertyValue::Text(format!("{:?}", resolved.text_align)),
+                });
+                p.push(PropertyRow {
+                    name: "corner_radius".into(),
+                    value: PropertyValue::Text(format!("{:.1}", resolved.corner_radius)),
+                });
                 if resolved.border.width > 0.0 {
-                    p.push(("border".into(), format!("{:.1}", resolved.border.width)));
+                    p.push(PropertyRow {
+                        name: "border_width".into(),
+                        value: PropertyValue::Text(format!("{:.1}", resolved.border.width)),
+                    });
+                    p.push(PropertyRow {
+                        name: "border_color".into(),
+                        value: PropertyValue::Color(resolved.border.color),
+                    });
                 }
-                if resolved.hovered { p.push(("hovered".into(), "true".into())); }
-                if resolved.pressed { p.push(("pressed".into(), "true".into())); }
-                if resolved.focused { p.push(("focused".into(), "true".into())); }
-                if resolved.clips_content { p.push(("clips".into(), "true".into())); }
+                p.push(PropertyRow {
+                    name: "clips".into(),
+                    value: PropertyValue::Badges(vec![if resolved.clips_content {
+                        active_badge("yes", primary_bg)
+                    } else {
+                        idle_badge("no", button_bg, foreground)
+                    }]),
+                });
+                let mut states = Vec::new();
+                if resolved.hovered {
+                    states.push(active_badge("hovered", primary_bg));
+                }
+                if resolved.pressed {
+                    states.push(active_badge("pressed", primary_bg));
+                }
+                if resolved.focused {
+                    states.push(active_badge("focused", primary_bg));
+                }
+                if states.is_empty() {
+                    states.push(idle_badge("idle", button_bg, foreground));
+                }
+                p.push(PropertyRow {
+                    name: "state".into(),
+                    value: PropertyValue::Badges(states),
+                });
                 if resolved.scroll_offset != 0.0 {
-                    p.push(("scroll".into(), format!("{:.1}", resolved.scroll_offset)));
+                    p.push(PropertyRow {
+                        name: "scroll".into(),
+                        value: PropertyValue::Text(format!("{:.1}", resolved.scroll_offset)),
+                    });
                 }
                 p
             } else {
-                vec![("(not visible)".into(), String::new())]
+                vec![PropertyRow {
+                    name: "(not visible)".into(),
+                    value: PropertyValue::Text(String::new()),
+                }]
             }
         } else {
-            vec![("(no selection)".into(), String::new())]
+            vec![PropertyRow {
+                name: "(no selection)".into(),
+                value: PropertyValue::Text(String::new()),
+            }]
         };
 
-        // Ensure enough TextBlock rows.
+        let border_color = *self
+            .ui
+            .theme()
+            .get(ThemeKeys::BORDER_COLOR)
+            .expect("border color in theme");
+
+        // Ensure enough structured rows.
         while self.prop_row_elements.len() < props.len() {
-            let block = self
+            let row = self
                 .ui
-                .append_child(self.ids.inspector_props, overstory::TYPE_TEXT_BLOCK);
+                .append_child(self.ids.inspector_props, overstory::TYPE_ROW);
+            self.ui.set_local(row, self.ui.properties().padding, 1.0);
+            self.ui.set_local(row, self.ui.properties().gap, 6.0);
             self.ui
-                .set_local(block, self.ui.properties().label_padding, 2.0);
-            self.ui.set_local(block, self.ui.properties().padding, 1.0);
+                .set_local(row, self.ui.properties().background, Color::TRANSPARENT);
+
+            let name = self.ui.append_child(row, overstory::TYPE_TEXT_BLOCK);
+            self.ui.set_local(name, self.ui.properties().width, 84.0);
             self.ui
-                .set_local(block, self.ui.properties().font_size, 11.0);
-            self.prop_row_elements.push(block);
+                .set_local(name, self.ui.properties().label_padding, 2.0);
+            self.ui.set_local(name, self.ui.properties().padding, 1.0);
+            self.ui
+                .set_local(name, self.ui.properties().font_size, 11.0);
+            self.ui
+                .set_local(name, self.ui.properties().background, Color::TRANSPARENT);
+
+            let detail = self.ui.append_child(row, overstory::TYPE_ROW);
+            self.ui.set_local(detail, self.ui.properties().fill, true);
+            self.ui.set_local(detail, self.ui.properties().padding, 0.0);
+            self.ui.set_local(detail, self.ui.properties().gap, 6.0);
+            self.ui
+                .set_local(detail, self.ui.properties().background, Color::TRANSPARENT);
+
+            let swatch = self.ui.append_child(detail, overstory::TYPE_PANEL);
+            self.ui.set_local(swatch, self.ui.properties().width, 14.0);
+            self.ui.set_local(swatch, self.ui.properties().height, 14.0);
+            self.ui
+                .set_local(swatch, self.ui.properties().corner_radius, 3.0);
+            self.ui
+                .set_local(swatch, self.ui.properties().border_width, 1.0);
+            self.ui
+                .set_local(swatch, self.ui.properties().border_color, border_color);
+
+            let value = self.ui.append_child(detail, overstory::TYPE_TEXT_BLOCK);
+            self.ui.set_local(value, self.ui.properties().fill, true);
+            self.ui
+                .set_local(value, self.ui.properties().label_padding, 2.0);
+            self.ui.set_local(value, self.ui.properties().padding, 1.0);
+            self.ui
+                .set_local(value, self.ui.properties().font_size, 11.0);
+            self.ui
+                .set_local(value, self.ui.properties().background, Color::TRANSPARENT);
+
+            self.prop_row_elements.push(PropertyRowElements {
+                row,
+                name,
+                detail,
+                swatch,
+                value,
+                chips: Vec::new(),
+            });
         }
 
-        for (i, block) in self.prop_row_elements.iter().enumerate() {
-            if let Some((name, value)) = props.get(i) {
-                let label = if value.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{name}: {value}")
-                };
-                self.ui.set_label(*block, label);
+        for i in 0..self.prop_row_elements.len() {
+            let row = &mut self.prop_row_elements[i];
+            if let Some(prop) = props.get(i) {
+                self.ui.set_label(row.name, prop.name.as_str());
                 self.ui
-                    .set_local(*block, self.ui.properties().visible, true);
+                    .set_local(row.row, self.ui.properties().visible, true);
+                match &prop.value {
+                    PropertyValue::Text(value) => {
+                        self.ui.set_label(row.value, value.as_str());
+                        self.ui
+                            .set_local(row.swatch, self.ui.properties().visible, false);
+                        self.ui
+                            .set_local(row.value, self.ui.properties().visible, true);
+                        for chip in &row.chips {
+                            self.ui
+                                .set_local(*chip, self.ui.properties().visible, false);
+                        }
+                    }
+                    PropertyValue::Color(color) => {
+                        self.ui.set_label(row.value, format_color(*color));
+                        self.ui
+                            .set_local(row.swatch, self.ui.properties().visible, true);
+                        self.ui
+                            .set_local(row.swatch, self.ui.properties().background, *color);
+                        self.ui
+                            .set_local(row.value, self.ui.properties().visible, true);
+                        for chip in &row.chips {
+                            self.ui
+                                .set_local(*chip, self.ui.properties().visible, false);
+                        }
+                    }
+                    PropertyValue::Badges(chips) => {
+                        self.ui
+                            .set_local(row.swatch, self.ui.properties().visible, false);
+                        self.ui
+                            .set_local(row.value, self.ui.properties().visible, false);
+
+                        while row.chips.len() < chips.len() {
+                            let chip = self.ui.append_child(row.detail, overstory::TYPE_TEXT_BLOCK);
+                            self.ui
+                                .set_local(chip, self.ui.properties().label_padding, 3.0);
+                            self.ui.set_local(chip, self.ui.properties().padding, 2.0);
+                            self.ui
+                                .set_local(chip, self.ui.properties().font_size, 10.0);
+                            self.ui
+                                .set_local(chip, self.ui.properties().corner_radius, 6.0);
+                            row.chips.push(chip);
+                        }
+
+                        for (chip_id, chip) in row.chips.iter().zip(chips.iter()) {
+                            let width = self
+                                .text
+                                .measure_text(&chip.label, 10.0, "sans-serif", None)
+                                .width
+                                + 14.0;
+                            self.ui.set_label(*chip_id, chip.label.as_str());
+                            self.ui
+                                .set_local(*chip_id, self.ui.properties().width, width);
+                            self.ui.set_local(
+                                *chip_id,
+                                self.ui.properties().background,
+                                chip.background,
+                            );
+                            self.ui.set_local(
+                                *chip_id,
+                                self.ui.properties().foreground,
+                                chip.foreground,
+                            );
+                            self.ui
+                                .set_local(*chip_id, self.ui.properties().visible, true);
+                        }
+                        for chip_id in row.chips.iter().skip(chips.len()) {
+                            self.ui
+                                .set_local(*chip_id, self.ui.properties().visible, false);
+                        }
+                    }
+                }
             } else {
-                self.ui.set_label(*block, "");
+                self.ui.set_label(row.name, "");
+                self.ui.set_label(row.value, "");
                 self.ui
-                    .set_local(*block, self.ui.properties().visible, false);
+                    .set_local(row.swatch, self.ui.properties().visible, false);
+                self.ui
+                    .set_local(row.value, self.ui.properties().visible, false);
+                for chip in &row.chips {
+                    self.ui
+                        .set_local(*chip, self.ui.properties().visible, false);
+                }
+                self.ui
+                    .set_local(row.row, self.ui.properties().visible, false);
             }
         }
     }
@@ -919,6 +1174,7 @@ impl DemoApp {
                     }
                     id if id == self.ids.roomy => self.apply_density(true),
                     id if id == self.ids.compact => self.apply_density(false),
+                    id if id == self.ids.inspector_toggle => self.toggle_inspector_dock(),
                     id if id == self.ids.search => {
                         self.ui.set_local(
                             self.ids.content,
@@ -942,10 +1198,8 @@ impl DemoApp {
                     }
                     _ => {
                         // Check if it's an inspector tree row click.
-                        if let Some(row_index) = self
-                            .tree_row_elements
-                            .iter()
-                            .position(|el| *el == target)
+                        if let Some(row_index) =
+                            self.tree_row_elements.iter().position(|el| *el == target)
                         {
                             let rows = self.inspector.visible_rows().to_vec();
                             if let Some(row) = rows.get(row_index) {
@@ -969,6 +1223,8 @@ impl DemoApp {
                     let was_at_tail = self.is_at_tail();
                     self.transcript
                         .append(NewEntry::message(MessageRole::User, text.as_str()));
+                    self.api_messages
+                        .push(llm_api::Message::text("user", &text));
                     self.sync_messages();
                     if was_at_tail {
                         self.scroll_to_tail();
@@ -985,18 +1241,28 @@ impl DemoApp {
         self.roomy = roomy;
         let sidebar_width = if roomy { 188.0 } else { 152.0 };
         let root_padding = if roomy { 24.0 } else { 14.0 };
-        let shell_gap = if roomy { 18.0 } else { 10.0 };
         let panel_padding = if roomy { 18.0 } else { 12.0 };
         let panel_gap = if roomy { 12.0 } else { 8.0 };
         let button_padding = if roomy { 14.0 } else { 10.0 };
         let button_height = if roomy { 48.0 } else { 36.0 };
+        let splitter_width = if roomy { 16.0 } else { 12.0 };
 
         self.ui
             .set_local(self.ui.root(), self.ui.properties().padding, root_padding);
         self.ui
-            .set_local(self.ids.shell, self.ui.properties().gap, shell_gap);
+            .set_local(self.ids.shell, self.ui.properties().gap, 0.0);
         self.ui
             .set_local(self.ids.sidebar, self.ui.properties().width, sidebar_width);
+        self.ui.set_local(
+            self.ids.splitter,
+            self.ui.properties().width,
+            splitter_width,
+        );
+        self.ui.set_local(
+            self.ids.inspector_splitter,
+            self.ui.properties().width,
+            splitter_width,
+        );
         self.ui.set_local(
             self.ids.sidebar,
             self.ui.properties().padding,
@@ -1011,6 +1277,16 @@ impl DemoApp {
         );
         self.ui
             .set_local(self.ids.content, self.ui.properties().gap, panel_gap);
+        self.ui.set_local(
+            self.ids.inspector_panel,
+            self.ui.properties().padding,
+            panel_padding,
+        );
+        self.ui.set_local(
+            self.ids.inspector_panel,
+            self.ui.properties().gap,
+            panel_gap,
+        );
 
         for id in [
             self.ids.light,
@@ -1030,8 +1306,19 @@ impl DemoApp {
             self.ui
                 .set_local(id, self.ui.properties().height, button_height);
         }
+        self.ui.set_local(
+            self.ids.inspector_toggle,
+            self.ui.properties().padding,
+            button_padding,
+        );
+        self.ui.set_local(
+            self.ids.inspector_toggle,
+            self.ui.properties().height,
+            button_height,
+        );
 
         self.sync_shell_frame(root_padding);
+        self.sync_inspector_dock();
         self.sync_density_selection();
     }
 
@@ -1043,23 +1330,134 @@ impl DemoApp {
     }
 
     fn sync_shell_frame(&mut self, root_padding: f64) {
-        let shell_gap = if self.roomy { 18.0 } else { 10.0 };
-        let sidebar_width = if self.roomy { 188.0 } else { 152.0 };
         let shell_width = (self.ui.view_rect().width() - root_padding * 2.0).max(0.0);
         let shell_height = (self.ui.view_rect().height() - root_padding * 2.0).max(0.0);
-        let content_width = (shell_width - sidebar_width - shell_gap).max(0.0);
         self.ui
             .set_local(self.ids.shell, self.ui.properties().width, shell_width);
         self.ui
             .set_local(self.ids.shell, self.ui.properties().height, shell_height);
         self.ui
-            .set_local(self.ids.sidebar, self.ui.properties().width, sidebar_width);
-        self.ui
             .set_local(self.ids.sidebar, self.ui.properties().height, shell_height);
         self.ui
-            .set_local(self.ids.content, self.ui.properties().width, content_width);
+            .set_local(self.ids.splitter, self.ui.properties().height, shell_height);
+        self.ui.set_local(
+            self.ids.inspector_splitter,
+            self.ui.properties().height,
+            shell_height,
+        );
+        self.ui.set_local(
+            self.ids.inspector_panel,
+            self.ui.properties().height,
+            shell_height,
+        );
         self.ui
             .set_local(self.ids.content, self.ui.properties().height, shell_height);
+    }
+
+    fn sync_inspector_dock(&mut self) {
+        let panel_padding = if self.roomy { 18.0 } else { 12.0 };
+        let panel_gap = if self.roomy { 12.0 } else { 8.0 };
+        let splitter_width = if self.roomy { 16.0 } else { 12.0 };
+        let panel_width = if self.inspector_collapsed {
+            inspector_rail_width()
+        } else {
+            self.inspector_expanded_width
+        };
+        if let Some(splitter) = self
+            .ui
+            .widget_mut::<overstory::widgets::SplitterWidget>(self.ids.splitter)
+        {
+            splitter.set_min_secondary(
+                340.0
+                    + panel_width
+                    + if self.inspector_collapsed {
+                        0.0
+                    } else {
+                        splitter_width
+                    },
+            );
+        }
+        self.ui.set_local(
+            self.ids.inspector_panel,
+            self.ui.properties().width,
+            panel_width,
+        );
+        self.ui.set_local(
+            self.ids.inspector_splitter,
+            self.ui.properties().visible,
+            !self.inspector_collapsed,
+        );
+        self.ui.set_local(
+            self.ids.inspector_tree,
+            self.ui.properties().visible,
+            !self.inspector_collapsed,
+        );
+        self.ui.set_local(
+            self.ids.inspector_tree_label,
+            self.ui.properties().visible,
+            !self.inspector_collapsed,
+        );
+        self.ui.set_local(
+            self.ids.inspector_props,
+            self.ui.properties().visible,
+            !self.inspector_collapsed,
+        );
+        self.ui.set_local(
+            self.ids.inspector_props_label,
+            self.ui.properties().visible,
+            !self.inspector_collapsed,
+        );
+        self.ui.set_label(
+            self.ids.inspector_toggle,
+            if self.inspector_collapsed {
+                "⟨"
+            } else {
+                "Inspector ⟩"
+            },
+        );
+        self.ui.set_local(
+            self.ids.inspector_toggle,
+            self.ui.properties().width,
+            if self.inspector_collapsed {
+                inspector_rail_width() - 12.0
+            } else {
+                112.0
+            },
+        );
+        if self.inspector_collapsed {
+            self.ui
+                .set_local(self.ids.inspector_panel, self.ui.properties().padding, 6.0);
+            self.ui
+                .set_local(self.ids.inspector_panel, self.ui.properties().gap, 0.0);
+        } else {
+            self.ui.set_local(
+                self.ids.inspector_panel,
+                self.ui.properties().padding,
+                panel_padding,
+            );
+            self.ui.set_local(
+                self.ids.inspector_panel,
+                self.ui.properties().gap,
+                panel_gap,
+            );
+        }
+    }
+
+    fn toggle_inspector_dock(&mut self) {
+        if self.inspector_collapsed {
+            self.inspector_collapsed = false;
+        } else {
+            if let Some(width) = self
+                .ui
+                .scene(&mut self.text)
+                .resolved_element(self.ids.inspector_panel)
+                .map(|resolved| resolved.rect.width())
+            {
+                self.inspector_expanded_width = width.max(current_inspector_width(self.roomy));
+            }
+            self.inspector_collapsed = true;
+        }
+        self.sync_inspector_dock();
     }
 
     fn sync_density_selection(&mut self) {
@@ -1288,18 +1686,15 @@ impl ApplicationHandler for DemoApp {
                 window.request_redraw();
             }
             // While streaming, use a short poll interval.
-            event_loop.set_control_flow(
-                winit::event_loop::ControlFlow::WaitUntil(
-                    std::time::Instant::now() + std::time::Duration::from_millis(16),
-                ),
-            );
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + std::time::Duration::from_millis(16),
+            ));
             return;
         }
 
         if let Some(deadline_nanos) = self.ui.next_deadline() {
             let deadline = self.epoch + std::time::Duration::from_nanos(deadline_nanos);
-            event_loop
-                .set_control_flow(winit::event_loop::ControlFlow::WaitUntil(deadline));
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(deadline));
         } else {
             event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
         }
@@ -1384,7 +1779,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
 
     let shell = ui.append_child(ui.root(), overstory::TYPE_ROW);
     ui.set_local(shell, ui.properties().padding, 0.0);
-    ui.set_local(shell, ui.properties().gap, 16.0);
+    ui.set_local(shell, ui.properties().gap, 0.0);
 
     let sidebar = ui.append_child(shell, overstory::TYPE_PANEL);
     ui.add_layout_class(sidebar, LayoutClass::Sidebar);
@@ -1413,38 +1808,99 @@ fn build_demo_ui() -> (Ui, DemoIds) {
     let roomy = append_button(&mut ui, sidebar_column, &button_cascade, "Roomy", false);
     let compact = append_button(&mut ui, sidebar_column, &button_cascade, "Compact", false);
 
-    // --- Inspector: element tree ---
-    let tree_label = ui.append_child(sidebar_column, overstory::TYPE_TEXT_BLOCK);
-    ui.set_label(tree_label, "Element Tree");
-    ui.set_local(tree_label, ui.properties().font_size, 11.0);
-    ui.set_local(tree_label, ui.properties().label_padding, 2.0);
-
-    let inspector_tree = ui.append_child(sidebar_column, overstory::TYPE_SCROLL_VIEW);
-    ui.set_local(inspector_tree, ui.properties().height, 200.0);
-    ui.set_local(inspector_tree, ui.properties().padding, 4.0);
-    ui.set_local(inspector_tree, ui.properties().gap, 0.0);
-    ui.set_local(inspector_tree, ui.properties().background, Color::TRANSPARENT);
-
-    // --- Inspector: property grid ---
-    let props_label = ui.append_child(sidebar_column, overstory::TYPE_TEXT_BLOCK);
-    ui.set_label(props_label, "Properties");
-    ui.set_local(props_label, ui.properties().font_size, 11.0);
-    ui.set_local(props_label, ui.properties().label_padding, 2.0);
-
-    let inspector_props = ui.append_child(sidebar_column, overstory::TYPE_SCROLL_VIEW);
-    ui.set_local(inspector_props, ui.properties().height, 180.0);
-    ui.set_local(inspector_props, ui.properties().padding, 4.0);
-    ui.set_local(inspector_props, ui.properties().gap, 0.0);
-    ui.set_local(inspector_props, ui.properties().background, Color::TRANSPARENT);
+    let splitter = ui.append_child_with(
+        shell,
+        overstory::TYPE_SPLITTER,
+        Some(Box::new(
+            overstory::widgets::SplitterWidget::vertical(sidebar)
+                .with_min_primary(152.0)
+                .with_min_secondary(340.0),
+        )),
+    );
+    ui.set_local(splitter, ui.properties().width, 16.0);
 
     let content = ui.append_child(shell, overstory::TYPE_PANEL);
+    ui.set_local(content, ui.properties().fill, true);
     ui.set_local(content, ui.properties().padding, 18.0);
     ui.set_local(content, ui.properties().gap, 12.0);
+
+    let inspector_splitter = ui.append_child_with(
+        shell,
+        overstory::TYPE_SPLITTER,
+        Some(Box::new(
+            overstory::widgets::SplitterWidget::default()
+                .with_min_primary(260.0)
+                .with_min_secondary(420.0),
+        )),
+    );
+    ui.set_local(inspector_splitter, ui.properties().width, 16.0);
+
+    let inspector_panel = ui.append_child(shell, overstory::TYPE_PANEL);
+    ui.set_local(
+        inspector_panel,
+        ui.properties().width,
+        current_inspector_width(true),
+    );
+    ui.set_local(inspector_panel, ui.properties().padding, 18.0);
+    ui.set_local(inspector_panel, ui.properties().gap, 12.0);
+    if let Some(splitter) = ui.widget_mut::<overstory::widgets::SplitterWidget>(inspector_splitter)
+    {
+        splitter.set_side(overstory::widgets::SplitterSide::Trailing);
+        splitter.set_target(inspector_panel);
+    }
 
     let content_column = ui.append_child(content, overstory::TYPE_COLUMN);
     ui.set_local(content_column, ui.properties().padding, 0.0);
     ui.set_local(content_column, ui.properties().gap, 12.0);
     ui.set_local(content_column, ui.properties().fill, true);
+
+    let inspector_column = ui.append_child(inspector_panel, overstory::TYPE_COLUMN);
+    ui.set_local(inspector_column, ui.properties().padding, 0.0);
+    ui.set_local(inspector_column, ui.properties().gap, 10.0);
+    ui.set_local(inspector_column, ui.properties().fill, true);
+
+    let inspector_header = ui.append_child(inspector_column, overstory::TYPE_ROW);
+    ui.set_local(inspector_header, ui.properties().padding, 0.0);
+    ui.set_local(inspector_header, ui.properties().gap, 8.0);
+
+    let inspector_toggle = append_button(
+        &mut ui,
+        inspector_header,
+        &button_cascade,
+        "Inspector ⟩",
+        false,
+    );
+    ui.set_local(inspector_toggle, ui.properties().width, 112.0);
+
+    let inspector_tree_label = ui.append_child(inspector_column, overstory::TYPE_TEXT_BLOCK);
+    ui.set_label(inspector_tree_label, "Element Tree");
+    ui.set_local(inspector_tree_label, ui.properties().font_size, 11.0);
+    ui.set_local(inspector_tree_label, ui.properties().label_padding, 2.0);
+
+    let inspector_tree = ui.append_child(inspector_column, overstory::TYPE_SCROLL_VIEW);
+    ui.set_local(inspector_tree, ui.properties().fill, true);
+    ui.set_local(inspector_tree, ui.properties().padding, 4.0);
+    ui.set_local(inspector_tree, ui.properties().gap, 0.0);
+    ui.set_local(
+        inspector_tree,
+        ui.properties().background,
+        Color::TRANSPARENT,
+    );
+
+    let inspector_props_label = ui.append_child(inspector_column, overstory::TYPE_TEXT_BLOCK);
+    ui.set_label(inspector_props_label, "Properties");
+    ui.set_local(inspector_props_label, ui.properties().font_size, 11.0);
+    ui.set_local(inspector_props_label, ui.properties().label_padding, 2.0);
+
+    let inspector_props = ui.append_child(inspector_column, overstory::TYPE_SCROLL_VIEW);
+    ui.set_local(inspector_props, ui.properties().height, 220.0);
+    ui.set_local(inspector_props, ui.properties().padding, 4.0);
+    ui.set_local(inspector_props, ui.properties().gap, 0.0);
+    ui.set_local(
+        inspector_props,
+        ui.properties().background,
+        Color::TRANSPARENT,
+    );
 
     // Action button row at the top of the content area.
     let button_row = ui.append_child(content_column, overstory::TYPE_ROW);
@@ -1498,7 +1954,13 @@ fn build_demo_ui() -> (Ui, DemoIds) {
             roomy,
             compact,
             sidebar,
+            splitter,
             content,
+            inspector_splitter,
+            inspector_panel,
+            inspector_toggle,
+            inspector_tree_label,
+            inspector_props_label,
             search,
             settings,
             deploy,
@@ -1512,6 +1974,35 @@ fn build_demo_ui() -> (Ui, DemoIds) {
 
 fn current_root_padding(roomy: bool) -> f64 {
     if roomy { 24.0 } else { 14.0 }
+}
+
+fn current_inspector_width(roomy: bool) -> f64 {
+    if roomy { 320.0 } else { 280.0 }
+}
+
+fn inspector_rail_width() -> f64 {
+    44.0
+}
+
+fn format_color(color: Color) -> String {
+    let rgba = color.to_rgba8();
+    format!("#{:02x}{:02x}{:02x}{:02x}", rgba.r, rgba.g, rgba.b, rgba.a)
+}
+
+fn active_badge(label: impl Into<String>, background: Color) -> PropertyBadge {
+    PropertyBadge {
+        label: label.into(),
+        background,
+        foreground: palette::css::WHITE,
+    }
+}
+
+fn idle_badge(label: impl Into<String>, background: Color, foreground: Color) -> PropertyBadge {
+    PropertyBadge {
+        label: label.into(),
+        background,
+        foreground,
+    }
 }
 
 #[cfg(test)]
@@ -1541,11 +2032,33 @@ mod tests {
         assert_eq!(sidebar_rect.width(), 188.0);
         assert_eq!(sidebar_rect.height(), expected_height);
 
+        let splitter_rect = scene
+            .resolved_element(app.ids.splitter)
+            .expect("resolved element")
+            .rect;
+        assert_eq!(splitter_rect.width(), 16.0);
+        assert_eq!(splitter_rect.height(), expected_height);
+
         let content_rect = scene
             .resolved_element(app.ids.content)
             .expect("resolved element")
             .rect;
-        assert_eq!(content_rect.width(), expected_width - 188.0 - 18.0);
+        let inspector_splitter_rect = scene
+            .resolved_element(app.ids.inspector_splitter)
+            .expect("resolved element")
+            .rect;
+        let inspector_panel_rect = scene
+            .resolved_element(app.ids.inspector_panel)
+            .expect("resolved element")
+            .rect;
+        assert_eq!(
+            content_rect.width(),
+            expected_width
+                - sidebar_rect.width()
+                - splitter_rect.width()
+                - inspector_splitter_rect.width()
+                - inspector_panel_rect.width()
+        );
         assert_eq!(content_rect.height(), expected_height);
     }
 
@@ -1565,8 +2078,20 @@ mod tests {
             .resolved_element(app.ids.sidebar)
             .expect("resolved element")
             .rect;
+        let compact_splitter = compact_scene
+            .resolved_element(app.ids.splitter)
+            .expect("resolved element")
+            .rect;
         let compact_content = compact_scene
             .resolved_element(app.ids.content)
+            .expect("resolved element")
+            .rect;
+        let compact_inspector_splitter = compact_scene
+            .resolved_element(app.ids.inspector_splitter)
+            .expect("resolved element")
+            .rect;
+        let compact_inspector_panel = compact_scene
+            .resolved_element(app.ids.inspector_panel)
             .expect("resolved element")
             .rect;
         assert_eq!(
@@ -1576,9 +2101,15 @@ mod tests {
         assert_eq!(compact_shell.height(), compact_height);
         assert_eq!(compact_sidebar.width(), 152.0);
         assert_eq!(compact_sidebar.height(), compact_height);
+        assert_eq!(compact_splitter.width(), 12.0);
+        assert_eq!(compact_splitter.height(), compact_height);
         assert_eq!(
             compact_content.width(),
-            compact_shell.width() - compact_sidebar.width() - 10.0
+            compact_shell.width()
+                - compact_sidebar.width()
+                - compact_splitter.width()
+                - compact_inspector_splitter.width()
+                - compact_inspector_panel.width()
         );
         assert_eq!(compact_content.height(), compact_height);
 
@@ -1593,18 +2124,149 @@ mod tests {
             .resolved_element(app.ids.sidebar)
             .expect("resolved element")
             .rect;
+        let roomy_splitter = roomy_scene
+            .resolved_element(app.ids.splitter)
+            .expect("resolved element")
+            .rect;
         let roomy_content = roomy_scene
             .resolved_element(app.ids.content)
+            .expect("resolved element")
+            .rect;
+        let roomy_inspector_splitter = roomy_scene
+            .resolved_element(app.ids.inspector_splitter)
+            .expect("resolved element")
+            .rect;
+        let roomy_inspector_panel = roomy_scene
+            .resolved_element(app.ids.inspector_panel)
             .expect("resolved element")
             .rect;
         assert_eq!(roomy_shell.height(), roomy_height);
         assert_eq!(roomy_sidebar.width(), 188.0);
         assert_eq!(roomy_sidebar.height(), roomy_height);
+        assert_eq!(roomy_splitter.width(), 16.0);
+        assert_eq!(roomy_splitter.height(), roomy_height);
         assert_eq!(
             roomy_content.width(),
-            roomy_shell.width() - roomy_sidebar.width() - 18.0
+            roomy_shell.width()
+                - roomy_sidebar.width()
+                - roomy_splitter.width()
+                - roomy_inspector_splitter.width()
+                - roomy_inspector_panel.width()
         );
         assert_eq!(roomy_content.height(), roomy_height);
+    }
+
+    #[test]
+    fn inspector_toggle_collapses_to_rail() {
+        let mut app = DemoApp::new();
+        app.resize_ui(PhysicalSize::new(960, 640), 1.0);
+
+        app.toggle_inspector_dock();
+
+        let scene = app.ui.scene(&mut app.text);
+        let inspector_panel = scene
+            .resolved_element(app.ids.inspector_panel)
+            .expect("inspector panel")
+            .rect;
+
+        assert_eq!(inspector_panel.width(), inspector_rail_width());
+        assert!(scene.resolved_element(app.ids.inspector_splitter).is_none());
+    }
+
+    #[test]
+    fn dragging_splitter_resizes_sidebar_and_preserves_content() {
+        use overstory::ui_events::pointer::{
+            PointerButton, PointerButtonEvent, PointerButtons, PointerId, PointerInfo,
+            PointerState, PointerType, PointerUpdate,
+        };
+
+        fn pointer_info() -> PointerInfo {
+            PointerInfo {
+                pointer_id: Some(PointerId::PRIMARY),
+                persistent_device_id: None,
+                pointer_type: PointerType::Mouse,
+            }
+        }
+
+        #[allow(
+            clippy::field_reassign_with_default,
+            reason = "Constructing pointer state is clearer via Default + explicit fields."
+        )]
+        fn pointer_state(x: f64, y: f64, time: u64) -> PointerState {
+            let mut state = PointerState::default();
+            state.time = time;
+            state.position.x = x;
+            state.position.y = y;
+            state.buttons = PointerButtons::new();
+            state.count = 1;
+            state.scale_factor = 1.0;
+            state
+        }
+
+        let mut app = DemoApp::new();
+        app.resize_ui(PhysicalSize::new(960, 640), 1.0);
+
+        let before = app.ui.scene(&mut app.text);
+        let splitter = before
+            .resolved_element(app.ids.splitter)
+            .expect("splitter rect")
+            .rect;
+        let start_x = splitter.center().x;
+        let start_y = splitter.center().y;
+
+        let _ = app.ui.handle_pointer_event(
+            &overstory::ui_events::pointer::PointerEvent::Move(PointerUpdate {
+                pointer: pointer_info(),
+                current: pointer_state(start_x, start_y, 1),
+                coalesced: Vec::new(),
+                predicted: Vec::new(),
+            }),
+            &mut app.text,
+        );
+        let _ = app.ui.handle_pointer_event(
+            &overstory::ui_events::pointer::PointerEvent::Down(PointerButtonEvent {
+                button: Some(PointerButton::Primary),
+                pointer: pointer_info(),
+                state: pointer_state(start_x, start_y, 2),
+            }),
+            &mut app.text,
+        );
+        let _ = app.ui.handle_pointer_event(
+            &overstory::ui_events::pointer::PointerEvent::Move(PointerUpdate {
+                pointer: pointer_info(),
+                current: pointer_state(start_x + 48.0, start_y, 3),
+                coalesced: Vec::new(),
+                predicted: Vec::new(),
+            }),
+            &mut app.text,
+        );
+        let _ = app.ui.handle_pointer_event(
+            &overstory::ui_events::pointer::PointerEvent::Up(PointerButtonEvent {
+                button: Some(PointerButton::Primary),
+                pointer: pointer_info(),
+                state: pointer_state(start_x + 48.0, start_y, 4),
+            }),
+            &mut app.text,
+        );
+
+        let after = app.ui.scene(&mut app.text);
+        let sidebar = after
+            .resolved_element(app.ids.sidebar)
+            .expect("sidebar rect")
+            .rect;
+        let splitter = after
+            .resolved_element(app.ids.splitter)
+            .expect("splitter rect")
+            .rect;
+        let content = after
+            .resolved_element(app.ids.content)
+            .expect("content rect")
+            .rect;
+
+        assert!(sidebar.width() > 188.0);
+        assert_eq!(splitter.x0, sidebar.x1);
+        assert_eq!(content.x0, splitter.x1);
+        assert!(content.width() >= 340.0);
     }
 
     #[test]
@@ -2040,6 +2702,150 @@ mod tests {
             "completed empty typing indicator should disappear"
         );
     }
+
+    #[test]
+    fn property_grid_shows_color_rows_with_swatches() {
+        let mut app = DemoApp::new();
+        app.selected_element = Some(app.ids.deploy);
+        app.sync_property_grid();
+
+        let background_row = app
+            .prop_row_elements
+            .iter()
+            .find(|row| app.ui.element(row.name).and_then(|e| e.label()) == Some("background"))
+            .cloned()
+            .expect("background row should exist");
+
+        let scene = app.ui.scene(&mut app.text);
+        let deploy = scene
+            .resolved_element(app.ids.deploy)
+            .expect("deploy button should be visible");
+        let swatch = scene
+            .resolved_element(background_row.swatch)
+            .expect("background swatch should be visible");
+        let expected_label = format_color(deploy.background);
+        assert_eq!(swatch.background, deploy.background);
+        assert_eq!(
+            app.ui.element(background_row.value).and_then(|e| e.label()),
+            Some(expected_label.as_str())
+        );
+    }
+
+    #[test]
+    fn property_grid_shows_state_and_clip_badges() {
+        let mut app = DemoApp::new();
+        app.selected_element = Some(app.ids.input);
+        app.sync_property_grid();
+
+        let state_row = app
+            .prop_row_elements
+            .iter()
+            .find(|row| app.ui.element(row.name).and_then(|e| e.label()) == Some("state"))
+            .cloned()
+            .expect("state row should exist");
+        let state_chip_info: Vec<_> = state_row
+            .chips
+            .iter()
+            .filter_map(|chip| {
+                app.ui
+                    .element(*chip)
+                    .and_then(|e| e.label())
+                    .map(|label| (*chip, label.to_string()))
+            })
+            .collect();
+        let scene = app.ui.scene(&mut app.text);
+        let visible_state_labels: Vec<_> = state_row
+            .chips
+            .iter()
+            .filter(|chip| scene.resolved_element(**chip).is_some())
+            .filter_map(|chip| {
+                state_chip_info
+                    .iter()
+                    .find(|(id, _)| id == chip)
+                    .map(|(_, label)| label.as_str())
+            })
+            .collect();
+        assert!(
+            visible_state_labels.contains(&"focused"),
+            "focused input should show a focused state badge, got {:?}",
+            visible_state_labels
+        );
+
+        let clips_row = app
+            .prop_row_elements
+            .iter()
+            .find(|row| app.ui.element(row.name).and_then(|e| e.label()) == Some("clips"))
+            .cloned()
+            .expect("clips row should exist");
+        let clip_chip_info: Vec<_> = clips_row
+            .chips
+            .iter()
+            .filter_map(|chip| {
+                app.ui
+                    .element(*chip)
+                    .and_then(|e| e.label())
+                    .map(|label| (*chip, label.to_string()))
+            })
+            .collect();
+        let scene = app.ui.scene(&mut app.text);
+        let visible_clip_labels: Vec<_> = clips_row
+            .chips
+            .iter()
+            .filter(|chip| scene.resolved_element(**chip).is_some())
+            .filter_map(|chip| {
+                clip_chip_info
+                    .iter()
+                    .find(|(id, _)| id == chip)
+                    .map(|(_, label)| label.as_str())
+            })
+            .collect();
+        assert_eq!(visible_clip_labels, vec!["no"]);
+    }
+
+    #[test]
+    fn api_request_messages_ignore_ui_only_transcript_rows() {
+        let mut app = DemoApp::new();
+
+        assert_eq!(
+            app.current_api_request_messages().len(),
+            1,
+            "initial transcript welcome should not be sent back to the model"
+        );
+
+        app.transcript.append(NewEntry::message(
+            MessageRole::Assistant,
+            "[tool: set_theme] Switched to dark theme",
+        ));
+        app.sync_messages();
+
+        assert_eq!(
+            app.current_api_request_messages().len(),
+            1,
+            "UI-only transcript rows should not affect protocol message history"
+        );
+    }
+
+    #[test]
+    fn finishing_plain_stream_appends_assistant_to_api_messages() {
+        let mut app = DemoApp::new();
+        let entry = app.transcript.append(
+            NewEntry::message(MessageRole::Assistant, "").with_status(EntryStatus::InProgress),
+        );
+        app.streaming_entry = Some(entry);
+        app.sync_messages();
+        app.streaming_api_text = "hello from assistant".into();
+
+        app.finish_streaming_without_tools();
+
+        assert!(app.streaming_entry.is_none());
+        assert!(app.streaming_api_text.is_empty());
+        assert_eq!(app.api_messages.len(), 1);
+        assert_eq!(app.api_messages[0].role, "assistant");
+        assert_eq!(
+            app.api_messages[0].content.as_deref(),
+            Some("hello from assistant")
+        );
+    }
 }
 
 fn append_button(
@@ -2139,5 +2945,13 @@ fn dark_theme() -> Theme {
         .set(ThemeKeys::PADDING, 16.0_f64)
         .set(ThemeKeys::GAP, 12.0_f64)
         .set(ThemeKeys::BUTTON_HEIGHT, 44.0_f64)
+        .set(
+            ThemeKeys::SPLITTER_HOVER_BACKGROUND,
+            Color::from_rgba8(210, 212, 216, 24),
+        )
+        .set(
+            ThemeKeys::SPLITTER_ACTIVE_BACKGROUND,
+            Color::from_rgba8(210, 212, 216, 42),
+        )
         .build()
 }
