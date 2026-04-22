@@ -3,5 +3,5 @@
 
 //! Shared support helpers for the workspace examples crate.
 
-pub mod claude_api;
+pub mod llm_api;
 pub mod overstory_display;

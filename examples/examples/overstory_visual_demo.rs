@@ -25,7 +25,7 @@ use overstory::{
 };
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
 use understory_display::{BoxConstraints, TextEngine};
-use understory_examples::claude_api::{self, StreamEvent};
+use understory_examples::llm_api::{self, ApiConfig, StreamEvent};
 use understory_examples::overstory_display::imaging_scene_from_display_tree;
 use understory_style::{
     IdSet, Selector, StyleBuilder, StyleCascade, StyleCascadeBuilder, StyleOrigin,
@@ -233,14 +233,16 @@ struct DemoApp {
     render_state: RenderState,
     transcript: Transcript,
     message_count: usize,
-    /// Receiver for Claude API streaming events.
-    api_receiver: Option<std::sync::mpsc::Receiver<understory_examples::claude_api::StreamEvent>>,
+    /// Receiver for LLM API streaming events.
+    api_receiver: Option<std::sync::mpsc::Receiver<StreamEvent>>,
     /// Pending assistant message being streamed.
     streaming_text: String,
     /// Tool calls with their results, waiting to be sent back to the API.
     pending_tool_calls: Vec<(String, String, serde_json::Value, String)>,
-    /// Messages sent to Claude (for context continuity).
-    api_messages: Vec<understory_examples::claude_api::Message>,
+    /// Messages sent to the LLM (for context continuity).
+    api_messages: Vec<llm_api::Message>,
+    /// API configuration.
+    api_config: ApiConfig,
     /// Monotonic epoch for converting between Instant and u64 nanos.
     epoch: std::time::Instant,
 }
@@ -248,12 +250,16 @@ struct DemoApp {
 impl DemoApp {
     fn new() -> Self {
         let (ui, ids) = build_demo_ui();
+        let config = ApiConfig::from_env();
         let mut transcript = Transcript::new();
         transcript.append(NewEntry::message(
             MessageRole::Assistant,
-            "Welcome to the Overstory chat harness. I'm powered by Claude. \
-             Try asking me to switch themes or change the density — I have tools for that. \
-             Set ANTHROPIC_API_KEY to enable API access.",
+            format!(
+                "Welcome to the Overstory chat harness (model: {}). \
+                 Try asking me to switch themes or change the density — I have tools for that. \
+                 Set LLM_BASE_URL / LLM_MODEL to configure.",
+                config.model
+            ),
         ));
 
         let mut app = Self {
@@ -269,6 +275,7 @@ impl DemoApp {
             streaming_text: String::new(),
             pending_tool_calls: Vec::new(),
             api_messages: Vec::new(),
+            api_config: config,
             epoch: std::time::Instant::now(),
         };
         app.sync_messages();
@@ -280,12 +287,12 @@ impl DemoApp {
 
     /// Returns true if the messages ScrollView is currently scrolled to the
     /// bottom (or content fits within the viewport).
-    fn build_tools() -> Vec<claude_api::Tool> {
+    fn build_tools() -> Vec<llm_api::Tool> {
         vec![
-            claude_api::Tool {
-                name: "set_theme".into(),
-                description: "Switch the UI theme".into(),
-                input_schema: serde_json::json!({
+            llm_api::Tool::function(
+                "set_theme",
+                "Switch the UI theme",
+                serde_json::json!({
                     "type": "object",
                     "properties": {
                         "theme": {
@@ -296,11 +303,11 @@ impl DemoApp {
                     },
                     "required": ["theme"]
                 }),
-            },
-            claude_api::Tool {
-                name: "set_density".into(),
-                description: "Switch the UI density".into(),
-                input_schema: serde_json::json!({
+            ),
+            llm_api::Tool::function(
+                "set_density",
+                "Switch the UI density",
+                serde_json::json!({
                     "type": "object",
                     "properties": {
                         "density": {
@@ -311,13 +318,18 @@ impl DemoApp {
                     },
                     "required": ["density"]
                 }),
-            },
+            ),
         ]
     }
 
-    fn send_to_claude(&mut self) {
-        // Build messages from transcript.
-        let mut messages = Vec::new();
+    fn send_to_llm(&mut self) {
+        // Build messages from transcript, with system prompt first.
+        let mut messages = vec![llm_api::Message::text(
+            "system",
+            "You are an AI assistant embedded in the Overstory UI demo. \
+             You can help the user and also control the UI using tools. \
+             Keep responses concise.",
+        )];
         for entry in self.transcript.entries() {
             if let understory_transcript::EntryKind::Message(msg) = &entry.kind {
                 let role = match msg.role {
@@ -326,22 +338,13 @@ impl DemoApp {
                     _ => continue,
                 };
                 let text = msg.body.as_text().unwrap_or("").to_string();
-                messages.push(claude_api::Message {
-                    role: role.into(),
-                    content: claude_api::MessageContent::Text(text),
-                });
+                messages.push(llm_api::Message::text(role, &text));
             }
         }
 
         self.api_messages = messages.clone();
         let tools = Self::build_tools();
-        let system = Some(
-            "You are an AI assistant embedded in the Overstory UI demo. \
-             You can help the user and also control the UI using tools. \
-             Keep responses concise."
-                .to_string(),
-        );
-        self.api_receiver = Some(claude_api::send_streaming(messages, tools, system));
+        self.api_receiver = Some(llm_api::send_streaming(&self.api_config, messages, tools));
         self.streaming_text.clear();
     }
 
@@ -455,49 +458,37 @@ impl DemoApp {
 
     fn send_tool_results(&mut self) {
         let tool_calls = core::mem::take(&mut self.pending_tool_calls);
-        // Build the assistant message with tool_use blocks.
-        let mut assistant_blocks = Vec::new();
-        if !self.streaming_text.is_empty() {
-            assistant_blocks.push(claude_api::ContentBlock::Text {
-                text: core::mem::take(&mut self.streaming_text),
-            });
-        }
-        for (id, name, input, _) in &tool_calls {
-            assistant_blocks.push(claude_api::ContentBlock::ToolUse {
-                id: id.clone(),
-                name: name.clone(),
-                input: input.clone(),
-            });
-        }
 
-        // Build tool result message using stored results.
-        let mut result_blocks = Vec::new();
-        for (id, _, _, result) in &tool_calls {
-            result_blocks.push(claude_api::ContentBlock::ToolResult {
-                tool_use_id: id.clone(),
-                content: result.clone(),
-            });
-        }
+        // Build the assistant message with tool_calls.
+        let content = if self.streaming_text.is_empty() {
+            None
+        } else {
+            Some(core::mem::take(&mut self.streaming_text))
+        };
+        let tc_messages: Vec<llm_api::ToolCallMessage> = tool_calls
+            .iter()
+            .map(|(id, name, input, _)| llm_api::ToolCallMessage {
+                id: id.clone(),
+                call_type: "function".into(),
+                function: llm_api::FunctionCall {
+                    name: name.clone(),
+                    arguments: serde_json::to_string(input).unwrap_or_default(),
+                },
+            })
+            .collect();
 
         let mut messages = self.api_messages.clone();
-        messages.push(claude_api::Message {
-            role: "assistant".into(),
-            content: claude_api::MessageContent::Blocks(assistant_blocks),
-        });
-        messages.push(claude_api::Message {
-            role: "user".into(),
-            content: claude_api::MessageContent::Blocks(result_blocks),
-        });
+        messages.push(llm_api::Message::assistant_with_tools(content, tc_messages));
+
+        // Add individual tool result messages.
+        for (id, _, _, result) in &tool_calls {
+            messages.push(llm_api::Message::tool_result(id, result));
+        }
 
         self.api_messages = messages.clone();
         let tools = Self::build_tools();
-        let system = Some(
-            "You are an AI assistant embedded in the Overstory UI demo. \
-             You can help the user and also control the UI using tools. \
-             Keep responses concise."
-                .to_string(),
-        );
-        self.api_receiver = Some(claude_api::send_streaming(messages, tools, system));
+        self.api_receiver =
+            Some(llm_api::send_streaming(&self.api_config, messages, tools));
     }
 
     fn now_nanos(&self) -> u64 {
@@ -609,7 +600,7 @@ impl DemoApp {
                     }
                     self.ui.clear_text_buffer(self.ids.input, &mut self.text);
                     // Send to Claude API.
-                    self.send_to_claude();
+                    self.send_to_llm();
                 }
             }
         }
