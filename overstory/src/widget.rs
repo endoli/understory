@@ -54,6 +54,26 @@ impl<'a> MeasureCtx<'a> {
 
 use crate::{ElementId, InteractionBatch, ResolvedElement};
 
+/// Builds a text display node from a resolved element's label and style.
+///
+/// This is the shared helper for all widgets that render text labels.
+/// Uses the resolved `font_size`, `font_family`, and `text_align`
+/// which are guaranteed to have non-zero/non-empty values.
+#[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "Font size is a small positive value; f32 is sufficient."
+)]
+pub fn text_label_node(label: &str, brush: peniko::Brush, resolved: &ResolvedElement) -> DisplayNode {
+    DisplayNode::text(
+        label,
+        brush,
+        resolved.font_size as f32,
+        &*resolved.font_family,
+        resolved.text_align,
+    )
+}
+
 /// Thin behavioral interface for element-attached widgets.
 ///
 /// Widgets provide kind-specific state, layout, rendering, and event handling

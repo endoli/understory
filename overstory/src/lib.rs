@@ -78,7 +78,7 @@ pub use surface::{
     SurfaceEntry, SurfacePlan, SurfaceRole,
 };
 pub use ui::{Ui, default_theme};
-pub use widget::{MeasureCtx, Widget, WidgetArena, WidgetHandle};
+pub use widget::{MeasureCtx, Widget, WidgetArena, WidgetHandle, text_label_node};
 
 /// Re-export the transport-agnostic event vocabulary used by Overstory.
 pub use ui_events;

@@ -11,7 +11,7 @@ use understory_display::{DisplayNode, Insets};
 
 use understory_style::ResourceKey;
 
-use crate::{Element, ElementId, MessageClass, ResolvedElement, ThemeKeys, Widget};
+use crate::{Element, ElementId, MessageClass, ResolvedElement, ThemeKeys, Widget, text_label_node};
 
 /// Multiline wrapped text block widget.
 ///
@@ -45,17 +45,7 @@ impl Widget for TextBlockWidget {
         if label.is_empty() {
             return;
         }
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "Font size is a small positive value; f32 is sufficient."
-        )]
-        let text_node = DisplayNode::text(
-            label,
-            Brush::Solid(resolved.foreground),
-            resolved.font_size as f32,
-            &*resolved.font_family,
-            resolved.text_align,
-        );
+        let text_node = text_label_node(label, Brush::Solid(resolved.foreground), resolved);
         children.push(DisplayNode::padding(
             Insets::uniform(resolved.label_padding),
             text_node,

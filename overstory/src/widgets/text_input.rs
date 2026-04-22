@@ -17,6 +17,7 @@ use understory_style::ResourceKey;
 
 use crate::{
     Element, ElementId, Interaction, InteractionBatch, ResolvedElement, ThemeKeys, Widget,
+    text_label_node,
 };
 
 /// Label padding used for content box calculation in `measure`.
@@ -133,17 +134,7 @@ impl Widget for TextInputWidget {
             } else {
                 Brush::Solid(resolved.foreground)
             };
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "Font size is a small positive value; f32 is sufficient."
-            )]
-            let text_node = DisplayNode::text(
-                label,
-                text_brush,
-                resolved.font_size as f32,
-                &*resolved.font_family,
-                resolved.text_align,
-            );
+            let text_node = text_label_node(label, text_brush, resolved);
             children.push(DisplayNode::align(
                 DisplayAlign::Start,
                 DisplayAlign::Start,

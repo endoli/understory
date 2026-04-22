@@ -11,7 +11,7 @@ use understory_display::{DisplayAlign, DisplayNode, Insets};
 
 use understory_style::ResourceKey;
 
-use crate::{ButtonClass, Element, ElementId, ResolvedElement, ThemeKeys, Widget};
+use crate::{ButtonClass, Element, ElementId, ResolvedElement, ThemeKeys, Widget, text_label_node};
 
 
 /// Interactive push button widget with horizontally padded, vertically
@@ -35,17 +35,7 @@ impl Widget for ButtonWidget {
         if label.is_empty() {
             return;
         }
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "Font size is a small positive value; f32 is sufficient."
-        )]
-        let text_node = DisplayNode::text(
-            label,
-            Brush::Solid(resolved.foreground),
-            resolved.font_size as f32,
-            &*resolved.font_family,
-            resolved.text_align,
-        );
+        let text_node = text_label_node(label, Brush::Solid(resolved.foreground), resolved);
         children.push(DisplayNode::align(
             DisplayAlign::Start,
             DisplayAlign::Center,
