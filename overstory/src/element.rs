@@ -46,6 +46,8 @@ pub const TYPE_TEXT_BLOCK: TypeTag = TypeTag(8);
 pub const TYPE_TEXT_INPUT: TypeTag = TypeTag(9);
 /// Type tag for tooltip overlays.
 pub const TYPE_TOOLTIP: TypeTag = TypeTag(10);
+/// Type tag for draggable pane splitters.
+pub const TYPE_SPLITTER: TypeTag = TypeTag(11);
 
 /// Small class vocabulary for common button styling.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

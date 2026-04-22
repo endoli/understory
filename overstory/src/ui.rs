@@ -18,8 +18,8 @@ use understory_style::{ClassId, IdSet, StyleCascade, Theme, ThemeBuilder, TypeTa
 use crate::{
     BuiltInProperties, ButtonClass, DirtyChannels, Element, ElementId, Interaction,
     InteractionBatch, LayoutClass, RuntimeState, SceneSnapshot, TYPE_BUTTON, TYPE_COLUMN,
-    TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW, TYPE_SPACER, TYPE_TEXT_BLOCK,
-    TYPE_TEXT_INPUT, ThemeKeys, Widget, WidgetArena,
+    TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW, TYPE_SPACER, TYPE_SPLITTER, TYPE_TEXT_BLOCK,
+    TYPE_TEXT_INPUT, ThemeKeys, Widget, WidgetArena, WidgetPointerEvent,
 };
 
 /// Retained Overstory UI state.
@@ -202,6 +202,11 @@ impl Ui {
                 parent,
                 type_tag,
                 Some(Box::new(crate::widgets::TextInputWidget::new(16.0))),
+            ),
+            TYPE_SPLITTER => self.append_child_with(
+                parent,
+                type_tag,
+                Some(Box::new(crate::widgets::SplitterWidget::default())),
             ),
             TYPE_SPACER => self.append_child_with(parent, type_tag, None),
             _ => self.append_child_with(parent, type_tag, None),
@@ -392,7 +397,9 @@ impl Ui {
             }
             if let Some(handle) = self.elements.get(prev.index()).and_then(|e| e.widget)
                 && let Some(w) = self.widget_arena.get_mut(handle)
-                && let Some(ti) = w.as_any_mut().downcast_mut::<crate::widgets::TextInputWidget>()
+                && let Some(ti) = w
+                    .as_any_mut()
+                    .downcast_mut::<crate::widgets::TextInputWidget>()
             {
                 ti.stop_blink(&mut self.timers);
             }
@@ -404,7 +411,9 @@ impl Ui {
         // Start blink on newly focused TextInput.
         if let Some(handle) = self.elements.get(id.index()).and_then(|e| e.widget)
             && let Some(w) = self.widget_arena.get_mut(handle)
-            && let Some(ti) = w.as_any_mut().downcast_mut::<crate::widgets::TextInputWidget>()
+            && let Some(ti) = w
+                .as_any_mut()
+                .downcast_mut::<crate::widgets::TextInputWidget>()
         {
             ti.start_blink(&mut self.timers, id, now);
         }
@@ -669,6 +678,14 @@ impl Ui {
                     .clicks
                     .on_move(pointer_id(update.pointer), point);
                 self.update_hover(point, &mut batch, text);
+                if let Some(target) = self.runtime.pressed_target {
+                    let _ = self.dispatch_widget_pointer_event(
+                        target,
+                        WidgetPointerEvent::Move { point },
+                        text,
+                        &mut batch,
+                    );
+                }
             }
             PointerEvent::Down(button) if is_primary_button(button.button) => {
                 let point = point_from_state(&button.state);
@@ -684,12 +701,26 @@ impl Ui {
                         point,
                         button.state.time,
                     );
+                    let _ = self.dispatch_widget_pointer_event(
+                        target,
+                        WidgetPointerEvent::Down { point },
+                        text,
+                        &mut batch,
+                    );
                 }
             }
             PointerEvent::Up(button) if is_primary_button(button.button) => {
                 let point = point_from_state(&button.state);
                 self.update_hover(point, &mut batch, text);
                 let current_target = self.rebuild(text).top_hit(point);
+                if let Some(target) = self.runtime.pressed_target {
+                    let _ = self.dispatch_widget_pointer_event(
+                        target,
+                        WidgetPointerEvent::Up { point },
+                        text,
+                        &mut batch,
+                    );
+                }
                 self.set_pressed_target(None, &mut batch);
                 if let Some(target) = current_target {
                     match self.runtime.clicks.on_up(
@@ -709,16 +740,6 @@ impl Ui {
                             if is_focusable {
                                 self.set_focus(id);
                                 batch.push(Interaction::FocusChanged(id));
-                                // Delegate click-to-position to widget.
-                                if let Some(resolved) =
-                                    self.rebuild(text).resolved_element(id).cloned()
-                                    && let Some(handle) =
-                                        self.elements.get(id.index()).and_then(|e| e.widget)
-                                    && let Some(widget) = self.widget_arena.get_mut(handle)
-                                {
-                                    widget.click(id, point, &resolved, text);
-                                    self.mark_dirty(DirtyChannels::PAINT.into_set());
-                                }
                             }
                         }
                         understory_event_state::click::ClickResult::Suppressed(_) => {}
@@ -729,6 +750,14 @@ impl Ui {
             }
             PointerEvent::Cancel(pointer) => {
                 let _ = self.runtime.clicks.cancel(pointer_id(*pointer));
+                if let Some(target) = self.runtime.pressed_target {
+                    let _ = self.dispatch_widget_pointer_event(
+                        target,
+                        WidgetPointerEvent::Cancel,
+                        text,
+                        &mut batch,
+                    );
+                }
                 self.set_pressed_target(None, &mut batch);
                 self.clear_hover(&mut batch);
             }
@@ -758,6 +787,40 @@ impl Ui {
             let _ = self.rebuild(text);
         }
         batch
+    }
+
+    fn dispatch_widget_pointer_event(
+        &mut self,
+        id: ElementId,
+        event: WidgetPointerEvent,
+        text: &mut TextEngine,
+        batch: &mut InteractionBatch,
+    ) -> bool {
+        let Some(scene) = self.scene.as_ref() else {
+            return false;
+        };
+        let Some(resolved) = scene.resolved_element(id).cloned() else {
+            return false;
+        };
+        let Some(handle) = self
+            .elements
+            .get(id.index())
+            .and_then(|element| element.widget)
+        else {
+            return false;
+        };
+        let resolved_slice = scene.resolved();
+        let mut ctx = crate::PointerEventCtx::new(
+            &mut self.elements,
+            &self.registry,
+            &self.props,
+            &mut self.dirty,
+            resolved_slice,
+        );
+        let Some(widget) = self.widget_arena.get_mut(handle) else {
+            return false;
+        };
+        widget.handle_pointer_event(id, &event, &resolved, &mut ctx, text, batch)
     }
 
     fn mark_dirty(&mut self, channels: ChannelSet) {
@@ -885,6 +948,14 @@ pub fn default_theme() -> Theme {
         .set(ThemeKeys::LABEL_PADDING, 12.0_f64)
         .set(ThemeKeys::FONT_FAMILY, Box::<str>::from("sans-serif"))
         .set(ThemeKeys::TEXT_ALIGN, TextAlign::Start)
+        .set(
+            ThemeKeys::SPLITTER_HOVER_BACKGROUND,
+            Color::from_rgba8(24, 92, 72, 28),
+        )
+        .set(
+            ThemeKeys::SPLITTER_ACTIVE_BACKGROUND,
+            Color::from_rgba8(24, 92, 72, 56),
+        )
         .build()
 }
 
@@ -1093,6 +1164,90 @@ mod tests {
         );
         assert!(up_batch.events().contains(&Interaction::PressEnded(button)));
         assert!(up_batch.events().contains(&Interaction::Clicked(button)));
+    }
+
+    #[test]
+    fn splitter_drag_updates_leading_pane_width() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 640.0, 240.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let row = ui.append_child(ui.root(), TYPE_ROW);
+        ui.set_local(row, ui.properties().padding, 0.0);
+        ui.set_local(row, ui.properties().gap, 0.0);
+        ui.set_local(row, ui.properties().width, 640.0);
+        ui.set_local(row, ui.properties().height, 240.0);
+
+        let left = ui.append_child(row, TYPE_PANEL);
+        ui.set_local(left, ui.properties().width, 180.0);
+        ui.set_local(left, ui.properties().height, 240.0);
+
+        let splitter = ui.append_child_with(
+            row,
+            TYPE_SPLITTER,
+            Some(Box::new(
+                crate::widgets::SplitterWidget::vertical(left)
+                    .with_min_primary(140.0)
+                    .with_min_secondary(220.0),
+            )),
+        );
+        ui.set_local(splitter, ui.properties().width, 14.0);
+        ui.set_local(splitter, ui.properties().height, 240.0);
+
+        let right = ui.append_child(row, TYPE_PANEL);
+        ui.set_local(right, ui.properties().fill, true);
+        ui.set_local(right, ui.properties().height, 240.0);
+
+        let mut text = TextEngine::new();
+        let scene = ui.rebuild(&mut text);
+        let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
+        let start = splitter_rect.center();
+
+        let _ = ui.handle_pointer_event(
+            &PointerEvent::Move(PointerUpdate {
+                pointer: primary_pointer(),
+                current: pointer_state(start.x, start.y, 1),
+                coalesced: Vec::new(),
+                predicted: Vec::new(),
+            }),
+            &mut text,
+        );
+        let _ = ui.handle_pointer_event(
+            &PointerEvent::Down(PointerButtonEvent {
+                button: Some(PointerButton::Primary),
+                pointer: primary_pointer(),
+                state: pointer_state(start.x, start.y, 2),
+            }),
+            &mut text,
+        );
+        let _ = ui.handle_pointer_event(
+            &PointerEvent::Move(PointerUpdate {
+                pointer: primary_pointer(),
+                current: pointer_state(start.x + 60.0, start.y, 3),
+                coalesced: Vec::new(),
+                predicted: Vec::new(),
+            }),
+            &mut text,
+        );
+        let _ = ui.handle_pointer_event(
+            &PointerEvent::Up(PointerButtonEvent {
+                button: Some(PointerButton::Primary),
+                pointer: primary_pointer(),
+                state: pointer_state(start.x + 60.0, start.y, 4),
+            }),
+            &mut text,
+        );
+
+        let scene = ui.rebuild(&mut text);
+        let left_rect = scene.resolved_element(left).unwrap().rect;
+        let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
+        let right_rect = scene.resolved_element(right).unwrap().rect;
+
+        assert_eq!(left_rect.width(), 240.0);
+        assert_eq!(splitter_rect.x0, left_rect.x1);
+        assert_eq!(right_rect.x0, splitter_rect.x1);
+        assert!(right_rect.width() >= 220.0);
     }
 
     #[test]

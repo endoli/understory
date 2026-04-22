@@ -11,9 +11,13 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::any::Any;
 
-use kurbo::{Point, Size};
+use invalidation::ChannelSet;
+use kurbo::{Point, Rect, Size};
 use understory_display::{DisplayNode, TextEngine};
+use understory_property::{DependencyObjectExt, Property, PropertyRegistry};
 use understory_style::ResourceKey;
+
+use crate::{BuiltInProperties, Element, ElementId, InteractionBatch, ResolvedElement};
 
 /// Context provided to widgets during measurement.
 ///
@@ -52,7 +56,107 @@ impl<'a> MeasureCtx<'a> {
     }
 }
 
-use crate::{ElementId, InteractionBatch, ResolvedElement};
+/// Pointer event delivered to a widget from the retained UI runtime.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum WidgetPointerEvent {
+    /// Primary press began over this widget.
+    Down {
+        /// Pointer location in view-space.
+        point: Point,
+    },
+    /// Pointer moved while this widget owns the active press.
+    Move {
+        /// Pointer location in view-space.
+        point: Point,
+    },
+    /// Primary press ended after being delivered to this widget.
+    Up {
+        /// Pointer location in view-space.
+        point: Point,
+    },
+    /// Active pointer interaction was cancelled.
+    Cancel,
+}
+
+/// Narrow mutation/read context for widget pointer handlers.
+pub struct PointerEventCtx<'a> {
+    elements: &'a mut [Element],
+    registry: &'a PropertyRegistry,
+    props: &'a BuiltInProperties,
+    dirty: &'a mut ChannelSet,
+    resolved: &'a [ResolvedElement],
+}
+
+impl core::fmt::Debug for PointerEventCtx<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PointerEventCtx")
+            .field("elements", &self.elements.len())
+            .field("resolved", &self.resolved.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> PointerEventCtx<'a> {
+    pub(crate) fn new(
+        elements: &'a mut [Element],
+        registry: &'a PropertyRegistry,
+        props: &'a BuiltInProperties,
+        dirty: &'a mut ChannelSet,
+        resolved: &'a [ResolvedElement],
+    ) -> Self {
+        Self {
+            elements,
+            registry,
+            props,
+            dirty,
+            resolved,
+        }
+    }
+
+    /// Returns the built-in property handles.
+    #[must_use]
+    pub const fn properties(&self) -> &BuiltInProperties {
+        self.props
+    }
+
+    /// Returns one retained element by id.
+    #[must_use]
+    pub fn element(&self, id: ElementId) -> Option<&Element> {
+        self.elements.get(id.index())
+    }
+
+    /// Returns the parent id of one element, if any.
+    #[must_use]
+    pub fn parent(&self, id: ElementId) -> Option<ElementId> {
+        self.element(id)?.parent()
+    }
+
+    /// Returns one resolved element from the current scene snapshot.
+    #[must_use]
+    pub fn resolved_element(&self, id: ElementId) -> Option<&ResolvedElement> {
+        self.resolved.iter().find(|element| element.id == id)
+    }
+
+    /// Returns the resolved rectangle for one element, if present.
+    #[must_use]
+    pub fn rect(&self, id: ElementId) -> Option<Rect> {
+        Some(self.resolved_element(id)?.rect)
+    }
+
+    /// Sets one local property value on an element and accumulates dirty channels.
+    pub fn set_local<T>(&mut self, id: ElementId, property: Property<T>, value: T)
+    where
+        T: Clone + PartialEq + 'static,
+    {
+        let Some(element) = self.elements.get_mut(id.index()) else {
+            return;
+        };
+        let affected = element.set_local_notifying(property, value, self.registry);
+        if !affected.is_empty() {
+            *self.dirty |= affected;
+        }
+    }
+}
 
 /// Builds a text display node from a resolved element's label and style.
 ///
@@ -64,7 +168,11 @@ use crate::{ElementId, InteractionBatch, ResolvedElement};
     clippy::cast_possible_truncation,
     reason = "Font size is a small positive value; f32 is sufficient."
 )]
-pub fn text_label_node(label: &str, brush: peniko::Brush, resolved: &ResolvedElement) -> DisplayNode {
+pub fn text_label_node(
+    label: &str,
+    brush: peniko::Brush,
+    resolved: &ResolvedElement,
+) -> DisplayNode {
     DisplayNode::text(
         label,
         brush,
@@ -142,17 +250,21 @@ pub trait Widget {
         false
     }
 
-    /// Handle a click on this widget.
+    /// Handle one pointer event on this widget.
     ///
-    /// `point` is in view-space coordinates. `resolved` provides the element's
-    /// layout rect for computing local positions.
-    fn click(
+    /// Events are delivered in view-space coordinates. During an active press,
+    /// move and up/cancel continue to be delivered to the pressed widget so
+    /// drag-like interactions can own their state cleanly.
+    fn handle_pointer_event(
         &mut self,
         _id: ElementId,
-        _point: Point,
+        _event: &WidgetPointerEvent,
         _resolved: &ResolvedElement,
+        _ctx: &mut PointerEventCtx<'_>,
         _text: &mut TextEngine,
-    ) {
+        _batch: &mut InteractionBatch,
+    ) -> bool {
+        false
     }
 
     /// Called when a timer fires for this widget's element.
@@ -175,7 +287,7 @@ pub trait Widget {
     /// Return the theme resource key for this widget's background color.
     ///
     /// Called during style resolution. Return `None` for no theme background.
-    fn background_key(&self, _element: &crate::Element) -> Option<ResourceKey> {
+    fn background_key(&self, _element: &Element) -> Option<ResourceKey> {
         None
     }
 

@@ -69,6 +69,10 @@ impl ThemeKeys {
     pub const FONT_FAMILY: ResourceKey = ResourceKey::new(17);
     /// Default text alignment.
     pub const TEXT_ALIGN: ResourceKey = ResourceKey::new(18);
+    /// Splitter hover background.
+    pub const SPLITTER_HOVER_BACKGROUND: ResourceKey = ResourceKey::new(19);
+    /// Splitter active background.
+    pub const SPLITTER_ACTIVE_BACKGROUND: ResourceKey = ResourceKey::new(20);
 }
 
 /// Built-in dependency properties for layout and visuals.

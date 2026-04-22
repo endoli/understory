@@ -6,7 +6,7 @@
 use alloc::vec::Vec;
 use core::cell::Cell;
 
-use kurbo::{Point, Rect, Vec2};
+use kurbo::{Rect, Vec2};
 use parley::PlainEditor;
 use peniko::{Brush, Color};
 use ui_events::keyboard::{Key, KeyboardEvent, Modifiers, NamedKey};
@@ -121,7 +121,7 @@ impl Widget for TextInputWidget {
         ctx: &mut crate::MeasureCtx<'_>,
     ) -> Option<kurbo::Size> {
         // Subtract internal padding to match the text content box used by
-        // display() and click(). Text input uses one top-left aligned content
+        // display() and pointer hit-testing. Text input uses one top-left aligned content
         // box for measurement, painting, and hit-testing.
         let padding = CONTENT_PADDING;
         #[allow(
@@ -309,13 +309,18 @@ impl Widget for TextInputWidget {
         }
     }
 
-    fn click(
+    fn handle_pointer_event(
         &mut self,
         _id: ElementId,
-        point: Point,
+        event: &crate::WidgetPointerEvent,
         resolved: &ResolvedElement,
+        _ctx: &mut crate::PointerEventCtx<'_>,
         text: &mut TextEngine,
-    ) {
+        _batch: &mut InteractionBatch,
+    ) -> bool {
+        let crate::WidgetPointerEvent::Down { point } = *event else {
+            return false;
+        };
         let label_padding = resolved.label_padding;
         #[allow(
             clippy::cast_possible_truncation,
@@ -331,6 +336,7 @@ impl Widget for TextInputWidget {
         self.editor
             .driver(font_cx, layout_cx)
             .move_to_point(local_x, local_y);
+        true
     }
 
     fn refresh_layout(&mut self, text: &mut TextEngine) {
@@ -440,6 +446,8 @@ mod tests {
 
     #[test]
     fn multiline_click_targets_second_line_with_padded_origin() {
+        use crate::TYPE_TEXT_INPUT;
+
         let mut widget = TextInputWidget::new(16.0_f32);
         widget.editor.set_text("alpha\nbeta");
 
@@ -472,7 +480,27 @@ mod tests {
             resolved.rect.x0 + CONTENT_PADDING + 4.0,
             resolved.rect.y0 + CONTENT_PADDING + line_height + 1.0,
         );
-        widget.click(resolved.id, click_point, &resolved, &mut text);
+        let mut elements = [Element::new(resolved.id, None, TYPE_TEXT_INPUT)];
+        let mut registry = understory_property::PropertyRegistry::new();
+        let mut dirty = invalidation::ChannelSet::default();
+        let props = crate::BuiltInProperties::register(&mut registry);
+        let mut ctx = crate::PointerEventCtx::new(
+            &mut elements,
+            &registry,
+            &props,
+            &mut dirty,
+            core::slice::from_ref(&resolved),
+        );
+        let mut batch = InteractionBatch::default();
+        let handled = widget.handle_pointer_event(
+            resolved.id,
+            &crate::WidgetPointerEvent::Down { point: click_point },
+            &resolved,
+            &mut ctx,
+            &mut text,
+            &mut batch,
+        );
+        assert!(handled);
         widget.refresh_layout(&mut text);
 
         let moved_cursor = widget
