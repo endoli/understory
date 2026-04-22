@@ -761,6 +761,34 @@ impl DemoApp {
         self.inspector.mark_dirty();
         self.inspector.sync();
 
+        // Expand all nodes so the full tree is visible.
+        let all_keys: Vec<_> = self
+            .inspector
+            .visible_rows()
+            .iter()
+            .filter(|r| r.has_children && !r.is_expanded)
+            .map(|r| r.key)
+            .collect();
+        for key in all_keys {
+            let _ = self.inspector.expand(key);
+        }
+        // Expanding reveals new rows that may also need expanding.
+        for _ in 0..10 {
+            let more: Vec<_> = self
+                .inspector
+                .visible_rows()
+                .iter()
+                .filter(|r| r.has_children && !r.is_expanded)
+                .map(|r| r.key)
+                .collect();
+            if more.is_empty() {
+                break;
+            }
+            for key in more {
+                let _ = self.inspector.expand(key);
+            }
+        }
+
         let rows = self.inspector.visible_rows().to_vec();
 
         // Ensure we have enough TextBlock elements for the visible rows.
