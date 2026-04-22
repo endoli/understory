@@ -21,7 +21,8 @@ use imaging_vello_hybrid::VelloHybridRenderer;
 use kurbo::Rect;
 use overstory::peniko::color::palette;
 use overstory::{
-    ButtonClass, Color, ElementId, Interaction, LayoutClass, ThemeKeys, Ui, default_theme,
+    ButtonClass, Color, DockPaneController, DockPaneIds, DockPaneStyle, ElementId, Interaction,
+    LayoutClass, ThemeKeys, Ui, default_theme,
 };
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
 use understory_display::{BoxConstraints, TextEngine};
@@ -425,8 +426,7 @@ struct DemoApp {
     prop_row_elements: Vec<PropertyRowElements>,
     /// Whether the inspector tree has been initially expanded.
     inspector_initialized: bool,
-    inspector_collapsed: bool,
-    inspector_expanded_width: f64,
+    inspector_dock: DockPaneController,
 }
 
 impl DemoApp {
@@ -446,6 +446,22 @@ impl DemoApp {
 
         let inspector_model = ElementTreeModel::from_ui(&ui, vec![ids.inspector_panel]);
         let inspector = Inspector::new(inspector_model, InspectorConfig::fixed_rows(16.0, 200.0));
+        let mut inspector_dock = DockPaneController::new(
+            DockPaneIds {
+                pane: ids.inspector_panel,
+                splitter: ids.inspector_splitter,
+                toggle: ids.inspector_toggle,
+            },
+            vec![
+                ids.inspector_tree_label,
+                ids.inspector_tree,
+                ids.inspector_props_label,
+                ids.inspector_props,
+            ],
+            current_inspector_width(true),
+            inspector_rail_width(),
+        );
+        inspector_dock.set_style(inspector_dock_style(true));
 
         let mut app = Self {
             ui,
@@ -469,8 +485,7 @@ impl DemoApp {
             tree_row_elements: Vec::new(),
             prop_row_elements: Vec::new(),
             inspector_initialized: false,
-            inspector_collapsed: false,
-            inspector_expanded_width: current_inspector_width(true),
+            inspector_dock,
         };
         app.sync_messages();
         app.apply_density(true);
@@ -1241,8 +1256,6 @@ impl DemoApp {
         self.roomy = roomy;
         let sidebar_width = if roomy { 188.0 } else { 152.0 };
         let root_padding = if roomy { 24.0 } else { 14.0 };
-        let panel_padding = if roomy { 18.0 } else { 12.0 };
-        let panel_gap = if roomy { 12.0 } else { 8.0 };
         let button_padding = if roomy { 14.0 } else { 10.0 };
         let button_height = if roomy { 48.0 } else { 36.0 };
         let splitter_width = if roomy { 16.0 } else { 12.0 };
@@ -1263,30 +1276,13 @@ impl DemoApp {
             self.ui.properties().width,
             splitter_width,
         );
-        self.ui.set_local(
-            self.ids.sidebar,
-            self.ui.properties().padding,
-            panel_padding,
-        );
-        self.ui
-            .set_local(self.ids.sidebar, self.ui.properties().gap, panel_gap);
-        self.ui.set_local(
-            self.ids.content,
-            self.ui.properties().padding,
-            panel_padding,
-        );
-        self.ui
-            .set_local(self.ids.content, self.ui.properties().gap, panel_gap);
-        self.ui.set_local(
-            self.ids.inspector_panel,
-            self.ui.properties().padding,
-            panel_padding,
-        );
-        self.ui.set_local(
-            self.ids.inspector_panel,
-            self.ui.properties().gap,
-            panel_gap,
-        );
+        let panel_padding = if roomy { 18.0 } else { 12.0 };
+        let panel_gap = if roomy { 12.0 } else { 8.0 };
+        for id in [self.ids.sidebar, self.ids.content] {
+            self.ui
+                .set_local(id, self.ui.properties().padding, panel_padding);
+            self.ui.set_local(id, self.ui.properties().gap, panel_gap);
+        }
 
         for id in [
             self.ids.light,
@@ -1317,6 +1313,10 @@ impl DemoApp {
             button_height,
         );
 
+        self.inspector_dock
+            .set_style(inspector_dock_style(self.roomy));
+        self.inspector_dock
+            .set_expanded_extent(current_inspector_width(self.roomy));
         self.sync_shell_frame(root_padding);
         self.sync_inspector_dock();
         self.sync_density_selection();
@@ -1355,108 +1355,32 @@ impl DemoApp {
     }
 
     fn sync_inspector_dock(&mut self) {
-        let panel_padding = if self.roomy { 18.0 } else { 12.0 };
-        let panel_gap = if self.roomy { 12.0 } else { 8.0 };
         let splitter_width = if self.roomy { 16.0 } else { 12.0 };
-        let panel_width = if self.inspector_collapsed {
-            inspector_rail_width()
-        } else {
-            self.inspector_expanded_width
-        };
+        let panel_width = self.inspector_dock.current_extent();
+        let collapsed = self.inspector_dock.is_collapsed();
         if let Some(splitter) = self
             .ui
             .widget_mut::<overstory::widgets::SplitterWidget>(self.ids.splitter)
         {
             splitter.set_min_secondary(
-                340.0
-                    + panel_width
-                    + if self.inspector_collapsed {
-                        0.0
-                    } else {
-                        splitter_width
-                    },
+                340.0 + panel_width + if collapsed { 0.0 } else { splitter_width },
             );
         }
-        self.ui.set_local(
-            self.ids.inspector_panel,
-            self.ui.properties().width,
-            panel_width,
-        );
-        self.ui.set_local(
-            self.ids.inspector_splitter,
-            self.ui.properties().visible,
-            !self.inspector_collapsed,
-        );
-        self.ui.set_local(
-            self.ids.inspector_tree,
-            self.ui.properties().visible,
-            !self.inspector_collapsed,
-        );
-        self.ui.set_local(
-            self.ids.inspector_tree_label,
-            self.ui.properties().visible,
-            !self.inspector_collapsed,
-        );
-        self.ui.set_local(
-            self.ids.inspector_props,
-            self.ui.properties().visible,
-            !self.inspector_collapsed,
-        );
-        self.ui.set_local(
-            self.ids.inspector_props_label,
-            self.ui.properties().visible,
-            !self.inspector_collapsed,
-        );
-        self.ui.set_label(
-            self.ids.inspector_toggle,
-            if self.inspector_collapsed {
-                "⟨"
-            } else {
-                "Inspector ⟩"
-            },
-        );
-        self.ui.set_local(
-            self.ids.inspector_toggle,
-            self.ui.properties().width,
-            if self.inspector_collapsed {
-                inspector_rail_width() - 12.0
-            } else {
-                112.0
-            },
-        );
-        if self.inspector_collapsed {
-            self.ui
-                .set_local(self.ids.inspector_panel, self.ui.properties().padding, 6.0);
-            self.ui
-                .set_local(self.ids.inspector_panel, self.ui.properties().gap, 0.0);
-        } else {
-            self.ui.set_local(
-                self.ids.inspector_panel,
-                self.ui.properties().padding,
-                panel_padding,
-            );
-            self.ui.set_local(
-                self.ids.inspector_panel,
-                self.ui.properties().gap,
-                panel_gap,
-            );
-        }
+        self.inspector_dock.sync(&mut self.ui);
     }
 
     fn toggle_inspector_dock(&mut self) {
-        if self.inspector_collapsed {
-            self.inspector_collapsed = false;
-        } else {
-            if let Some(width) = self
+        if !self.inspector_dock.is_collapsed()
+            && let Some(width) = self
                 .ui
                 .scene(&mut self.text)
                 .resolved_element(self.ids.inspector_panel)
                 .map(|resolved| resolved.rect.width())
-            {
-                self.inspector_expanded_width = width.max(current_inspector_width(self.roomy));
-            }
-            self.inspector_collapsed = true;
+        {
+            self.inspector_dock
+                .set_expanded_extent(width.max(current_inspector_width(self.roomy)));
         }
+        self.inspector_dock.toggle();
         self.sync_inspector_dock();
     }
 
@@ -1982,6 +1906,19 @@ fn current_inspector_width(roomy: bool) -> f64 {
 
 fn inspector_rail_width() -> f64 {
     44.0
+}
+
+fn inspector_dock_style(roomy: bool) -> DockPaneStyle {
+    DockPaneStyle {
+        expanded_label: "Inspector ⟩".into(),
+        collapsed_label: "⟨".into(),
+        expanded_toggle_width: 112.0,
+        collapsed_toggle_width: inspector_rail_width() - 12.0,
+        expanded_padding: if roomy { 18.0 } else { 12.0 },
+        expanded_gap: if roomy { 12.0 } else { 8.0 },
+        collapsed_padding: 6.0,
+        collapsed_gap: 0.0,
+    }
 }
 
 fn format_color(color: Color) -> String {
