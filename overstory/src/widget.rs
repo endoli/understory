@@ -184,6 +184,20 @@ pub trait Widget {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
+/// Wraps content in a standard widget content box layout.
+///
+/// This helper centralizes the align + padding pattern so widgets use
+/// the same content box for display, measurement, and hit-testing.
+#[must_use]
+pub fn content_box(
+    content: DisplayNode,
+    h_align: understory_display::DisplayAlign,
+    v_align: understory_display::DisplayAlign,
+    padding: understory_display::Insets,
+) -> DisplayNode {
+    DisplayNode::align(h_align, v_align, DisplayNode::padding(padding, content))
+}
+
 /// Implements the `as_any`/`as_any_mut` boilerplate for a Widget type.
 ///
 /// Every widget implementation needs these two methods to support typed

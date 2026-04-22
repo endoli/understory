@@ -16,7 +16,7 @@ use understory_style::ResourceKey;
 
 use crate::{
     Element, ElementId, Interaction, InteractionBatch, ResolvedElement, ThemeKeys, Widget,
-    text_label_node,
+    content_box, text_label_node,
 };
 
 /// Label padding used for content box calculation in `measure`.
@@ -134,10 +134,11 @@ impl Widget for TextInputWidget {
                 Brush::Solid(resolved.foreground)
             };
             let text_node = text_label_node(label, text_brush, resolved);
-            children.push(DisplayNode::align(
+            children.push(content_box(
+                text_node,
                 DisplayAlign::Start,
                 DisplayAlign::Start,
-                DisplayNode::padding(Insets::uniform(resolved.label_padding), text_node),
+                Insets::uniform(resolved.label_padding),
             ));
         }
 
@@ -163,13 +164,11 @@ impl Widget for TextInputWidget {
             ));
         }
         if !overlay_nodes.is_empty() {
-            children.push(DisplayNode::align(
+            children.push(content_box(
+                DisplayNode::stack(overlay_nodes),
                 DisplayAlign::Start,
                 DisplayAlign::Start,
-                DisplayNode::padding(
-                    Insets::uniform(label_padding),
-                    DisplayNode::stack(overlay_nodes),
-                ),
+                Insets::uniform(label_padding),
             ));
         }
     }

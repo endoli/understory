@@ -8,9 +8,13 @@ use alloc::vec::Vec;
 use peniko::Brush;
 use understory_display::{DisplayAlign, DisplayNode, Insets};
 
+
 use understory_style::ResourceKey;
 
-use crate::{ButtonClass, Element, ElementId, ResolvedElement, ThemeKeys, Widget, text_label_node};
+use crate::{
+    ButtonClass, Element, ElementId, ResolvedElement, ThemeKeys, Widget, content_box,
+    text_label_node,
+};
 
 
 /// Interactive push button widget with horizontally padded, vertically
@@ -35,10 +39,11 @@ impl Widget for ButtonWidget {
             return;
         }
         let text_node = text_label_node(label, Brush::Solid(resolved.foreground), resolved);
-        children.push(DisplayNode::align(
+        children.push(content_box(
+            text_node,
             DisplayAlign::Start,
             DisplayAlign::Center,
-            DisplayNode::padding(Insets::symmetric(resolved.label_padding, 0.0), text_node),
+            Insets::symmetric(resolved.label_padding, 0.0),
         ));
     }
 

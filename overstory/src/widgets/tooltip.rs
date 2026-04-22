@@ -95,10 +95,11 @@ impl Widget for TooltipWidget {
             &*resolved.font_family,
             resolved.text_align,
         );
-        children.push(DisplayNode::align(
+        children.push(crate::content_box(
+            text_node,
             DisplayAlign::Start,
             DisplayAlign::Center,
-            DisplayNode::padding(Insets::uniform(TOOLTIP_PADDING), text_node),
+            Insets::uniform(TOOLTIP_PADDING),
         ));
     }
 
