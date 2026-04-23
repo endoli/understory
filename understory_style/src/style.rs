@@ -5,6 +5,13 @@
 //!
 //! This module provides [`Style`], a shared collection of property setters
 //! that can be referenced by multiple elements.
+//!
+//! Styles can now carry either:
+//! - literal property values, or
+//! - theme resource references via [`StyleBuilder::set_resource`].
+//!
+//! That second form is useful when selectors should choose *which semantic
+//! token applies* while the active theme still owns the concrete value.
 
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -124,6 +131,10 @@ impl Style {
     }
 
     /// Returns the raw style entry for a property, if present.
+    ///
+    /// This is primarily useful for higher-level cascade machinery that needs
+    /// to preserve either a literal property value or a theme resource
+    /// reference before final resolution.
     #[must_use]
     pub fn value_ref<T: Clone + 'static>(
         &self,
@@ -193,6 +204,9 @@ impl StyleBuilder {
     }
 
     /// Sets a property to resolve from a theme resource key.
+    ///
+    /// Use this when the style should select a semantic theme token rather than
+    /// pinning a literal value directly into the style.
     #[must_use]
     pub fn set_resource<T: Clone + 'static>(
         mut self,

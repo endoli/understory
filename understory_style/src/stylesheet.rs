@@ -6,6 +6,10 @@
 //! A [`StyleSheet`] is a collection of [`StyleRule`]s. Each rule combines a
 //! [`Selector`] predicate and a [`Style`] payload (property setters).
 //!
+//! Because [`Style`] can carry theme resource references, stylesheet rules can
+//! now express policy like "hovered primary buttons use the accent-emphasized
+//! token" without hard-coding a concrete color in the rule itself.
+//!
 //! This module is intentionally limited to single-element matching (no
 //! combinators). The embedder is responsible for providing a [`SelectorInputs`]
 //! snapshot for each element.
@@ -99,6 +103,10 @@ impl StyleSheet {
     }
 
     /// Returns the best matching style entry for a property in this sheet.
+    ///
+    /// The returned entry may be either a literal value or a theme resource
+    /// reference. Final resolution is left to higher layers such as
+    /// [`crate::ResolveCx`].
     #[must_use]
     pub fn get_entry_ref<T: Clone + 'static>(
         &self,
@@ -240,6 +248,10 @@ impl StyleCascade {
     }
 
     /// Returns the best Style-layer entry for a property.
+    ///
+    /// The returned entry may be either a literal value or a theme resource
+    /// reference. This preserves the distinction between selector policy and
+    /// theme values until final resolution.
     #[must_use]
     pub fn get_entry_ref<T: Clone + 'static>(
         &self,

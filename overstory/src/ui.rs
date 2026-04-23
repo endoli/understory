@@ -24,6 +24,18 @@ use crate::{
 };
 
 /// Retained Overstory UI state.
+///
+/// `Ui` owns:
+/// - the retained element tree,
+/// - built-in dependency properties,
+/// - the active theme,
+/// - built-in style defaults for Overstory's element/widget vocabulary,
+/// - runtime interaction state.
+///
+/// Styling is resolved by combining:
+/// 1. built-in Overstory cascades,
+/// 2. per-element cascades set by the host,
+/// 3. semantic theme resources from the active [`Theme`].
 #[derive(Debug)]
 pub struct Ui {
     registry: PropertyRegistry,
@@ -45,6 +57,9 @@ pub struct Ui {
 
 impl Ui {
     /// Creates a new retained UI with a single root element.
+    ///
+    /// The returned UI also initializes Overstory's built-in style defaults,
+    /// which map built-in element/widget states onto semantic [`ThemeKeys`].
     #[must_use]
     pub fn new(theme: Theme) -> Self {
         let mut registry = PropertyRegistry::new();
@@ -907,6 +922,11 @@ impl Ui {
 }
 
 /// Default theme used by Overstory examples and tests.
+///
+/// This theme fills the semantic token vocabulary in [`ThemeKeys`]. Widget and
+/// interaction-state-specific behavior is not encoded here; built-in cascades
+/// decide when to use tokens such as `CONTROL_BACKGROUND_EMPHASIZED` or
+/// `ACCENT_BACKGROUND_STRONG`.
 #[must_use]
 pub fn default_theme() -> Theme {
     ThemeBuilder::new()

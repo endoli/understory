@@ -1,7 +1,22 @@
 // Copyright 2026 the Overstory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Built-in dependency properties and theme keys for Overstory.
+//! Built-in dependency properties and semantic theme tokens for Overstory.
+//!
+//! # Styling model
+//!
+//! Overstory now splits styling responsibility three ways:
+//!
+//! - [`ThemeKeys`] names semantic resources such as surfaces, controls, and
+//!   accent colors.
+//! - built-in style cascades choose which tokens apply to built-in element and
+//!   widget states.
+//! - app/host styles can further override properties through the normal
+//!   `understory_style` cascade.
+//!
+//! `ThemeKeys` intentionally does **not** encode widget-state outputs such as
+//! "button hover background" or "splitter active background". Those decisions
+//! belong in selectors and cascades, not in the theme namespace.
 
 use alloc::boxed::Box;
 
@@ -26,7 +41,11 @@ impl DirtyChannels {
     pub const INTERACTION: Channel = Channel::new(3);
 }
 
-/// Theme resource keys used by the first Overstory slice.
+/// Semantic theme resource keys used by the first Overstory slice.
+///
+/// These keys are design tokens, not widget-state-specific outputs. Built-in
+/// Overstory styles map element type/class/pseudo combinations onto these
+/// resources, and the active theme supplies the actual values.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct ThemeKeys;
 

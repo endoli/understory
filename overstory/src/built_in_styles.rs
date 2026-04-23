@@ -2,6 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Built-in element/widget style cascades expressed in semantic theme tokens.
+//!
+//! This module is the default widget-policy layer for Overstory:
+//!
+//! - [`crate::ThemeKeys`] provides semantic tokens.
+//! - these built-in cascades decide which tokens apply to built-in controls and
+//!   interaction states.
+//! - host-provided element styles are composed *after* these defaults in scene
+//!   resolution.
+//!
+//! This keeps widget styling policy in the stylesheet system instead of
+//! scattering it across widget-specific theme-key hooks.
 
 use understory_style::{
     IdSet, Selector, StyleBuilder, StyleCascade, StyleCascadeBuilder, StyleOrigin,

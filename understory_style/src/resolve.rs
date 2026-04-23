@@ -5,6 +5,10 @@
 //!
 //! This module provides [`ResolveCx`], which bundles everything needed to
 //! resolve property values through the full precedence chain.
+//!
+//! In addition to literal style values, the resolution path also handles
+//! style-layer theme-resource references. That lets selectors choose semantic
+//! tokens while the active [`Theme`] supplies the actual value.
 
 use understory_property::{
     DependencyObject, ParentLookup, Property, PropertyRegistry, walk_inherited_ref,
@@ -21,6 +25,10 @@ use crate::theme::Theme;
 /// the full WinUI-style precedence chain:
 ///
 /// **Animation → Local → Style → Theme → Inherited → Default**
+///
+/// The "Style" step may itself contribute either:
+/// - a literal property value, or
+/// - a theme resource reference chosen by a selector.
 ///
 /// # Type Parameters
 ///
@@ -209,7 +217,7 @@ where
     /// Precedence (highest to lowest):
     /// 1. Animation value on the object
     /// 2. Local value on the object
-    /// 3. Style value (if style provided)
+    /// 3. Style value or style-selected theme resource (if style provided)
     /// 4. Inherited value (if property inherits, walks parent chain)
     /// 5. Default value from registry
     ///
@@ -308,7 +316,7 @@ where
     ///
     /// 1. Animation value on the object
     /// 2. Local value on the object
-    /// 3. Style value (if style provided)
+    /// 3. Style value or style-selected theme resource (if style provided)
     /// 4. Theme resource (if `resource_key` provided and present in theme)
     /// 5. Inherited value (if property inherits)
     /// 6. Default value from registry
