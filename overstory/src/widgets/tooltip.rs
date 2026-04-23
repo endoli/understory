@@ -3,7 +3,7 @@
 
 //! Tooltip widget — promoted overlay surface with text content.
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 use peniko::Brush;
 use understory_display::{DisplayAlign, DisplayNode, Insets};
@@ -24,6 +24,7 @@ const TOOLTIP_FONT_SIZE: f64 = 13.0;
 pub struct Tooltip {
     trigger: ElementId,
     visible: bool,
+    text: Box<str>,
     /// Desired position in root coordinates (set by `update_tooltips`).
     position: Option<kurbo::Point>,
 }
@@ -35,6 +36,7 @@ impl Tooltip {
         Self {
             trigger,
             visible: false,
+            text: Box::from(""),
             position: None,
         }
     }
@@ -66,6 +68,17 @@ impl Tooltip {
     pub fn set_position(&mut self, position: kurbo::Point) {
         self.position = Some(position);
     }
+
+    /// Returns the tooltip text.
+    #[must_use]
+    pub fn text(&self) -> Option<&str> {
+        (!self.text.is_empty()).then_some(self.text.as_ref())
+    }
+
+    /// Replaces the tooltip text.
+    pub fn set_text(&mut self, text: impl Into<Box<str>>) {
+        self.text = text.into();
+    }
 }
 
 impl Widget for Tooltip {
@@ -78,10 +91,10 @@ impl Widget for Tooltip {
     }
 
     fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
-        let Some(label) = resolved.label.as_deref() else {
+        let Some(text) = resolved.text.as_deref() else {
             return;
         };
-        if label.is_empty() {
+        if text.is_empty() {
             return;
         }
         #[allow(
@@ -89,7 +102,7 @@ impl Widget for Tooltip {
             reason = "Font size is a small positive value; f32 is sufficient."
         )]
         let text_node = DisplayNode::text(
-            label,
+            text,
             Brush::Solid(resolved.foreground),
             TOOLTIP_FONT_SIZE as f32,
             &*resolved.font_family,

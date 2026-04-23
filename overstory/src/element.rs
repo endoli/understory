@@ -141,7 +141,12 @@ pub struct Element {
     pub(crate) horizontal: bool,
     /// Whether this element is the root viewport element.
     pub(crate) is_root: bool,
-    pub(crate) label: Option<Box<str>>,
+    /// Short human-readable name for debugging and inspection.
+    ///
+    /// This is not the authoritative text content for text-bearing widgets.
+    /// Widgets that own text should store it themselves and expose it through
+    /// their widget implementation.
+    pub(crate) display_name: Option<Box<str>>,
     pub(crate) store: PropertyStore<ElementId>,
     pub(crate) classes: IdSet<ClassId>,
     pub(crate) style: Option<StyleCascade>,
@@ -170,7 +175,7 @@ impl Element {
             is_container: false,
             horizontal: false,
             is_root: false,
-            label: None,
+            display_name: None,
             store: PropertyStore::new(id),
             classes: IdSet::default(),
             style: None,
@@ -203,10 +208,19 @@ impl Element {
         &self.children
     }
 
-    /// Returns the optional label text.
+    /// Returns the optional human-readable display name.
+    #[must_use]
+    pub fn display_name(&self) -> Option<&str> {
+        self.display_name.as_deref()
+    }
+
+    /// Returns the optional human-readable display name.
+    ///
+    /// This is retained as a compatibility alias while callers move toward
+    /// [`Self::display_name`].
     #[must_use]
     pub fn label(&self) -> Option<&str> {
-        self.label.as_deref()
+        self.display_name()
     }
 
     pub(crate) fn selector_inputs<'a>(

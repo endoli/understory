@@ -206,7 +206,9 @@ impl TranscriptViewController {
     ) {
         let show_text = presentation.visible && !presentation.text.is_empty();
         ui.set_local(ids.row, ui.properties().visible, presentation.visible);
-        ui.set_label(ids.text, presentation.text);
+        ui.widget_mut::<overstory::widgets::TextBlock>(ids.text)
+            .expect("transcript rows use text block children")
+            .set_text(presentation.text);
         ui.set_local(ids.text, ui.properties().visible, show_text);
         ui.set_local(
             ids.spinner,
@@ -320,7 +322,11 @@ mod tests {
         controller.sync_default(&mut ui, &transcript);
 
         let row = controller.row_ids(entry).expect("row ids");
-        assert_eq!(ui.element(row.text).and_then(|e| e.label()), Some("hello"));
+        assert_eq!(
+            ui.display_name(row.text),
+            Some("hello"),
+            "text-bearing rows should expose their widget text through display_name"
+        );
         let expected = *ui
             .theme()
             .get(ThemeKeys::CONTROL_BACKGROUND)

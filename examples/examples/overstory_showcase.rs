@@ -93,12 +93,16 @@ fn build_showcase_ui() -> Ui {
     ui.set_local(actions, ui.properties().gap, 10.0);
 
     let compose = ui.append_child(actions, overstory::TYPE_BUTTON);
-    ui.set_label(compose, "Compose");
+    ui.widget_mut::<overstory::widgets::Button>(compose)
+        .expect("compose should be a button")
+        .set_text("Compose");
     ui.add_button_class(compose, ButtonClass::Primary);
     ui.set_style(compose, button_cascade.clone());
 
     let archive = ui.append_child(actions, overstory::TYPE_BUTTON);
-    ui.set_label(archive, "Archive");
+    ui.widget_mut::<overstory::widgets::Button>(archive)
+        .expect("archive should be a button")
+        .set_text("Archive");
     ui.set_style(archive, button_cascade.clone());
 
     let content = ui.append_child(shell, overstory::TYPE_PANEL);
@@ -110,12 +114,16 @@ fn build_showcase_ui() -> Ui {
     ui.set_local(content_column, ui.properties().gap, 12.0);
 
     let search = ui.append_child(content_column, overstory::TYPE_BUTTON);
-    ui.set_label(search, "Search");
+    ui.widget_mut::<overstory::widgets::Button>(search)
+        .expect("search should be a button")
+        .set_text("Search");
     ui.set_style(search, button_cascade.clone());
     ui.set_local(search, ui.properties().height, 52.0);
 
     let settings = ui.append_child(content_column, overstory::TYPE_BUTTON);
-    ui.set_label(settings, "Settings");
+    ui.widget_mut::<overstory::widgets::Button>(settings)
+        .expect("settings should be a button")
+        .set_text("Settings");
     ui.set_style(settings, button_cascade);
 
     ui
@@ -157,7 +165,7 @@ fn print_scene(ui: &mut Ui) {
         let indent = "  ".repeat(element.depth as usize);
         let background = element.background.to_rgba8();
         println!(
-            "{}{:?} {:?} rect=({:.0},{:.0})-({:.0},{:.0}) bg=rgba({:02x},{:02x},{:02x},{:02x}) border={} hover={} pressed={} label={}",
+            "{}{:?} {:?} rect=({:.0},{:.0})-({:.0},{:.0}) bg=rgba({:02x},{:02x},{:02x},{:02x}) border={} hover={} pressed={} text={}",
             indent,
             element.type_tag,
             element.id,
@@ -172,7 +180,7 @@ fn print_scene(ui: &mut Ui) {
             element.border.width,
             element.hovered,
             element.pressed,
-            element.label.as_deref().unwrap_or("-"),
+            element.text.as_deref().unwrap_or("-"),
         );
     }
 }
@@ -190,7 +198,7 @@ fn print_interactions(batch: &overstory::InteractionBatch) {
 fn find_by_label(ui: &Ui, label: &str) -> Option<ElementId> {
     ui.elements()
         .iter()
-        .find(|element| element.label() == Some(label))
+        .find(|element| ui.display_name(element.id()) == Some(label))
         .map(|element| element.id())
 }
 

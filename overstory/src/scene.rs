@@ -19,6 +19,7 @@ use crate::{
     BuiltInProperties, Color, Element, ElementId, PSEUDO_DISABLED, PSEUDO_FOCUSED, PSEUDO_HOVER,
     PSEUDO_PRESSED, TYPE_SCROLL_VIEW, ThemeKeys, Widget, WidgetArena, WidgetHandle,
     built_in_styles::BuiltInStyles,
+    widget::widget_text,
 };
 
 /// Border styling for one resolved element.
@@ -58,21 +59,21 @@ pub struct ResolvedElement {
     pub border: BorderStyle,
     /// Corner radius.
     pub corner_radius: f64,
-    /// Optional label text.
-    pub label: Option<Box<str>>,
+    /// Optional widget-owned text content.
+    pub text: Option<Box<str>>,
     /// Hover state at snapshot time.
     pub hovered: bool,
     /// Press state at snapshot time.
     pub pressed: bool,
     /// Focus state at snapshot time.
     pub focused: bool,
-    /// Resolved font size for label text.
+    /// Resolved font size for text content.
     pub font_size: f64,
-    /// Resolved horizontal label padding.
+    /// Resolved horizontal text padding.
     pub label_padding: f64,
-    /// Font family for label text.
+    /// Font family for text content.
     pub font_family: Box<str>,
-    /// Text alignment for label text.
+    /// Text alignment for text content.
     pub text_align: TextAlign,
     /// Whether this element clips its children to its bounds.
     pub clips_content: bool,
@@ -273,12 +274,11 @@ impl<'a> SceneBuilder<'a> {
                 width: style.border_width,
             },
             corner_radius: style.corner_radius,
-            label: element
+            text: element
                 .widget
                 .and_then(|h| self.widget_arena.get(h))
-                .and_then(|w| w.label())
-                .map(Box::from)
-                .or_else(|| element.label.clone()),
+                .and_then(widget_text)
+                .map(Box::from),
             hovered: element.pseudos.hovered,
             pressed: element.pseudos.pressed,
             focused: element.pseudos.focused,
@@ -462,8 +462,12 @@ impl<'a> SceneBuilder<'a> {
         }
 
         if !element.is_container {
-            // Measure text height for leaf elements with labels using Parley.
-            if let Some(label) = element.label.as_deref() {
+            // Measure text height for leaf elements with widget-owned text.
+            let widget_text = element
+                .widget
+                .and_then(|handle| self.widget_arena.get(handle))
+                .and_then(widget_text);
+            if let Some(label) = widget_text {
                 let font_size = if style.font_size > 0.0 {
                     style.font_size
                 } else {

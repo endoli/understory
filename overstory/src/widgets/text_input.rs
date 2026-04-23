@@ -70,6 +70,11 @@ impl TextInput {
         self.editor.raw_text()
     }
 
+    /// Replaces the text buffer content.
+    pub fn set_text(&mut self, text: &str) {
+        self.editor.set_text(text);
+    }
+
     /// Sets the placeholder text shown when the input is empty and unfocused.
     pub fn set_placeholder(&mut self, placeholder: impl Into<alloc::string::String>) {
         self.placeholder = Some(placeholder.into());
@@ -172,13 +177,13 @@ impl Widget for TextInput {
 
     fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
         // Render the text content.
-        let is_empty = resolved.label.as_deref().is_none_or(|l| l.is_empty());
+        let is_empty = resolved.text.as_deref().is_none_or(|l| l.is_empty());
         let show_placeholder = is_empty && self.placeholder.is_some();
 
         let display_text = if show_placeholder {
             self.placeholder.as_deref()
         } else {
-            resolved.label.as_deref()
+            resolved.text.as_deref()
         };
 
         if let Some(label) = display_text
@@ -368,11 +373,6 @@ impl Widget for TextInput {
         self.cached_selection_rects = rects;
     }
 
-    fn label(&self) -> Option<&str> {
-        let text = self.editor.raw_text();
-        if text.is_empty() { None } else { Some(text) }
-    }
-
     fn default_pickable(&self) -> bool {
         true
     }
@@ -398,7 +398,7 @@ mod tests {
     use peniko::Color;
     use understory_display::{DisplayNodeKind, TextAlign, TextEngine};
 
-    fn resolved_text_input(rect: Rect, label: &str) -> ResolvedElement {
+    fn resolved_text_input(rect: Rect, text: &str) -> ResolvedElement {
         ResolvedElement {
             id: ElementId::new(1),
             type_tag: TYPE_TEXT_INPUT,
@@ -408,7 +408,7 @@ mod tests {
             foreground: Color::BLACK,
             border: BorderStyle::default(),
             corner_radius: 0.0,
-            label: Some(Box::<str>::from(label)),
+            text: Some(Box::<str>::from(text)),
             hovered: false,
             pressed: false,
             focused: true,

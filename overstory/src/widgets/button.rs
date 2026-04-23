@@ -1,9 +1,9 @@
 // Copyright 2026 the Overstory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Button widget with centered label text.
+//! Button widget with centered text content.
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 use cursor_icon::CursorIcon;
 use peniko::Brush;
@@ -14,25 +14,40 @@ use crate::{Element, ElementId, ResolvedElement, Widget, content_box, text_label
 /// Interactive push button widget with horizontally padded, vertically
 /// centered label text.
 #[derive(Clone, Debug, Default)]
-pub struct Button;
+pub struct Button {
+    text: Box<str>,
+}
 
 impl Button {
     /// Creates a new button widget.
     #[must_use]
     pub fn new() -> Self {
-        Self
+        Self {
+            text: Box::from(""),
+        }
+    }
+
+    /// Returns the button text.
+    #[must_use]
+    pub fn text(&self) -> Option<&str> {
+        (!self.text.is_empty()).then_some(self.text.as_ref())
+    }
+
+    /// Replaces the button text.
+    pub fn set_text(&mut self, text: impl Into<Box<str>>) {
+        self.text = text.into();
     }
 }
 
 impl Widget for Button {
     fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
-        let Some(label) = resolved.label.as_deref() else {
+        let Some(text) = resolved.text.as_deref() else {
             return;
         };
-        if label.is_empty() {
+        if text.is_empty() {
             return;
         }
-        let text_node = text_label_node(label, Brush::Solid(resolved.foreground), resolved);
+        let text_node = text_label_node(text, Brush::Solid(resolved.foreground), resolved);
         children.push(content_box(
             text_node,
             DisplayAlign::Start,

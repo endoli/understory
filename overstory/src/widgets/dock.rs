@@ -147,14 +147,13 @@ impl DockPaneController {
         for id in &self.hidden {
             ui.set_local(*id, ui.properties().visible, !self.collapsed);
         }
-        ui.set_label(
-            self.ids.toggle,
-            if self.collapsed {
+        ui.widget_mut::<crate::widgets::Button>(self.ids.toggle)
+            .expect("dock toggle uses a button widget")
+            .set_text(if self.collapsed {
                 self.style.collapsed_label.clone()
             } else {
                 self.style.expanded_label.clone()
-            },
-        );
+            });
         ui.set_local(
             self.ids.toggle,
             ui.properties().width,
@@ -243,6 +242,6 @@ mod tests {
         assert_eq!(scene.resolved_element(pane).unwrap().rect.width(), 44.0);
         assert!(scene.resolved_element(splitter).is_none());
         assert!(scene.resolved_element(hidden).is_none());
-        assert_eq!(ui.element(toggle).and_then(|e| e.label()), Some("⟨"));
+        assert_eq!(ui.display_name(toggle), Some("⟨"));
     }
 }

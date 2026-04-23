@@ -66,7 +66,7 @@ struct ElementNode {
     parent: Option<ElementId>,
     children: Vec<ElementId>,
     type_tag: TypeTag,
-    label: Option<String>,
+    display_name: Option<String>,
 }
 
 impl ElementTreeModel {
@@ -78,7 +78,7 @@ impl ElementTreeModel {
                 parent: e.parent(),
                 children: e.children().to_vec(),
                 type_tag: e.type_tag(),
-                label: e.label().map(String::from),
+                display_name: ui.display_name(e.id()).map(String::from),
             })
             .collect();
         Self {
@@ -138,11 +138,11 @@ impl OutlineModel for ElementTreeModel {
     fn item(&self, key: &Self::Key) -> Option<Self::Item> {
         let node = self.node(key)?;
         let name = type_tag_name(node.type_tag);
-        if let Some(label) = &node.label {
-            let short = if label.len() > 20 {
-                format!("{}...", &label[..20])
+        if let Some(display_name) = &node.display_name {
+            let short = if display_name.len() > 20 {
+                format!("{}...", &display_name[..20])
             } else {
-                label.clone()
+                display_name.clone()
             };
             Some(format!("{name} \"{short}\""))
         } else {
@@ -801,11 +801,11 @@ impl DemoApp {
                 let selected = self.selected_element == Some(row.key);
                 let marker = if selected { "● " } else { "" };
                 let label = format!("{indent}{disclosure}{marker}{item}");
-                self.ui.set_label(*block, label);
+                set_text_block_text(&mut self.ui, *block, label);
                 self.ui
                     .set_local(*block, self.ui.properties().visible, true);
             } else {
-                self.ui.set_label(*block, "");
+                set_text_block_text(&mut self.ui, *block, "");
                 self.ui
                     .set_local(*block, self.ui.properties().visible, false);
             }
@@ -842,10 +842,10 @@ impl DemoApp {
                         value: PropertyValue::Text(format!("{sel:?}")),
                     },
                 ];
-                if let Some(label) = &resolved.label {
+                if let Some(text) = &resolved.text {
                     p.push(PropertyRow {
-                        name: "label".into(),
-                        value: PropertyValue::Text(label.to_string()),
+                        name: "text".into(),
+                        value: PropertyValue::Text(text.to_string()),
                     });
                 }
                 let r = resolved.rect;
@@ -1010,12 +1010,12 @@ impl DemoApp {
         for i in 0..self.prop_row_elements.len() {
             let row = &mut self.prop_row_elements[i];
             if let Some(prop) = props.get(i) {
-                self.ui.set_label(row.name, prop.name.as_str());
+                set_text_block_text(&mut self.ui, row.name, prop.name.as_str());
                 self.ui
                     .set_local(row.row, self.ui.properties().visible, true);
                 match &prop.value {
                     PropertyValue::Text(value) => {
-                        self.ui.set_label(row.value, value.as_str());
+                        set_text_block_text(&mut self.ui, row.value, value.as_str());
                         self.ui
                             .set_local(row.swatch, self.ui.properties().visible, false);
                         self.ui
@@ -1026,7 +1026,7 @@ impl DemoApp {
                         }
                     }
                     PropertyValue::Color(color) => {
-                        self.ui.set_label(row.value, format_color(*color));
+                        set_text_block_text(&mut self.ui, row.value, format_color(*color));
                         self.ui
                             .set_local(row.swatch, self.ui.properties().visible, true);
                         self.ui
@@ -1062,7 +1062,7 @@ impl DemoApp {
                                 .measure_text(&chip.label, 10.0, "sans-serif", None)
                                 .width
                                 + 14.0;
-                            self.ui.set_label(*chip_id, chip.label.as_str());
+                            set_text_block_text(&mut self.ui, *chip_id, chip.label.as_str());
                             self.ui
                                 .set_local(*chip_id, self.ui.properties().width, width);
                             self.ui.set_local(
@@ -1085,8 +1085,8 @@ impl DemoApp {
                     }
                 }
             } else {
-                self.ui.set_label(row.name, "");
-                self.ui.set_label(row.value, "");
+                set_text_block_text(&mut self.ui, row.name, "");
+                set_text_block_text(&mut self.ui, row.value, "");
                 self.ui
                     .set_local(row.swatch, self.ui.properties().visible, false);
                 self.ui
@@ -1754,7 +1754,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
     ui.set_local(inspector_toggle, ui.properties().width, 112.0);
 
     let inspector_tree_label = ui.append_child(inspector_column, overstory::TYPE_TEXT_BLOCK);
-    ui.set_label(inspector_tree_label, "Element Tree");
+    set_text_block_text(&mut ui, inspector_tree_label, "Element Tree");
     ui.set_local(inspector_tree_label, ui.properties().font_size, 11.0);
     ui.set_local(inspector_tree_label, ui.properties().label_padding, 2.0);
 
@@ -1771,7 +1771,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
     let _ = ui.append_child(inspector_column, overstory::TYPE_DIVIDER);
 
     let inspector_props_label = ui.append_child(inspector_column, overstory::TYPE_TEXT_BLOCK);
-    ui.set_label(inspector_props_label, "Properties");
+    set_text_block_text(&mut ui, inspector_props_label, "Properties");
     ui.set_local(inspector_props_label, ui.properties().font_size, 11.0);
     ui.set_local(inspector_props_label, ui.properties().label_padding, 2.0);
 
@@ -1804,7 +1804,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
         overstory::TYPE_TOOLTIP,
         Some(Box::new(overstory::widgets::Tooltip::new(deploy))),
     );
-    ui.set_label(tooltip, "Ships to production");
+    set_tooltip_text(&mut ui, tooltip, "Ships to production");
     ui.set_local(tooltip, ui.properties().height, 28.0);
     ui.set_local(tooltip, ui.properties().width, 150.0);
     ui.set_local(tooltip, ui.properties().corner_radius, 4.0);
@@ -1885,6 +1885,24 @@ fn inspector_dock_style(roomy: bool) -> DockPaneStyle {
 fn format_color(color: Color) -> String {
     let rgba = color.to_rgba8();
     format!("#{:02x}{:02x}{:02x}{:02x}", rgba.r, rgba.g, rgba.b, rgba.a)
+}
+
+fn set_button_text(ui: &mut Ui, id: ElementId, text: impl Into<Box<str>>) {
+    ui.widget_mut::<overstory::widgets::Button>(id)
+        .expect("element should host a Button widget")
+        .set_text(text);
+}
+
+fn set_text_block_text(ui: &mut Ui, id: ElementId, text: impl Into<Box<str>>) {
+    ui.widget_mut::<overstory::widgets::TextBlock>(id)
+        .expect("element should host a TextBlock widget")
+        .set_text(text);
+}
+
+fn set_tooltip_text(ui: &mut Ui, id: ElementId, text: impl Into<Box<str>>) {
+    ui.widget_mut::<overstory::widgets::Tooltip>(id)
+        .expect("element should host a Tooltip widget")
+        .set_text(text);
 }
 
 fn active_badge(label: impl Into<String>, background: Color) -> PropertyBadge {
@@ -2296,7 +2314,7 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
 
         let button = ui.append_child(ui.root(), overstory::TYPE_BUTTON);
-        ui.set_label(button, "Big");
+        set_button_text(&mut ui, button, "Big");
         ui.set_local(button, ui.properties().font_size, 32.0);
 
         let scene = ui.scene();
@@ -2311,7 +2329,7 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
 
         let button = ui.append_child(ui.root(), overstory::TYPE_BUTTON);
-        ui.set_label(button, "Normal");
+        set_button_text(&mut ui, button, "Normal");
 
         let scene = ui.scene();
         let resolved = scene.resolved_element(button).unwrap();
@@ -2331,10 +2349,11 @@ mod tests {
         ui.set_local(column, ui.properties().gap, 8.0);
 
         let short = ui.append_child(column, overstory::TYPE_TEXT_BLOCK);
-        ui.set_label(short, "Hello");
+        set_text_block_text(&mut ui, short, "Hello");
 
         let long = ui.append_child(column, overstory::TYPE_TEXT_BLOCK);
-        ui.set_label(
+        set_text_block_text(
+            &mut ui,
             long,
             "This is a much longer message that should wrap to multiple lines in a narrow container",
         );
@@ -2364,10 +2383,10 @@ mod tests {
         ui.set_local(column, ui.properties().gap, 0.0);
 
         let a = ui.append_child(column, overstory::TYPE_TEXT_BLOCK);
-        ui.set_label(a, "First message");
+        set_text_block_text(&mut ui, a, "First message");
 
         let b = ui.append_child(column, overstory::TYPE_TEXT_BLOCK);
-        ui.set_label(b, "Second message");
+        set_text_block_text(&mut ui, b, "Second message");
 
         let scene = ui.scene();
         let a_rect = scene.resolved_element(a).unwrap().rect;
@@ -2629,7 +2648,7 @@ mod tests {
         assert_eq!(
             scene
                 .resolved_element(row_ids.text)
-                .and_then(|resolved| resolved.label.as_deref()),
+                .and_then(|resolved| resolved.text.as_deref()),
             Some("Hello")
         );
     }
@@ -2643,7 +2662,7 @@ mod tests {
         let background_row = app
             .prop_row_elements
             .iter()
-            .find(|row| app.ui.element(row.name).and_then(|e| e.label()) == Some("background"))
+            .find(|row| app.ui.display_name(row.name) == Some("background"))
             .cloned()
             .expect("background row should exist");
 
@@ -2657,7 +2676,7 @@ mod tests {
         let expected_label = format_color(deploy.background);
         assert_eq!(swatch.background, deploy.background);
         assert_eq!(
-            app.ui.element(background_row.value).and_then(|e| e.label()),
+            app.ui.display_name(background_row.value),
             Some(expected_label.as_str())
         );
     }
@@ -2671,7 +2690,7 @@ mod tests {
         let state_row = app
             .prop_row_elements
             .iter()
-            .find(|row| app.ui.element(row.name).and_then(|e| e.label()) == Some("state"))
+            .find(|row| app.ui.display_name(row.name) == Some("state"))
             .cloned()
             .expect("state row should exist");
         let state_chip_info: Vec<_> = state_row
@@ -2679,8 +2698,7 @@ mod tests {
             .iter()
             .filter_map(|chip| {
                 app.ui
-                    .element(*chip)
-                    .and_then(|e| e.label())
+                    .display_name(*chip)
                     .map(|label| (*chip, label.to_string()))
             })
             .collect();
@@ -2705,7 +2723,7 @@ mod tests {
         let clips_row = app
             .prop_row_elements
             .iter()
-            .find(|row| app.ui.element(row.name).and_then(|e| e.label()) == Some("clips"))
+            .find(|row| app.ui.display_name(row.name) == Some("clips"))
             .cloned()
             .expect("clips row should exist");
         let clip_chip_info: Vec<_> = clips_row
@@ -2713,8 +2731,7 @@ mod tests {
             .iter()
             .filter_map(|chip| {
                 app.ui
-                    .element(*chip)
-                    .and_then(|e| e.label())
+                    .display_name(*chip)
                     .map(|label| (*chip, label.to_string()))
             })
             .collect();
@@ -2787,7 +2804,7 @@ fn append_button(
     primary: bool,
 ) -> ElementId {
     let button = ui.append_child(parent, overstory::TYPE_BUTTON);
-    ui.set_label(button, label);
+    set_button_text(ui, button, label);
     ui.set_style(button, cascade.clone());
     ui.set_local(button, ui.properties().height, 42.0);
     if primary {

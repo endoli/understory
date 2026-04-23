@@ -252,9 +252,9 @@ impl<'a> KeyboardEventCtx<'a> {
     }
 }
 
-/// Builds a text display node from a resolved element's label and style.
+/// Builds a text display node from resolved widget text and style.
 ///
-/// This is the shared helper for all widgets that render text labels.
+/// This is the shared helper for widgets that render textual content.
 /// Uses the resolved `font_size`, `font_family`, and `text_align`
 /// which are guaranteed to have non-zero/non-empty values.
 #[must_use]
@@ -367,14 +367,6 @@ pub trait Widget {
     /// (e.g., text editor glyph positions).
     fn refresh_layout(&mut self, _text: &mut TextEngine) {}
 
-    /// Return the widget's effective label text, if any.
-    ///
-    /// Used by scene resolution to populate `ResolvedElement::label` for
-    /// widgets that generate their own text content (e.g., text input buffers).
-    fn label(&self) -> Option<&str> {
-        None
-    }
-
     /// Whether this widget makes its element pickable by default.
     fn default_pickable(&self) -> bool {
         false
@@ -437,6 +429,22 @@ macro_rules! impl_widget_any {
             self
         }
     };
+}
+
+pub(crate) fn widget_text(widget: &dyn Widget) -> Option<&str> {
+    if let Some(button) = widget.as_any().downcast_ref::<crate::widgets::Button>() {
+        return button.text();
+    }
+    if let Some(text_block) = widget.as_any().downcast_ref::<crate::widgets::TextBlock>() {
+        return text_block.text();
+    }
+    if let Some(text_input) = widget.as_any().downcast_ref::<crate::widgets::TextInput>() {
+        return (!text_input.text().is_empty()).then_some(text_input.text());
+    }
+    if let Some(tooltip) = widget.as_any().downcast_ref::<crate::widgets::Tooltip>() {
+        return tooltip.text();
+    }
+    None
 }
 
 /// Opaque handle to a widget in the [`WidgetArena`].

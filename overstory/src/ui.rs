@@ -256,12 +256,28 @@ impl Ui {
         }
     }
 
-    /// Sets the label text for an element.
+    /// Sets the human-readable display name for an element.
+    ///
+    /// This does not mutate widget-owned text content.
     pub fn set_label(&mut self, id: ElementId, label: impl Into<Box<str>>) {
         if let Some(element) = self.elements.get_mut(id.index()) {
-            element.label = Some(label.into());
+            element.display_name = Some(label.into());
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
+    }
+
+    /// Returns a short human-readable name for one element.
+    ///
+    /// Prefer this over reading [`crate::Element::label`] directly when you
+    /// want something suitable for inspectors or debug UIs.
+    #[must_use]
+    pub fn display_name(&self, id: ElementId) -> Option<&str> {
+        let element = self.elements.get(id.index())?;
+        element
+            .widget
+            .and_then(|handle| self.widget_arena.get(handle))
+            .and_then(crate::widget::widget_text)
+            .or_else(|| element.display_name())
     }
 
     /// Sets a shared style cascade on an element.
