@@ -11,6 +11,23 @@ use alloc::vec::Vec;
 
 use understory_property::{ErasedValue, Property, PropertyId};
 
+use crate::ResourceKey;
+
+#[derive(Clone, Debug)]
+enum StyleEntryValue {
+    Literal(ErasedValue),
+    Resource(ResourceKey),
+}
+
+/// One style-layer entry for a property.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum StyleValueRef<'a, T> {
+    /// A concrete typed value stored directly in the style.
+    Value(&'a T),
+    /// A theme resource key to be resolved later.
+    Resource(ResourceKey),
+}
+
 /// A shared, immutable collection of property setters.
 ///
 /// Styles store property values once and can be shared across many elements.
@@ -54,7 +71,7 @@ pub struct Style {
 #[derive(Debug, Default)]
 struct StyleData {
     /// Sorted by `PropertyId` for binary search lookup.
-    entries: Vec<(PropertyId, ErasedValue)>,
+    entries: Vec<(PropertyId, StyleEntryValue)>,
 }
 
 impl Style {
@@ -76,11 +93,10 @@ impl Style {
     #[must_use]
     #[inline]
     pub fn get<T: Clone + 'static>(&self, property: Property<T>) -> Option<&T> {
-        self.inner
-            .entries
-            .binary_search_by_key(&property.id(), |(id, _)| *id)
-            .ok()
-            .and_then(|idx| self.inner.entries[idx].1.downcast_ref())
+        match self.value_ref(property)? {
+            StyleValueRef::Value(value) => Some(value),
+            StyleValueRef::Resource(_) => None,
+        }
     }
 
     /// Returns `true` if this style has a value for the property.
@@ -93,9 +109,35 @@ impl Style {
             .is_ok()
     }
 
+    /// Returns the theme resource key for a property, if this style references one.
+    #[must_use]
+    pub fn resource_key<T: Clone + 'static>(&self, property: Property<T>) -> Option<ResourceKey> {
+        match self.value_ref(property)? {
+            StyleValueRef::Value(_) => None,
+            StyleValueRef::Resource(key) => Some(key),
+        }
+    }
+
     /// Returns an iterator over the property IDs set in this style.
     pub fn property_ids(&self) -> impl Iterator<Item = PropertyId> + '_ {
         self.inner.entries.iter().map(|(id, _)| *id)
+    }
+
+    /// Returns the raw style entry for a property, if present.
+    #[must_use]
+    pub fn value_ref<T: Clone + 'static>(
+        &self,
+        property: Property<T>,
+    ) -> Option<StyleValueRef<'_, T>> {
+        let idx = self
+            .inner
+            .entries
+            .binary_search_by_key(&property.id(), |(id, _)| *id)
+            .ok()?;
+        match &self.inner.entries[idx].1 {
+            StyleEntryValue::Literal(value) => value.downcast_ref().map(StyleValueRef::Value),
+            StyleEntryValue::Resource(key) => Some(StyleValueRef::Resource(*key)),
+        }
     }
 }
 
@@ -121,7 +163,7 @@ impl Style {
 /// ```
 #[derive(Debug, Default)]
 pub struct StyleBuilder {
-    entries: Vec<(PropertyId, ErasedValue)>,
+    entries: Vec<(PropertyId, StyleEntryValue)>,
 }
 
 impl StyleBuilder {
@@ -137,14 +179,35 @@ impl StyleBuilder {
     #[must_use]
     pub fn set<T: Clone + 'static>(mut self, property: Property<T>, value: T) -> Self {
         let id = property.id();
-        let erased = ErasedValue::new(value);
+        let entry = StyleEntryValue::Literal(ErasedValue::new(value));
 
         match self.entries.binary_search_by_key(&id, |(pid, _)| *pid) {
             Ok(idx) => {
-                self.entries[idx].1 = erased;
+                self.entries[idx].1 = entry;
             }
             Err(idx) => {
-                self.entries.insert(idx, (id, erased));
+                self.entries.insert(idx, (id, entry));
+            }
+        }
+        self
+    }
+
+    /// Sets a property to resolve from a theme resource key.
+    #[must_use]
+    pub fn set_resource<T: Clone + 'static>(
+        mut self,
+        property: Property<T>,
+        resource_key: ResourceKey,
+    ) -> Self {
+        let id = property.id();
+        let entry = StyleEntryValue::Resource(resource_key);
+
+        match self.entries.binary_search_by_key(&id, |(pid, _)| *pid) {
+            Ok(idx) => {
+                self.entries[idx].1 = entry;
+            }
+            Err(idx) => {
+                self.entries.insert(idx, (id, entry));
             }
         }
         self
@@ -226,6 +289,22 @@ mod tests {
     }
 
     #[test]
+    fn style_resource_property() {
+        let (_, width, _) = setup_registry();
+        let resource = ResourceKey::new(42);
+
+        let style = StyleBuilder::new().set_resource(width, resource).build();
+
+        assert!(style.contains(width));
+        assert_eq!(style.get(width), None);
+        assert_eq!(style.resource_key(width), Some(resource));
+        assert_eq!(
+            style.value_ref(width),
+            Some(StyleValueRef::Resource(resource))
+        );
+    }
+
+    #[test]
     fn style_clone_is_cheap() {
         let (_, width, _) = setup_registry();
 
@@ -259,7 +338,10 @@ mod tests {
         let style = StyleBuilder::new().set(width, 100.0).build();
 
         // width is f64, trying to get as i32 fails
-        let wrong: Option<&i32> = style.inner.entries[0].1.downcast_ref();
+        let StyleEntryValue::Literal(value) = &style.inner.entries[0].1 else {
+            panic!("expected literal style entry");
+        };
+        let wrong: Option<&i32> = value.downcast_ref();
         assert!(wrong.is_none());
     }
 }

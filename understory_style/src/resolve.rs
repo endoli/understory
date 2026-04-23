@@ -11,6 +11,7 @@ use understory_property::{
 };
 
 use crate::selector::SelectorInputs;
+use crate::style::StyleValueRef;
 use crate::stylesheet::StyleCascade;
 use crate::theme::Theme;
 
@@ -176,9 +177,16 @@ where
 
         // 3. Style-layer value
         if let Some(style) = style
-            && let Some(value) = style.get_value_ref(inputs, property)
+            && let Some(entry) = style.get_entry_ref(inputs, property)
         {
-            return value;
+            match entry {
+                StyleValueRef::Value(value) => return value,
+                StyleValueRef::Resource(key) => {
+                    if let Some(value) = self.theme.get::<T>(key) {
+                        return value;
+                    }
+                }
+            }
         }
 
         // 4. Inherited value (if property inherits)
@@ -259,9 +267,16 @@ where
 
         // 3. Style-layer value
         if let Some(style) = style
-            && let Some(value) = style.get_value_ref(inputs, property)
+            && let Some(entry) = style.get_entry_ref(inputs, property)
         {
-            return value;
+            match entry {
+                StyleValueRef::Value(value) => return value,
+                StyleValueRef::Resource(key) => {
+                    if let Some(value) = self.theme.get::<T>(key) {
+                        return value;
+                    }
+                }
+            }
         }
 
         // 4. Theme resource
@@ -661,6 +676,37 @@ mod tests {
             width,
             Some(&style),
             Some(ACCENT_WIDTH),
+        );
+        assert_eq!(value, 50.0);
+    }
+
+    #[test]
+    fn resolve_style_resource_over_theme_fallback() {
+        use crate::ResourceKey;
+
+        const THEME_FALLBACK: ResourceKey = ResourceKey::new(0);
+        const STYLE_TOKEN: ResourceKey = ResourceKey::new(1);
+
+        let mut registry = PropertyRegistry::new();
+        let width = registry.register("Width", PropertyMetadataBuilder::new(0.0_f64).build());
+
+        let theme = ThemeBuilder::new()
+            .set(THEME_FALLBACK, 75.0_f64)
+            .set(STYLE_TOKEN, 50.0_f64)
+            .build();
+        let style = StyleBuilder::new().set_resource(width, STYLE_TOKEN).build();
+        let style = StyleCascadeBuilder::new()
+            .push_style(StyleOrigin::Override, style)
+            .build();
+        let element = TestElement::new(1, None);
+
+        let cx = ResolveCx::new(&registry, &theme, |_: u32| None);
+        let value = cx.get_value_with_theme(
+            &element,
+            &SelectorInputs::EMPTY,
+            width,
+            Some(&style),
+            Some(THEME_FALLBACK),
         );
         assert_eq!(value, 50.0);
     }

@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 use understory_property::Property;
 
 use crate::selector::{Selector, SelectorInputs, Specificity};
-use crate::style::Style;
+use crate::style::{Style, StyleValueRef};
 
 /// The origin/strength of a style source within the Style layer.
 ///
@@ -92,13 +92,26 @@ impl StyleSheet {
         inputs: &SelectorInputs<'_>,
         property: Property<T>,
     ) -> Option<&T> {
-        let mut best: Option<(Specificity, u32, &T)> = None;
+        match self.get_entry_ref(inputs, property)? {
+            StyleValueRef::Value(value) => Some(value),
+            StyleValueRef::Resource(_) => None,
+        }
+    }
+
+    /// Returns the best matching style entry for a property in this sheet.
+    #[must_use]
+    pub fn get_entry_ref<T: Clone + 'static>(
+        &self,
+        inputs: &SelectorInputs<'_>,
+        property: Property<T>,
+    ) -> Option<StyleValueRef<'_, T>> {
+        let mut best: Option<(Specificity, u32, StyleValueRef<'_, T>)> = None;
 
         for rule in &self.inner.rules {
             if !rule.selector.matches(inputs) {
                 continue;
             }
-            let Some(value) = rule.style.get(property) else {
+            let Some(value) = rule.style.value_ref(property) else {
                 continue;
             };
 
@@ -220,17 +233,30 @@ impl StyleCascade {
         inputs: &SelectorInputs<'_>,
         property: Property<T>,
     ) -> Option<&T> {
+        match self.get_entry_ref(inputs, property)? {
+            StyleValueRef::Value(value) => Some(value),
+            StyleValueRef::Resource(_) => None,
+        }
+    }
+
+    /// Returns the best Style-layer entry for a property.
+    #[must_use]
+    pub fn get_entry_ref<T: Clone + 'static>(
+        &self,
+        inputs: &SelectorInputs<'_>,
+        property: Property<T>,
+    ) -> Option<StyleValueRef<'_, T>> {
         // Lexicographic tuple ordering gives the correct cascade priority:
         // (origin, specificity, source_index, rule_order)
         // — higher origin wins first, then higher specificity, then later
         // source, then later rule within a sheet.
         type Key = (StyleOrigin, Specificity, usize, u32);
-        let mut best: Option<(Key, &T)> = None;
+        let mut best: Option<(Key, StyleValueRef<'_, T>)> = None;
 
         for (source_index, source) in self.inner.sources.iter().enumerate() {
             match source {
                 StyleSource::Style { origin, style } => {
-                    let Some(value) = style.get(property) else {
+                    let Some(value) = style.value_ref(property) else {
                         continue;
                     };
                     let key: Key = (*origin, Specificity::default(), source_index, 0);
@@ -244,12 +270,12 @@ impl StyleCascade {
                 }
                 StyleSource::Sheet { origin, sheet } => {
                     // Find best rule in this sheet for the property.
-                    let mut sheet_best: Option<(Specificity, u32, &T)> = None;
+                    let mut sheet_best: Option<(Specificity, u32, StyleValueRef<'_, T>)> = None;
                     for rule in sheet.rules() {
                         if !rule.selector.matches(inputs) {
                             continue;
                         }
-                        let Some(value) = rule.style.get(property) else {
+                        let Some(value) = rule.style.value_ref(property) else {
                             continue;
                         };
                         let spec = rule.selector.specificity();

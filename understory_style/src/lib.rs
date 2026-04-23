@@ -153,7 +153,7 @@ mod theme;
 
 pub use resolve::ResolveCx;
 pub use selector::{ClassId, IdSet, PseudoClassId, Selector, SelectorInputs, Specificity, TypeTag};
-pub use style::{Style, StyleBuilder};
+pub use style::{Style, StyleBuilder, StyleValueRef};
 pub use stylesheet::{
     StyleCascade, StyleCascadeBuilder, StyleOrigin, StyleRule, StyleSheet, StyleSheetBuilder,
     StyleSource,
