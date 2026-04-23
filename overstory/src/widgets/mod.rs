@@ -11,10 +11,10 @@ mod text_block;
 mod text_input;
 mod tooltip;
 
-pub use button::ButtonWidget;
+pub use button::Button;
 pub use dock::{DockPaneController, DockPaneIds, DockPaneStyle};
-pub use scroll_view::ScrollViewWidget;
-pub use splitter::{SplitterAxis, SplitterSide, SplitterWidget};
-pub use text_block::TextBlockWidget;
-pub use text_input::TextInputWidget;
-pub use tooltip::TooltipWidget;
+pub use scroll_view::ScrollView;
+pub use splitter::{Splitter, SplitterAxis, SplitterSide};
+pub use text_block::TextBlock;
+pub use text_input::TextInput;
+pub use tooltip::Tooltip;

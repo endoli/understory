@@ -211,7 +211,7 @@ impl Ui {
             TYPE_ROOT | TYPE_PANEL | TYPE_COLUMN => self.append_container(parent, type_tag, false),
             TYPE_ROW => self.append_container(parent, type_tag, true),
             TYPE_SCROLL_VIEW => {
-                let widget = crate::widgets::ScrollViewWidget::new();
+                let widget = crate::widgets::ScrollView::new();
                 let id = self.append_container(parent, type_tag, false);
                 let handle = self.widget_arena.insert(Box::new(widget));
                 if let Some(element) = self.elements.get_mut(id.index()) {
@@ -222,22 +222,22 @@ impl Ui {
             TYPE_BUTTON => self.append_child_with(
                 parent,
                 type_tag,
-                Some(Box::new(crate::widgets::ButtonWidget::new())),
+                Some(Box::new(crate::widgets::Button::new())),
             ),
             TYPE_TEXT_BLOCK => self.append_child_with(
                 parent,
                 type_tag,
-                Some(Box::new(crate::widgets::TextBlockWidget::new())),
+                Some(Box::new(crate::widgets::TextBlock::new())),
             ),
             TYPE_TEXT_INPUT => self.append_child_with(
                 parent,
                 type_tag,
-                Some(Box::new(crate::widgets::TextInputWidget::new(16.0))),
+                Some(Box::new(crate::widgets::TextInput::new(16.0))),
             ),
             TYPE_SPLITTER => self.append_child_with(
                 parent,
                 type_tag,
-                Some(Box::new(crate::widgets::SplitterWidget::default())),
+                Some(Box::new(crate::widgets::Splitter::default())),
             ),
             TYPE_SPACER => self.append_child_with(parent, type_tag, None),
             _ => self.append_child_with(parent, type_tag, None),
@@ -299,7 +299,7 @@ impl Ui {
     /// Sets the vertical scroll offset on a `ScrollView` element, clamping to
     /// valid bounds.
     pub fn set_scroll_offset(&mut self, id: ElementId, offset: f64) {
-        if let Some(w) = self.widget_mut::<crate::widgets::ScrollViewWidget>(id) {
+        if let Some(w) = self.widget_mut::<crate::widgets::ScrollView>(id) {
             w.set_scroll_offset(offset);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
@@ -308,20 +308,20 @@ impl Ui {
     /// Returns the measured content height of a `ScrollView` element.
     #[must_use]
     pub fn content_height(&self, id: ElementId) -> f64 {
-        self.widget::<crate::widgets::ScrollViewWidget>(id)
+        self.widget::<crate::widgets::ScrollView>(id)
             .map_or(0.0, |w| w.content_height())
     }
 
     /// Returns the viewport height of a `ScrollView` element from last layout.
     #[must_use]
     pub fn viewport_height(&self, id: ElementId) -> f64 {
-        self.widget::<crate::widgets::ScrollViewWidget>(id)
+        self.widget::<crate::widgets::ScrollView>(id)
             .map_or(0.0, |w| w.viewport_height())
     }
 
     /// Adjusts the scroll offset by a delta on a `ScrollView` element.
     pub fn scroll_by(&mut self, id: ElementId, delta: f64) {
-        if let Some(w) = self.widget_mut::<crate::widgets::ScrollViewWidget>(id) {
+        if let Some(w) = self.widget_mut::<crate::widgets::ScrollView>(id) {
             w.scroll_by(delta);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
@@ -409,7 +409,7 @@ impl Ui {
     /// Returns the current scroll offset for an element.
     #[must_use]
     pub fn scroll_offset(&self, id: ElementId) -> f64 {
-        self.widget::<crate::widgets::ScrollViewWidget>(id)
+        self.widget::<crate::widgets::ScrollView>(id)
             .map_or(0.0, |w| w.scroll_offset())
     }
 
@@ -428,9 +428,7 @@ impl Ui {
             }
             if let Some(handle) = self.elements.get(prev.index()).and_then(|e| e.widget)
                 && let Some(w) = self.widget_arena.get_mut(handle)
-                && let Some(ti) = w
-                    .as_any_mut()
-                    .downcast_mut::<crate::widgets::TextInputWidget>()
+                && let Some(ti) = w.as_any_mut().downcast_mut::<crate::widgets::TextInput>()
             {
                 ti.stop_blink(&mut self.timers);
             }
@@ -442,9 +440,7 @@ impl Ui {
         // Start blink on newly focused TextInput.
         if let Some(handle) = self.elements.get(id.index()).and_then(|e| e.widget)
             && let Some(w) = self.widget_arena.get_mut(handle)
-            && let Some(ti) = w
-                .as_any_mut()
-                .downcast_mut::<crate::widgets::TextInputWidget>()
+            && let Some(ti) = w.as_any_mut().downcast_mut::<crate::widgets::TextInput>()
         {
             ti.start_blink(&mut self.timers, id, now);
         }
@@ -454,7 +450,7 @@ impl Ui {
     /// Returns the current text buffer for a `TextInput` element.
     #[must_use]
     pub fn text_buffer(&self, id: ElementId) -> &str {
-        self.widget::<crate::widgets::TextInputWidget>(id)
+        self.widget::<crate::widgets::TextInput>(id)
             .map_or("", |w| w.text())
     }
 
@@ -464,7 +460,7 @@ impl Ui {
     }
 
     fn clear_text_buffer_with(&mut self, id: ElementId, text: &mut TextEngine) {
-        if let Some(w) = self.widget_mut::<crate::widgets::TextInputWidget>(id) {
+        if let Some(w) = self.widget_mut::<crate::widgets::TextInput>(id) {
             w.clear(text);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
@@ -516,9 +512,7 @@ impl Ui {
             .filter_map(|el| {
                 let handle = el.widget?;
                 let widget = self.widget_arena.get(handle)?;
-                let tw = widget
-                    .as_any()
-                    .downcast_ref::<crate::widgets::TooltipWidget>()?;
+                let tw = widget.as_any().downcast_ref::<crate::widgets::Tooltip>()?;
                 Some((el.id, tw.trigger()))
             })
             .collect();
@@ -545,7 +539,7 @@ impl Ui {
         // Apply visibility and positioning.
         let mut changed = false;
         for (tooltip_id, hovered, trigger_rect) in &trigger_state {
-            if let Some(tw) = self.widget_mut::<crate::widgets::TooltipWidget>(*tooltip_id) {
+            if let Some(tw) = self.widget_mut::<crate::widgets::Tooltip>(*tooltip_id) {
                 if tw.is_visible() != *hovered {
                     tw.set_visible(*hovered);
                     changed = true;
@@ -593,7 +587,7 @@ impl Ui {
             );
             let mut needs_rebuild = false;
             for (id, content_h, viewport_h) in &scroll_metrics {
-                if let Some(w) = self.widget_mut::<crate::widgets::ScrollViewWidget>(*id) {
+                if let Some(w) = self.widget_mut::<crate::widgets::ScrollView>(*id) {
                     let old_offset = w.scroll_offset();
                     w.set_layout_metrics(*content_h, *viewport_h);
                     if (w.scroll_offset() - old_offset).abs() > f64::EPSILON {
@@ -687,7 +681,7 @@ impl Ui {
                 // Use the widget's desired position if set (e.g., tooltip
                 // positioning relative to trigger), otherwise use layout rect.
                 let bounds = self
-                    .widget::<crate::widgets::TooltipWidget>(*id)
+                    .widget::<crate::widgets::Tooltip>(*id)
                     .and_then(|tw| {
                         tw.position()
                             .map(|pos| Rect::from_origin_size(pos, layout_rect.size()))
@@ -825,7 +819,7 @@ impl Ui {
                         .expect("path checked above");
                     for &ancestor in path.iter().rev() {
                         if self
-                            .widget::<crate::widgets::ScrollViewWidget>(ancestor)
+                            .widget::<crate::widgets::ScrollView>(ancestor)
                             .is_some()
                         {
                             self.scroll_by(ancestor, -dy);
@@ -1254,7 +1248,7 @@ mod tests {
         let splitter = ui.append_child_with(
             row,
             TYPE_SPLITTER,
-            Some(Box::new(crate::widgets::SplitterWidget::vertical(left))),
+            Some(Box::new(crate::widgets::Splitter::vertical(left))),
         );
         ui.set_local(splitter, ui.properties().width, 14.0);
         ui.set_local(splitter, ui.properties().height, 240.0);
@@ -1297,7 +1291,7 @@ mod tests {
         let splitter = ui.append_child_with(
             row,
             TYPE_SPLITTER,
-            Some(Box::new(crate::widgets::SplitterWidget::vertical(left))),
+            Some(Box::new(crate::widgets::Splitter::vertical(left))),
         );
         ui.set_local(splitter, ui.properties().width, 14.0);
         ui.set_local(splitter, ui.properties().height, 240.0);
@@ -1352,7 +1346,7 @@ mod tests {
             row,
             TYPE_SPLITTER,
             Some(Box::new(
-                crate::widgets::SplitterWidget::vertical(left)
+                crate::widgets::Splitter::vertical(left)
                     .with_min_primary(140.0)
                     .with_min_secondary(220.0),
             )),

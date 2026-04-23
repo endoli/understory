@@ -14,9 +14,9 @@ use crate::{Element, ElementId, ResolvedElement, Widget, content_box, text_label
 /// Interactive push button widget with horizontally padded, vertically
 /// centered label text.
 #[derive(Clone, Debug, Default)]
-pub struct ButtonWidget;
+pub struct Button;
 
-impl ButtonWidget {
+impl Button {
     /// Creates a new button widget.
     #[must_use]
     pub fn new() -> Self {
@@ -24,7 +24,7 @@ impl ButtonWidget {
     }
 }
 
-impl Widget for ButtonWidget {
+impl Widget for Button {
     fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
         let Some(label) = resolved.label.as_deref() else {
             return;

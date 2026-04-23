@@ -1369,7 +1369,7 @@ impl DemoApp {
         let collapsed = self.inspector_dock.is_collapsed();
         if let Some(splitter) = self
             .ui
-            .widget_mut::<overstory::widgets::SplitterWidget>(self.ids.splitter)
+            .widget_mut::<overstory::widgets::Splitter>(self.ids.splitter)
         {
             splitter.set_min_secondary(
                 340.0 + panel_width + if collapsed { 0.0 } else { splitter_width },
@@ -1751,7 +1751,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
         shell,
         overstory::TYPE_SPLITTER,
         Some(Box::new(
-            overstory::widgets::SplitterWidget::vertical(sidebar)
+            overstory::widgets::Splitter::vertical(sidebar)
                 .with_min_primary(152.0)
                 .with_min_secondary(340.0),
         )),
@@ -1767,7 +1767,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
         shell,
         overstory::TYPE_SPLITTER,
         Some(Box::new(
-            overstory::widgets::SplitterWidget::default()
+            overstory::widgets::Splitter::default()
                 .with_min_primary(260.0)
                 .with_min_secondary(420.0),
         )),
@@ -1782,8 +1782,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
     );
     ui.set_local(inspector_panel, ui.properties().padding, 18.0);
     ui.set_local(inspector_panel, ui.properties().gap, 12.0);
-    if let Some(splitter) = ui.widget_mut::<overstory::widgets::SplitterWidget>(inspector_splitter)
-    {
+    if let Some(splitter) = ui.widget_mut::<overstory::widgets::Splitter>(inspector_splitter) {
         splitter.set_side(overstory::widgets::SplitterSide::Trailing);
         splitter.set_target(inspector_panel);
     }
@@ -1858,7 +1857,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
     let tooltip = ui.append_child_with(
         ui.root(),
         overstory::TYPE_TOOLTIP,
-        Some(Box::new(overstory::widgets::TooltipWidget::new(deploy))),
+        Some(Box::new(overstory::widgets::Tooltip::new(deploy))),
     );
     ui.set_label(tooltip, "Ships to production");
     ui.set_local(tooltip, ui.properties().height, 28.0);
@@ -1880,7 +1879,7 @@ fn build_demo_ui() -> (Ui, DemoIds) {
     ui.set_local(input, ui.properties().padding, 8.0);
     ui.set_local(input, ui.properties().border_width, 1.0);
     ui.set_local(input, ui.properties().corner_radius, 6.0);
-    if let Some(w) = ui.widget_mut::<overstory::widgets::TextInputWidget>(input) {
+    if let Some(w) = ui.widget_mut::<overstory::widgets::TextInput>(input) {
         w.set_placeholder("Type a message... (Cmd+Enter to send)");
     }
 

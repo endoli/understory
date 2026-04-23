@@ -21,14 +21,14 @@ const TOOLTIP_FONT_SIZE: f64 = 13.0;
 /// the trigger is hovered, and positions itself below the trigger's rect.
 /// Use [`crate::Ui::update_tooltips`] to drive visibility and positioning.
 #[derive(Clone, Debug)]
-pub struct TooltipWidget {
+pub struct Tooltip {
     trigger: ElementId,
     visible: bool,
     /// Desired position in root coordinates (set by `update_tooltips`).
     position: Option<kurbo::Point>,
 }
 
-impl TooltipWidget {
+impl Tooltip {
     /// Creates a tooltip widget associated with a trigger element.
     #[must_use]
     pub fn new(trigger: ElementId) -> Self {
@@ -68,7 +68,7 @@ impl TooltipWidget {
     }
 }
 
-impl Widget for TooltipWidget {
+impl Widget for Tooltip {
     fn surface_role(&self) -> Option<SurfaceRole> {
         if self.visible {
             Some(SurfaceRole::Tooltip)

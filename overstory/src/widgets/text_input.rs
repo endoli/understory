@@ -23,9 +23,9 @@ use crate::{
 /// Must match the resolved `label_padding` for consistent geometry.
 const CONTENT_PADDING: f64 = 12.0;
 
-impl core::fmt::Debug for TextInputWidget {
+impl core::fmt::Debug for TextInput {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TextInputWidget")
+        f.debug_struct("TextInput")
             .field("text_len", &self.editor.raw_text().len())
             .finish_non_exhaustive()
     }
@@ -36,7 +36,7 @@ impl core::fmt::Debug for TextInputWidget {
 /// Wraps Parley's [`PlainEditor`] and provides keyboard event handling,
 /// click-to-position cursor placement, and cursor/selection rendering.
 // PlainEditor doesn't implement Debug, so we can't derive it.
-pub struct TextInputWidget {
+pub struct TextInput {
     editor: PlainEditor<Brush>,
     cached_cursor_rect: Option<Rect>,
     cached_selection_rects: Vec<Rect>,
@@ -49,7 +49,7 @@ pub struct TextInputWidget {
     blink_timer: Option<crate::TimerId>,
 }
 
-impl TextInputWidget {
+impl TextInput {
     /// Creates a new text input widget with the given default font size.
     #[must_use]
     pub fn new(font_size: f32) -> Self {
@@ -137,7 +137,7 @@ impl TextInputWidget {
 /// Maximum content height before the input stops growing (padding added by scene).
 const MAX_HEIGHT: f64 = 100.0;
 
-impl Widget for TextInputWidget {
+impl Widget for TextInput {
     fn measure(
         &self,
         available: kurbo::Size,
@@ -423,7 +423,7 @@ mod tests {
 
     #[test]
     fn multiline_display_uses_uniform_padding_and_top_alignment() {
-        let widget = TextInputWidget::new(16.0_f32);
+        let widget = TextInput::new(16.0_f32);
         let resolved = resolved_text_input(Rect::new(0.0, 0.0, 240.0, 96.0), "alpha\nbeta");
         let mut children = Vec::new();
 
@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn move_cursor_to_view_point_targets_second_line_with_padded_origin() {
-        let mut widget = TextInputWidget::new(16.0_f32);
+        let mut widget = TextInput::new(16.0_f32);
         widget.editor.set_text("alpha\nbeta");
 
         let mut text = TextEngine::new();
@@ -499,14 +499,14 @@ mod tests {
         let mut text = TextEngine::new();
         let available = kurbo::Size::new(240.0, f64::INFINITY);
 
-        let mut newline_widget = TextInputWidget::new(16.0_f32);
+        let mut newline_widget = TextInput::new(16.0_f32);
         newline_widget.editor.set_text("alpha\n");
         let mut measure = MeasureCtx::new(&mut text);
         let newline_size = newline_widget
             .measure(available, &mut measure)
             .expect("text input should measure");
 
-        let mut text_widget = TextInputWidget::new(16.0_f32);
+        let mut text_widget = TextInput::new(16.0_f32);
         text_widget.editor.set_text("alpha\nb");
         let mut measure = MeasureCtx::new(&mut text);
         let text_size = text_widget

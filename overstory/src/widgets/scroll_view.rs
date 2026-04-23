@@ -9,13 +9,13 @@ use understory_display::TextEngine;
 /// Scrollable container widget that tracks scroll offset, content height,
 /// and viewport height.
 #[derive(Clone, Debug, Default)]
-pub struct ScrollViewWidget {
+pub struct ScrollView {
     scroll_offset: f64,
     content_height: f64,
     viewport_height: f64,
 }
 
-impl ScrollViewWidget {
+impl ScrollView {
     /// Creates a new scroll view widget.
     #[must_use]
     pub fn new() -> Self {
@@ -61,7 +61,7 @@ impl ScrollViewWidget {
     }
 }
 
-impl Widget for ScrollViewWidget {
+impl Widget for ScrollView {
     fn default_pickable(&self) -> bool {
         true
     }

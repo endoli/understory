@@ -38,7 +38,7 @@ pub enum SplitterSide {
 /// same row/column as the splitter. The trailing pane is expected to absorb
 /// the remaining space with `fill = true`.
 #[derive(Clone, Debug)]
-pub struct SplitterWidget {
+pub struct Splitter {
     axis: SplitterAxis,
     side: SplitterSide,
     target: Option<ElementId>,
@@ -48,7 +48,7 @@ pub struct SplitterWidget {
     dragging: bool,
 }
 
-impl Default for SplitterWidget {
+impl Default for Splitter {
     fn default() -> Self {
         Self {
             axis: SplitterAxis::Vertical,
@@ -62,7 +62,7 @@ impl Default for SplitterWidget {
     }
 }
 
-impl SplitterWidget {
+impl Splitter {
     /// Creates a vertical splitter controlling the width of one leading pane.
     #[must_use]
     pub fn vertical(target: ElementId) -> Self {
@@ -204,7 +204,7 @@ impl SplitterWidget {
     }
 }
 
-impl Widget for SplitterWidget {
+impl Widget for Splitter {
     fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
         let grip = DisplayNode::fixed_frame(
             self.grip_size(),

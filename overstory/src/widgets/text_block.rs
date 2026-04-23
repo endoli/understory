@@ -16,9 +16,9 @@ use crate::{ElementId, ResolvedElement, Widget, text_label_node};
 /// at the container width. Height is estimated from the label length and
 /// font size during scene layout.
 #[derive(Clone, Debug, Default)]
-pub struct TextBlockWidget;
+pub struct TextBlock;
 
-impl TextBlockWidget {
+impl TextBlock {
     /// Creates a new text block widget.
     #[must_use]
     pub fn new() -> Self {
@@ -26,7 +26,7 @@ impl TextBlockWidget {
     }
 }
 
-impl Widget for TextBlockWidget {
+impl Widget for TextBlock {
     fn display(&self, _id: ElementId, resolved: &ResolvedElement, children: &mut Vec<DisplayNode>) {
         let Some(label) = resolved.label.as_deref() else {
             return;

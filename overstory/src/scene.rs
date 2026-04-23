@@ -291,10 +291,7 @@ impl<'a> SceneBuilder<'a> {
                 element
                     .widget
                     .and_then(|h| self.widget_arena.get(h))
-                    .and_then(|w| {
-                        w.as_any()
-                            .downcast_ref::<crate::widgets::ScrollViewWidget>()
-                    })
+                    .and_then(|w| w.as_any().downcast_ref::<crate::widgets::ScrollView>())
                     .map_or(0.0, |w| w.scroll_offset())
             } else {
                 0.0
@@ -412,8 +409,7 @@ impl<'a> SceneBuilder<'a> {
                                 .widget
                                 .and_then(|h| self.widget_arena.get(h))
                                 .and_then(|w| {
-                                    w.as_any()
-                                        .downcast_ref::<crate::widgets::ScrollViewWidget>()
+                                    w.as_any().downcast_ref::<crate::widgets::ScrollView>()
                                 })
                                 .map_or(0.0, |w| w.scroll_offset()),
                         )),
