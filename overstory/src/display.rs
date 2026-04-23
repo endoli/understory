@@ -175,7 +175,6 @@ mod tests {
     #[test]
     fn display_tree_preserves_scene_parent_child_structure() {
         let mut ui = Ui::new(default_theme());
-        let mut text = understory_display::TextEngine::new();
         ui.set_view_rect(kurbo::Rect::new(0.0, 0.0, 220.0, 140.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 10.0);
@@ -195,7 +194,7 @@ mod tests {
         let right = ui.append_child(shell, crate::TYPE_PANEL);
         ui.set_local(right, ui.properties().padding, 8.0);
 
-        let (tree, _) = ui.display_tree(&mut text);
+        let (tree, _) = ui.display_tree();
         let root = tree.root();
         let understory_display::DisplayNodeKind::Offset { child, .. } = root.kind() else {
             panic!("expected root offset node");

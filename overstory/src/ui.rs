@@ -41,6 +41,7 @@ pub struct Ui {
     registry: PropertyRegistry,
     props: BuiltInProperties,
     theme: Theme,
+    text: Option<TextEngine>,
     elements: Vec<Element>,
     root: ElementId,
     runtime: RuntimeState,
@@ -76,6 +77,7 @@ impl Ui {
             registry,
             props,
             theme,
+            text: Some(TextEngine::new()),
             elements,
             root,
             runtime: RuntimeState::new(),
@@ -457,7 +459,11 @@ impl Ui {
     }
 
     /// Clears the text buffer for a `TextInput` element.
-    pub fn clear_text_buffer(&mut self, id: ElementId, text: &mut TextEngine) {
+    pub fn clear_text_buffer(&mut self, id: ElementId) {
+        self.with_text_services(|ui, text| ui.clear_text_buffer_with(id, text));
+    }
+
+    fn clear_text_buffer_with(&mut self, id: ElementId, text: &mut crate::TextServices<'_>) {
         if let Some(w) = self.widget_mut::<crate::widgets::TextInputWidget>(id) {
             w.clear(text);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
@@ -470,7 +476,14 @@ impl Ui {
     pub fn handle_keyboard_event(
         &mut self,
         event: &ui_events::keyboard::KeyboardEvent,
-        text: &mut TextEngine,
+    ) -> InteractionBatch {
+        self.with_text_services(|ui, text| ui.handle_keyboard_event_with(event, text))
+    }
+
+    fn handle_keyboard_event_with(
+        &mut self,
+        event: &ui_events::keyboard::KeyboardEvent,
+        text: &mut crate::TextServices<'_>,
     ) -> InteractionBatch {
         let mut batch = InteractionBatch::default();
         let Some(focused) = self.runtime.focused else {
@@ -491,7 +504,11 @@ impl Ui {
     ///
     /// Tooltips become visible when their trigger element is hovered and
     /// are positioned below the trigger's resolved rect.
-    pub fn update_tooltips(&mut self, text: &mut TextEngine) {
+    pub fn update_tooltips(&mut self) {
+        self.with_text_services(|ui, text| ui.update_tooltips_with(text));
+    }
+
+    fn update_tooltips_with(&mut self, text: &mut crate::TextServices<'_>) {
         // Collect tooltip info: (tooltip_id, trigger_id).
         let tooltips: Vec<(ElementId, ElementId)> = self
             .elements
@@ -511,7 +528,7 @@ impl Ui {
         }
 
         // Rebuild to get current hover state.
-        let _ = self.rebuild(text);
+        self.rebuild_with(text);
         let snapshot = self.scene.as_ref().expect("scene rebuilt");
 
         // Collect trigger state before mutating widgets.
@@ -545,14 +562,23 @@ impl Ui {
 
     /// Refreshes widget layouts (e.g., text editor glyph positions) before
     /// cursor/selection geometry.
-    pub fn refresh_editors(&mut self, text: &mut TextEngine) {
+    pub fn refresh_editors(&mut self) {
+        self.with_text_services(|ui, text| ui.refresh_editors_with(text));
+    }
+
+    fn refresh_editors_with(&mut self, text: &mut crate::TextServices<'_>) {
         for (_handle, widget) in self.widget_arena.iter_mut() {
             widget.refresh_layout(text);
         }
     }
 
     /// Rebuilds the resolved scene if needed and returns the current snapshot.
-    pub fn rebuild(&mut self, text: &mut TextEngine) -> &SceneSnapshot {
+    pub fn rebuild(&mut self) -> &SceneSnapshot {
+        self.with_text_services(|ui, text| ui.rebuild_with(text));
+        self.scene.as_ref().expect("scene just rebuilt")
+    }
+
+    fn rebuild_with(&mut self, text: &mut crate::TextServices<'_>) {
         if self.scene.is_none() || !self.dirty.is_empty() {
             let (snapshot, scroll_metrics) = SceneSnapshot::build(
                 &self.elements,
@@ -563,7 +589,7 @@ impl Ui {
                 &self.theme,
                 &self.built_in_styles,
                 &self.widget_arena,
-                text,
+                text.engine_mut(),
             );
             let mut needs_rebuild = false;
             for (id, content_h, viewport_h) in &scroll_metrics {
@@ -585,7 +611,7 @@ impl Ui {
                     &self.theme,
                     &self.built_in_styles,
                     &self.widget_arena,
-                    text,
+                    text.engine_mut(),
                 );
                 self.scene = Some(snapshot);
             } else {
@@ -593,21 +619,17 @@ impl Ui {
             }
             self.dirty = ChannelSet::empty();
         }
-        self.scene.as_ref().expect("scene just rebuilt")
     }
 
     /// Returns the current resolved scene, rebuilding first if necessary.
-    pub fn scene(&mut self, text: &mut TextEngine) -> &SceneSnapshot {
-        self.rebuild(text)
+    pub fn scene(&mut self) -> &SceneSnapshot {
+        self.rebuild()
     }
 
     /// Rebuilds the scene if needed and returns a display tree with widget
     /// rendering applied.
-    pub fn display_tree(
-        &mut self,
-        text: &mut TextEngine,
-    ) -> (understory_display::DisplayTree, Rect) {
-        let _ = self.rebuild(text);
+    pub fn display_tree(&mut self) -> (understory_display::DisplayTree, Rect) {
+        self.rebuild();
         let snapshot = self.scene.as_ref().expect("scene just rebuilt");
         let tree = snapshot.display_tree(&self.widget_arena);
         let view_rect = snapshot.view_rect();
@@ -622,8 +644,8 @@ impl Ui {
     ///
     /// Use `SurfacePlan::flatten_to_display_tree()` for compatibility with
     /// hosts that don't support layered composition.
-    pub fn surface_plan(&mut self, text: &mut TextEngine) -> crate::SurfacePlan {
-        let _ = self.rebuild(text);
+    pub fn surface_plan(&mut self) -> crate::SurfacePlan {
+        self.rebuild();
         let snapshot = self.scene.as_ref().expect("scene just rebuilt");
         let view_rect = snapshot.view_rect();
 
@@ -689,13 +711,17 @@ impl Ui {
     }
 
     /// Handles one pointer event from `ui-events`.
-    pub fn handle_pointer_event(
+    pub fn handle_pointer_event(&mut self, event: &PointerEvent) -> InteractionBatch {
+        self.with_text_services(|ui, text| ui.handle_pointer_event_with(event, text))
+    }
+
+    fn handle_pointer_event_with(
         &mut self,
         event: &PointerEvent,
-        text: &mut TextEngine,
+        text: &mut crate::TextServices<'_>,
     ) -> InteractionBatch {
         let mut batch = InteractionBatch::default();
-        let _ = self.rebuild(text);
+        self.rebuild_with(text);
 
         match event {
             PointerEvent::Enter(_) => {}
@@ -716,7 +742,8 @@ impl Ui {
             PointerEvent::Down(button) if is_primary_button(button.button) => {
                 let point = point_from_state(&button.state);
                 self.update_hover(point, &mut batch, text);
-                if let Some(target) = self.rebuild(text).top_hit(point) {
+                self.rebuild_with(text);
+                if let Some(target) = self.scene.as_ref().and_then(|scene| scene.top_hit(point)) {
                     if self.runtime.pressed_target != Some(target) {
                         self.set_pressed_target(Some(target), &mut batch);
                     }
@@ -733,7 +760,8 @@ impl Ui {
             PointerEvent::Up(button) if is_primary_button(button.button) => {
                 let point = point_from_state(&button.state);
                 self.update_hover(point, &mut batch, text);
-                let current_target = self.rebuild(text).top_hit(point);
+                self.rebuild_with(text);
+                let current_target = self.scene.as_ref().and_then(|scene| scene.top_hit(point));
                 if let Some(target) = self.runtime.pressed_target {
                     let _ = self.dispatch_widget_pointer_event(target, event, text, &mut batch);
                 }
@@ -748,10 +776,19 @@ impl Ui {
                     ) {
                         understory_event_state::click::ClickResult::Click(id) => {
                             batch.push(Interaction::Clicked(id));
-                            let scene = self.rebuild(text);
-                            let is_focusable = scene
+                            self.rebuild_with(text);
+                            let is_focusable = self
+                                .scene
+                                .as_ref()
+                                .expect("scene rebuilt")
                                 .node_for(id)
-                                .and_then(|node| scene.box_tree().flags(node))
+                                .and_then(|node| {
+                                    self.scene
+                                        .as_ref()
+                                        .expect("scene rebuilt")
+                                        .box_tree()
+                                        .flags(node)
+                                })
                                 .is_some_and(|f| f.contains(NodeFlags::FOCUSABLE));
                             if is_focusable {
                                 self.set_focus(id);
@@ -775,9 +812,17 @@ impl Ui {
             PointerEvent::Scroll(scroll) => {
                 let point = point_from_state(&scroll.state);
                 let dy = scroll_delta_y(scroll.delta);
-                if dy != 0.0
-                    && let Some(path) = self.rebuild(text).hit_path(point)
+                if dy != 0.0 && {
+                    self.rebuild_with(text);
+                    self.scene.as_ref().and_then(|scene| scene.hit_path(point))
+                }
+                .is_some()
                 {
+                    let path = self
+                        .scene
+                        .as_ref()
+                        .and_then(|scene| scene.hit_path(point))
+                        .expect("path checked above");
                     for &ancestor in path.iter().rev() {
                         if self
                             .widget::<crate::widgets::ScrollViewWidget>(ancestor)
@@ -795,7 +840,7 @@ impl Ui {
         }
 
         if !self.dirty.is_empty() {
-            let _ = self.rebuild(text);
+            self.rebuild_with(text);
         }
         batch
     }
@@ -804,7 +849,7 @@ impl Ui {
         &mut self,
         id: ElementId,
         event: &PointerEvent,
-        text: &mut TextEngine,
+        text: &mut crate::TextServices<'_>,
         batch: &mut InteractionBatch,
     ) -> bool {
         let Some(scene) = self.scene.as_ref() else {
@@ -867,8 +912,18 @@ impl Ui {
         self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
     }
 
-    fn update_hover(&mut self, point: Point, batch: &mut InteractionBatch, text: &mut TextEngine) {
-        let path = self.rebuild(text).hit_path(point).unwrap_or_default();
+    fn update_hover(
+        &mut self,
+        point: Point,
+        batch: &mut InteractionBatch,
+        text: &mut crate::TextServices<'_>,
+    ) {
+        self.rebuild_with(text);
+        let path = self
+            .scene
+            .as_ref()
+            .and_then(|scene| scene.hit_path(point))
+            .unwrap_or_default();
         let transitions = self.runtime.hover.update_path(&path);
         let mut changed = false;
         for transition in transitions {
@@ -918,6 +973,22 @@ impl Ui {
             batch.push(Interaction::PressStarted(target));
         }
         self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
+    }
+
+    fn with_text_services<R>(
+        &mut self,
+        f: impl FnOnce(&mut Self, &mut crate::TextServices<'_>) -> R,
+    ) -> R {
+        let mut text = self
+            .text
+            .take()
+            .expect("Ui text engine should always be present");
+        let result = {
+            let mut text_services = crate::TextServices::new(&mut text);
+            f(self, &mut text_services)
+        };
+        self.text = Some(text);
+        result
     }
 }
 
@@ -1061,7 +1132,6 @@ mod tests {
         PointerButtonEvent, PointerButtons, PointerId, PointerInfo, PointerState, PointerType,
         PointerUpdate,
     };
-    use understory_display::TextEngine;
     use understory_style::{
         IdSet, Selector, StyleBuilder, StyleCascadeBuilder, StyleOrigin, StyleSheetBuilder,
     };
@@ -1069,7 +1139,6 @@ mod tests {
     #[test]
     fn layout_stacks_children_in_column() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 240.0, 200.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -1083,7 +1152,7 @@ mod tests {
         let second = ui.append_child(column, TYPE_BUTTON);
         ui.set_local(second, ui.properties().height, 30.0);
 
-        let scene = ui.rebuild(&mut text);
+        let scene = ui.rebuild();
         let first_rect = scene.resolved_element(first).unwrap().rect;
         let second_rect = scene.resolved_element(second).unwrap().rect;
 
@@ -1094,7 +1163,6 @@ mod tests {
     #[test]
     fn class_and_hover_style_change_resolved_snapshot() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 240.0, 120.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -1120,12 +1188,7 @@ mod tests {
             .build();
         ui.set_style(button, cascade);
 
-        let before = ui
-            .rebuild(&mut text)
-            .resolved_element(button)
-            .unwrap()
-            .border
-            .width;
+        let before = ui.rebuild().resolved_element(button).unwrap().border.width;
         assert_eq!(before, 1.0);
 
         let move_event = PointerEvent::Move(PointerUpdate {
@@ -1134,15 +1197,9 @@ mod tests {
             coalesced: Vec::new(),
             predicted: Vec::new(),
         });
-        let mut text = TextEngine::new();
-        let _ = ui.handle_pointer_event(&move_event, &mut text);
+        let _ = ui.handle_pointer_event(&move_event);
 
-        let after = ui
-            .rebuild(&mut text)
-            .resolved_element(button)
-            .unwrap()
-            .border
-            .width;
+        let after = ui.rebuild().resolved_element(button).unwrap().border.width;
         assert_eq!(after, 4.0);
     }
 
@@ -1156,45 +1213,34 @@ mod tests {
         let button = ui.append_child(ui.root(), TYPE_BUTTON);
         ui.set_label(button, "Launch");
 
-        let mut text = TextEngine::new();
-
-        let move_batch = ui.handle_pointer_event(
-            &PointerEvent::Move(PointerUpdate {
-                pointer: primary_pointer(),
-                current: pointer_state(20.0, 20.0, 1),
-                coalesced: Vec::new(),
-                predicted: Vec::new(),
-            }),
-            &mut text,
-        );
+        let move_batch = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
+            pointer: primary_pointer(),
+            current: pointer_state(20.0, 20.0, 1),
+            coalesced: Vec::new(),
+            predicted: Vec::new(),
+        }));
         assert!(
             move_batch
                 .events()
                 .contains(&Interaction::HoverEntered(button))
         );
 
-        let down_batch = ui.handle_pointer_event(
-            &PointerEvent::Down(PointerButtonEvent {
-                button: Some(PointerButton::Primary),
-                pointer: primary_pointer(),
-                state: pointer_state(20.0, 20.0, 2),
-            }),
-            &mut text,
-        );
+        let down_batch = ui.handle_pointer_event(&PointerEvent::Down(PointerButtonEvent {
+            button: Some(PointerButton::Primary),
+            pointer: primary_pointer(),
+            state: pointer_state(20.0, 20.0, 2),
+        }));
         assert!(
             down_batch
                 .events()
                 .contains(&Interaction::PressStarted(button))
         );
 
-        let up_batch = ui.handle_pointer_event(
-            &PointerEvent::Up(PointerButtonEvent {
-                button: Some(PointerButton::Primary),
-                pointer: primary_pointer(),
-                state: pointer_state(20.0, 20.0, 3),
-            }),
-            &mut text,
-        );
+        let up_batch = ui.handle_pointer_event(&PointerEvent::Up(PointerButtonEvent {
+            button: Some(PointerButton::Primary),
+            pointer: primary_pointer(),
+            state: pointer_state(20.0, 20.0, 3),
+        }));
         assert!(up_batch.events().contains(&Interaction::PressEnded(button)));
         assert!(up_batch.events().contains(&Interaction::Clicked(button)));
     }
@@ -1228,20 +1274,16 @@ mod tests {
         ui.set_local(right, ui.properties().fill, true);
         ui.set_local(right, ui.properties().height, 240.0);
 
-        let mut text = TextEngine::new();
-        let scene = ui.rebuild(&mut text);
+        let scene = ui.rebuild();
         let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
         let center = splitter_rect.center();
 
-        let _ = ui.handle_pointer_event(
-            &PointerEvent::Move(PointerUpdate {
-                pointer: primary_pointer(),
-                current: pointer_state(center.x, center.y, 1),
-                coalesced: Vec::new(),
-                predicted: Vec::new(),
-            }),
-            &mut text,
-        );
+        let _ = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
+            pointer: primary_pointer(),
+            current: pointer_state(center.x, center.y, 1),
+            coalesced: Vec::new(),
+            predicted: Vec::new(),
+        }));
 
         assert_eq!(ui.cursor_icon(), Some(CursorIcon::ColResize));
     }
@@ -1275,37 +1317,27 @@ mod tests {
         ui.set_local(right, ui.properties().fill, true);
         ui.set_local(right, ui.properties().height, 240.0);
 
-        let mut text = TextEngine::new();
-        let scene = ui.rebuild(&mut text);
+        let scene = ui.rebuild();
         let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
         let center = splitter_rect.center();
 
-        let _ = ui.handle_pointer_event(
-            &PointerEvent::Move(PointerUpdate {
-                pointer: primary_pointer(),
-                current: pointer_state(center.x, center.y, 1),
-                coalesced: Vec::new(),
-                predicted: Vec::new(),
-            }),
-            &mut text,
-        );
-        let _ = ui.handle_pointer_event(
-            &PointerEvent::Down(PointerButtonEvent {
-                button: Some(PointerButton::Primary),
-                pointer: primary_pointer(),
-                state: pointer_state(center.x, center.y, 2),
-            }),
-            &mut text,
-        );
-        let _ = ui.handle_pointer_event(
-            &PointerEvent::Move(PointerUpdate {
-                pointer: primary_pointer(),
-                current: pointer_state(center.x + 20.0, center.y, 3),
-                coalesced: Vec::new(),
-                predicted: Vec::new(),
-            }),
-            &mut text,
-        );
+        let _ = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
+            pointer: primary_pointer(),
+            current: pointer_state(center.x, center.y, 1),
+            coalesced: Vec::new(),
+            predicted: Vec::new(),
+        }));
+        let _ = ui.handle_pointer_event(&PointerEvent::Down(PointerButtonEvent {
+            button: Some(PointerButton::Primary),
+            pointer: primary_pointer(),
+            state: pointer_state(center.x, center.y, 2),
+        }));
+        let _ = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
+            pointer: primary_pointer(),
+            current: pointer_state(center.x + 20.0, center.y, 3),
+            coalesced: Vec::new(),
+            predicted: Vec::new(),
+        }));
 
         assert_eq!(ui.cursor_icon(), Some(CursorIcon::ColResize));
     }
@@ -1343,47 +1375,34 @@ mod tests {
         ui.set_local(right, ui.properties().fill, true);
         ui.set_local(right, ui.properties().height, 240.0);
 
-        let mut text = TextEngine::new();
-        let scene = ui.rebuild(&mut text);
+        let scene = ui.rebuild();
         let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
         let start = splitter_rect.center();
 
-        let _ = ui.handle_pointer_event(
-            &PointerEvent::Move(PointerUpdate {
-                pointer: primary_pointer(),
-                current: pointer_state(start.x, start.y, 1),
-                coalesced: Vec::new(),
-                predicted: Vec::new(),
-            }),
-            &mut text,
-        );
-        let _ = ui.handle_pointer_event(
-            &PointerEvent::Down(PointerButtonEvent {
-                button: Some(PointerButton::Primary),
-                pointer: primary_pointer(),
-                state: pointer_state(start.x, start.y, 2),
-            }),
-            &mut text,
-        );
-        let _ = ui.handle_pointer_event(
-            &PointerEvent::Move(PointerUpdate {
-                pointer: primary_pointer(),
-                current: pointer_state(start.x + 60.0, start.y, 3),
-                coalesced: Vec::new(),
-                predicted: Vec::new(),
-            }),
-            &mut text,
-        );
-        let _ = ui.handle_pointer_event(
-            &PointerEvent::Up(PointerButtonEvent {
-                button: Some(PointerButton::Primary),
-                pointer: primary_pointer(),
-                state: pointer_state(start.x + 60.0, start.y, 4),
-            }),
-            &mut text,
-        );
+        let _ = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
+            pointer: primary_pointer(),
+            current: pointer_state(start.x, start.y, 1),
+            coalesced: Vec::new(),
+            predicted: Vec::new(),
+        }));
+        let _ = ui.handle_pointer_event(&PointerEvent::Down(PointerButtonEvent {
+            button: Some(PointerButton::Primary),
+            pointer: primary_pointer(),
+            state: pointer_state(start.x, start.y, 2),
+        }));
+        let _ = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
+            pointer: primary_pointer(),
+            current: pointer_state(start.x + 60.0, start.y, 3),
+            coalesced: Vec::new(),
+            predicted: Vec::new(),
+        }));
+        let _ = ui.handle_pointer_event(&PointerEvent::Up(PointerButtonEvent {
+            button: Some(PointerButton::Primary),
+            pointer: primary_pointer(),
+            state: pointer_state(start.x + 60.0, start.y, 4),
+        }));
 
-        let scene = ui.rebuild(&mut text);
+        let scene = ui.rebuild();
         let left_rect = scene.resolved_element(left).unwrap().rect;
         let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
         let right_rect = scene.resolved_element(right).unwrap().rect;
@@ -1397,7 +1416,6 @@ mod tests {
     #[test]
     fn row_places_children_left_to_right() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 120.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -1413,7 +1431,7 @@ mod tests {
         let right = ui.append_child(row, TYPE_PANEL);
         ui.set_local(right, ui.properties().height, 80.0);
 
-        let scene = ui.rebuild(&mut text);
+        let scene = ui.rebuild();
         let left_rect = scene.resolved_element(left).unwrap().rect;
         let right_rect = scene.resolved_element(right).unwrap().rect;
 

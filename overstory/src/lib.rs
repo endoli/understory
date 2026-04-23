@@ -84,8 +84,8 @@ pub use surface::{
 pub use timer::{TimerId, TimerQueue};
 pub use ui::{Ui, default_theme};
 pub use widget::{
-    MeasureCtx, PointerEventCtx, Widget, WidgetArena, WidgetHandle, content_box, text_label_node,
-    text_label_node_constrained,
+    MeasureCtx, PointerEventCtx, TextServices, Widget, WidgetArena, WidgetHandle, content_box,
+    text_label_node, text_label_node_constrained,
 };
 
 /// Re-export the transport-agnostic event vocabulary used by Overstory.

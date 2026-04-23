@@ -12,11 +12,11 @@ use parley::PlainEditor;
 use peniko::{Brush, Color};
 use ui_events::keyboard::{Key, KeyboardEvent, Modifiers, NamedKey};
 use ui_events::pointer::PointerEvent;
-use understory_display::{DisplayAlign, DisplayNode, Insets, TextEngine};
+use understory_display::{DisplayAlign, DisplayNode, Insets};
 
 use crate::{
-    Element, ElementId, Interaction, InteractionBatch, ResolvedElement, Widget, content_box,
-    text_label_node, text_label_node_constrained,
+    Element, ElementId, Interaction, InteractionBatch, ResolvedElement, TextServices, Widget,
+    content_box, text_label_node, text_label_node_constrained,
 };
 
 /// Label padding used for content box calculation in `measure`.
@@ -104,17 +104,18 @@ impl TextInputWidget {
     }
 
     /// Clears the text buffer and resets the cursor to the start.
-    pub fn clear(&mut self, text: &mut TextEngine) {
+    pub fn clear(&mut self, text: &mut TextServices<'_>) {
         self.editor.set_text("");
-        let (font_cx, layout_cx) = text.contexts();
-        self.editor.driver(font_cx, layout_cx).move_to_text_start();
+        text.with_contexts(|font_cx, layout_cx| {
+            self.editor.driver(font_cx, layout_cx).move_to_text_start();
+        });
     }
 
     fn move_cursor_to_view_point(
         &mut self,
         point: Point,
         resolved: &ResolvedElement,
-        text: &mut TextEngine,
+        text: &mut TextServices<'_>,
     ) {
         let label_padding = resolved.label_padding;
         #[allow(
@@ -127,10 +128,11 @@ impl TextInputWidget {
             reason = "Parley move_to_point takes f32; display coordinates are small."
         )]
         let local_y = (point.y - resolved.rect.y0 - label_padding) as f32;
-        let (font_cx, layout_cx) = text.contexts();
-        self.editor
-            .driver(font_cx, layout_cx)
-            .move_to_point(local_x, local_y);
+        text.with_contexts(|font_cx, layout_cx| {
+            self.editor
+                .driver(font_cx, layout_cx)
+                .move_to_point(local_x, local_y);
+        });
     }
 }
 
@@ -246,7 +248,7 @@ impl Widget for TextInputWidget {
         &mut self,
         id: ElementId,
         event: &KeyboardEvent,
-        text: &mut TextEngine,
+        text: &mut TextServices<'_>,
         batch: &mut InteractionBatch,
     ) -> bool {
         if !event.state.is_down() {
@@ -256,80 +258,81 @@ impl Widget for TextInputWidget {
         // Reset blink cycle — cursor becomes visible on any keypress.
         self.reset_blink();
 
-        let (font_cx, layout_cx) = text.contexts();
-        let mut driver = self.editor.driver(font_cx, layout_cx);
-        let action_mod = event.modifiers.contains(Modifiers::META)
-            || event.modifiers.contains(Modifiers::CONTROL);
+        text.with_contexts(|font_cx, layout_cx| {
+            let mut driver = self.editor.driver(font_cx, layout_cx);
+            let action_mod = event.modifiers.contains(Modifiers::META)
+                || event.modifiers.contains(Modifiers::CONTROL);
 
-        match &event.key {
-            Key::Character(ch) if action_mod && ch.as_str() == "a" => {
-                driver.select_all();
-                true
+            match &event.key {
+                Key::Character(ch) if action_mod && ch.as_str() == "a" => {
+                    driver.select_all();
+                    true
+                }
+                Key::Character(ch) if action_mod => {
+                    let _ = ch;
+                    false
+                }
+                Key::Character(ch) => {
+                    driver.insert_or_replace_selection(ch);
+                    true
+                }
+                Key::Named(named) => match named {
+                    NamedKey::Backspace if action_mod => {
+                        driver.backdelete_word();
+                        true
+                    }
+                    NamedKey::Backspace => {
+                        driver.backdelete();
+                        true
+                    }
+                    NamedKey::Delete => {
+                        driver.delete();
+                        true
+                    }
+                    NamedKey::ArrowLeft if action_mod => {
+                        driver.move_to_line_start();
+                        true
+                    }
+                    NamedKey::ArrowRight if action_mod => {
+                        driver.move_to_line_end();
+                        true
+                    }
+                    NamedKey::ArrowLeft if event.modifiers.contains(Modifiers::SHIFT) => {
+                        driver.select_left();
+                        true
+                    }
+                    NamedKey::ArrowRight if event.modifiers.contains(Modifiers::SHIFT) => {
+                        driver.select_right();
+                        true
+                    }
+                    NamedKey::ArrowLeft => {
+                        driver.move_left();
+                        true
+                    }
+                    NamedKey::ArrowRight => {
+                        driver.move_right();
+                        true
+                    }
+                    NamedKey::Home => {
+                        driver.move_to_line_start();
+                        true
+                    }
+                    NamedKey::End => {
+                        driver.move_to_line_end();
+                        true
+                    }
+                    NamedKey::Enter if action_mod || event.modifiers.contains(Modifiers::SHIFT) => {
+                        batch.push(Interaction::Submitted(id));
+                        false
+                    }
+                    NamedKey::Enter => {
+                        driver.insert_or_replace_selection("\n");
+                        true
+                    }
+                    _ => false,
+                },
             }
-            Key::Character(ch) if action_mod => {
-                let _ = ch;
-                false
-            }
-            Key::Character(ch) => {
-                driver.insert_or_replace_selection(ch);
-                true
-            }
-            Key::Named(named) => match named {
-                NamedKey::Backspace if action_mod => {
-                    driver.backdelete_word();
-                    true
-                }
-                NamedKey::Backspace => {
-                    driver.backdelete();
-                    true
-                }
-                NamedKey::Delete => {
-                    driver.delete();
-                    true
-                }
-                NamedKey::ArrowLeft if action_mod => {
-                    driver.move_to_line_start();
-                    true
-                }
-                NamedKey::ArrowRight if action_mod => {
-                    driver.move_to_line_end();
-                    true
-                }
-                NamedKey::ArrowLeft if event.modifiers.contains(Modifiers::SHIFT) => {
-                    driver.select_left();
-                    true
-                }
-                NamedKey::ArrowRight if event.modifiers.contains(Modifiers::SHIFT) => {
-                    driver.select_right();
-                    true
-                }
-                NamedKey::ArrowLeft => {
-                    driver.move_left();
-                    true
-                }
-                NamedKey::ArrowRight => {
-                    driver.move_right();
-                    true
-                }
-                NamedKey::Home => {
-                    driver.move_to_line_start();
-                    true
-                }
-                NamedKey::End => {
-                    driver.move_to_line_end();
-                    true
-                }
-                NamedKey::Enter if action_mod || event.modifiers.contains(Modifiers::SHIFT) => {
-                    batch.push(Interaction::Submitted(id));
-                    false // don't mark layout dirty
-                }
-                NamedKey::Enter => {
-                    driver.insert_or_replace_selection("\n");
-                    true
-                }
-                _ => false,
-            },
-        }
+        })
     }
 
     fn handle_pointer_event(
@@ -338,7 +341,7 @@ impl Widget for TextInputWidget {
         event: &PointerEvent,
         resolved: &ResolvedElement,
         _ctx: &mut crate::PointerEventCtx<'_>,
-        text: &mut TextEngine,
+        text: &mut TextServices<'_>,
         _batch: &mut InteractionBatch,
     ) -> bool {
         let PointerEvent::Down(button) = event else {
@@ -350,13 +353,14 @@ impl Widget for TextInputWidget {
         true
     }
 
-    fn refresh_layout(&mut self, text: &mut TextEngine) {
+    fn refresh_layout(&mut self, text: &mut TextServices<'_>) {
         // Apply the wrap width from the last measure pass.
         if let Some(w) = self.last_content_width.get() {
             self.editor.set_width(Some(w));
         }
-        let (font_cx, layout_cx) = text.contexts();
-        self.editor.refresh_layout(font_cx, layout_cx);
+        text.with_contexts(|font_cx, layout_cx| {
+            self.editor.refresh_layout(font_cx, layout_cx);
+        });
         self.cached_cursor_rect = self
             .editor
             .cursor_geometry(2.0)
@@ -466,13 +470,17 @@ mod tests {
             widget.editor.raw_text(),
         );
 
-        widget.refresh_layout(&mut text);
-        let (font_cx, layout_cx) = text.contexts();
-        widget
-            .editor
-            .driver(font_cx, layout_cx)
-            .move_to_text_start();
-        widget.refresh_layout(&mut text);
+        {
+            let mut text_services = TextServices::new(&mut text);
+            widget.refresh_layout(&mut text_services);
+            text_services.with_contexts(|font_cx, layout_cx| {
+                widget
+                    .editor
+                    .driver(font_cx, layout_cx)
+                    .move_to_text_start();
+            });
+            widget.refresh_layout(&mut text_services);
+        }
 
         let initial_cursor = widget
             .cached_cursor_rect
@@ -484,8 +492,11 @@ mod tests {
             resolved.rect.x0 + CONTENT_PADDING + 4.0,
             resolved.rect.y0 + CONTENT_PADDING + line_height + 1.0,
         );
-        widget.move_cursor_to_view_point(click_point, &resolved, &mut text);
-        widget.refresh_layout(&mut text);
+        {
+            let mut text_services = TextServices::new(&mut text);
+            widget.move_cursor_to_view_point(click_point, &resolved, &mut text_services);
+            widget.refresh_layout(&mut text_services);
+        }
 
         let moved_cursor = widget
             .cached_cursor_rect

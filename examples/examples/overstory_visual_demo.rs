@@ -774,7 +774,7 @@ impl DemoApp {
 
     /// Scrolls the messages ScrollView to the bottom.
     fn scroll_to_tail(&mut self) {
-        let _ = self.ui.scene(&mut self.text); // rebuild to get updated content_height
+        let _ = self.ui.scene(); // rebuild to get updated content_height
         let content_h = self.ui.content_height(self.ids.messages);
         let viewport_h = self.ui.viewport_height(self.ids.messages);
         self.ui
@@ -890,7 +890,7 @@ impl DemoApp {
             .get(ThemeKeys::FOREGROUND)
             .expect("foreground in theme");
         let props: Vec<PropertyRow> = if let Some(sel) = self.selected_element {
-            let scene = self.ui.scene(&mut self.text);
+            let scene = self.ui.scene();
             if let Some(resolved) = scene.resolved_element(sel).cloned() {
                 let name = type_tag_name(resolved.type_tag);
                 let mut p = vec![
@@ -1170,7 +1170,7 @@ impl DemoApp {
         let WindowEventTranslation::Pointer(event) = pointer else {
             return;
         };
-        let interactions = self.ui.handle_pointer_event(&event, &mut self.text);
+        let interactions = self.ui.handle_pointer_event(&event);
         self.apply_interactions(&interactions);
         self.sync_window_cursor(window);
         window.request_redraw();
@@ -1253,7 +1253,7 @@ impl DemoApp {
                     if was_at_tail {
                         self.scroll_to_tail();
                     }
-                    self.ui.clear_text_buffer(self.ids.input, &mut self.text);
+                    self.ui.clear_text_buffer(self.ids.input);
                     // Send to Claude API.
                     self.send_to_llm();
                 }
@@ -1382,7 +1382,7 @@ impl DemoApp {
         if !self.inspector_dock.is_collapsed()
             && let Some(width) = self
                 .ui
-                .scene(&mut self.text)
+                .scene()
                 .resolved_element(self.ids.inspector_panel)
                 .map(|resolved| resolved.rect.width())
         {
@@ -1479,9 +1479,9 @@ impl DemoApp {
         }
 
         let scale_factor = window.scale_factor();
-        self.ui.refresh_editors(&mut self.text);
-        self.ui.update_tooltips(&mut self.text);
-        let plan = self.ui.surface_plan(&mut self.text);
+        self.ui.refresh_editors();
+        self.ui.update_tooltips();
+        let plan = self.ui.surface_plan();
         let (mut display_tree, view_rect) = plan
             .flatten_to_display_tree()
             .expect("surface plan should have a root display surface");
@@ -1670,7 +1670,7 @@ impl ApplicationHandler for DemoApp {
                         event_loop.exit();
                         return;
                     }
-                    let interactions = self.ui.handle_keyboard_event(keyboard, &mut self.text);
+                    let interactions = self.ui.handle_keyboard_event(keyboard);
                     self.apply_interactions(&interactions);
                     window.request_redraw();
                     return;
@@ -1966,7 +1966,7 @@ mod tests {
         let mut app = DemoApp::new();
         app.resize_ui(PhysicalSize::new(960, 640), 1.0);
 
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let expected_width = 960.0 - current_root_padding(true) * 2.0;
         let expected_height = 640.0 - current_root_padding(true) * 2.0;
 
@@ -2021,7 +2021,7 @@ mod tests {
         app.apply_density(false);
 
         let compact_height = 640.0 - current_root_padding(false) * 2.0;
-        let compact_scene = app.ui.scene(&mut app.text);
+        let compact_scene = app.ui.scene();
         let compact_shell = compact_scene
             .resolved_element(app.ids.shell)
             .expect("resolved element")
@@ -2067,7 +2067,7 @@ mod tests {
 
         app.apply_density(true);
         let roomy_height = 640.0 - current_root_padding(true) * 2.0;
-        let roomy_scene = app.ui.scene(&mut app.text);
+        let roomy_scene = app.ui.scene();
         let roomy_shell = roomy_scene
             .resolved_element(app.ids.shell)
             .expect("resolved element")
@@ -2115,7 +2115,7 @@ mod tests {
 
         app.toggle_inspector_dock();
 
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let inspector_panel = scene
             .resolved_element(app.ids.inspector_panel)
             .expect("inspector panel")
@@ -2158,7 +2158,7 @@ mod tests {
         let mut app = DemoApp::new();
         app.resize_ui(PhysicalSize::new(960, 640), 1.0);
 
-        let before = app.ui.scene(&mut app.text);
+        let before = app.ui.scene();
         let splitter = before
             .resolved_element(app.ids.splitter)
             .expect("splitter rect")
@@ -2166,42 +2166,46 @@ mod tests {
         let start_x = splitter.center().x;
         let start_y = splitter.center().y;
 
-        let _ = app.ui.handle_pointer_event(
-            &overstory::ui_events::pointer::PointerEvent::Move(PointerUpdate {
-                pointer: pointer_info(),
-                current: pointer_state(start_x, start_y, 1),
-                coalesced: Vec::new(),
-                predicted: Vec::new(),
-            }),
-            &mut app.text,
-        );
-        let _ = app.ui.handle_pointer_event(
-            &overstory::ui_events::pointer::PointerEvent::Down(PointerButtonEvent {
-                button: Some(PointerButton::Primary),
-                pointer: pointer_info(),
-                state: pointer_state(start_x, start_y, 2),
-            }),
-            &mut app.text,
-        );
-        let _ = app.ui.handle_pointer_event(
-            &overstory::ui_events::pointer::PointerEvent::Move(PointerUpdate {
-                pointer: pointer_info(),
-                current: pointer_state(start_x + 48.0, start_y, 3),
-                coalesced: Vec::new(),
-                predicted: Vec::new(),
-            }),
-            &mut app.text,
-        );
-        let _ = app.ui.handle_pointer_event(
-            &overstory::ui_events::pointer::PointerEvent::Up(PointerButtonEvent {
-                button: Some(PointerButton::Primary),
-                pointer: pointer_info(),
-                state: pointer_state(start_x + 48.0, start_y, 4),
-            }),
-            &mut app.text,
-        );
+        let _ = app
+            .ui
+            .handle_pointer_event(&overstory::ui_events::pointer::PointerEvent::Move(
+                PointerUpdate {
+                    pointer: pointer_info(),
+                    current: pointer_state(start_x, start_y, 1),
+                    coalesced: Vec::new(),
+                    predicted: Vec::new(),
+                },
+            ));
+        let _ = app
+            .ui
+            .handle_pointer_event(&overstory::ui_events::pointer::PointerEvent::Down(
+                PointerButtonEvent {
+                    button: Some(PointerButton::Primary),
+                    pointer: pointer_info(),
+                    state: pointer_state(start_x, start_y, 2),
+                },
+            ));
+        let _ = app
+            .ui
+            .handle_pointer_event(&overstory::ui_events::pointer::PointerEvent::Move(
+                PointerUpdate {
+                    pointer: pointer_info(),
+                    current: pointer_state(start_x + 48.0, start_y, 3),
+                    coalesced: Vec::new(),
+                    predicted: Vec::new(),
+                },
+            ));
+        let _ = app
+            .ui
+            .handle_pointer_event(&overstory::ui_events::pointer::PointerEvent::Up(
+                PointerButtonEvent {
+                    button: Some(PointerButton::Primary),
+                    pointer: pointer_info(),
+                    state: pointer_state(start_x + 48.0, start_y, 4),
+                },
+            ));
 
-        let after = app.ui.scene(&mut app.text);
+        let after = app.ui.scene();
         let sidebar = after
             .resolved_element(app.ids.sidebar)
             .expect("sidebar rect")
@@ -2224,7 +2228,6 @@ mod tests {
     #[test]
     fn fill_child_takes_remaining_space() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 400.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -2243,7 +2246,7 @@ mod tests {
         let bottom = ui.append_child(column, overstory::TYPE_BUTTON);
         ui.set_local(bottom, ui.properties().height, 50.0);
 
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         assert_eq!(scene.resolved_element(top).unwrap().rect.height(), 50.0);
         assert_eq!(scene.resolved_element(middle).unwrap().rect.height(), 300.0);
         assert_eq!(scene.resolved_element(bottom).unwrap().rect.height(), 50.0);
@@ -2253,7 +2256,6 @@ mod tests {
     #[test]
     fn multiple_fill_children_share_space() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 300.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -2269,7 +2271,7 @@ mod tests {
         let second = ui.append_child(column, overstory::TYPE_PANEL);
         ui.set_local(second, ui.properties().fill, true);
 
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         assert_eq!(scene.resolved_element(first).unwrap().rect.height(), 150.0);
         assert_eq!(scene.resolved_element(second).unwrap().rect.height(), 150.0);
         assert_eq!(scene.resolved_element(second).unwrap().rect.y0, 150.0);
@@ -2278,7 +2280,6 @@ mod tests {
     #[test]
     fn scroll_view_offsets_children() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 200.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -2296,7 +2297,7 @@ mod tests {
         ui.set_local(c, ui.properties().height, 100.0);
 
         // No scroll: first child at y=0
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         assert_eq!(scene.resolved_element(a).unwrap().rect.y0, 0.0);
         assert_eq!(scene.resolved_element(c).unwrap().rect.y0, 200.0);
 
@@ -2309,7 +2310,6 @@ mod tests {
     #[test]
     fn scroll_view_tracks_content_height() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 200.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -2326,7 +2326,7 @@ mod tests {
         let c = ui.append_child(scroll, overstory::TYPE_BUTTON);
         ui.set_local(c, ui.properties().height, 100.0);
 
-        let _ = ui.scene(&mut text);
+        let _ = ui.scene();
         assert_eq!(ui.content_height(scroll), 300.0);
     }
 
@@ -2346,7 +2346,6 @@ mod tests {
     #[test]
     fn custom_font_size_in_resolved_element() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 100.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
 
@@ -2354,7 +2353,7 @@ mod tests {
         ui.set_label(button, "Big");
         ui.set_local(button, ui.properties().font_size, 32.0);
 
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         let resolved = scene.resolved_element(button).unwrap();
         assert_eq!(resolved.font_size, 32.0);
     }
@@ -2362,14 +2361,13 @@ mod tests {
     #[test]
     fn theme_font_size_used_as_default() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 100.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
 
         let button = ui.append_child(ui.root(), overstory::TYPE_BUTTON);
         ui.set_label(button, "Normal");
 
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         let resolved = scene.resolved_element(button).unwrap();
         assert_eq!(resolved.font_size, 16.0);
         assert_eq!(resolved.label_padding, 12.0);
@@ -2378,7 +2376,6 @@ mod tests {
     #[test]
     fn text_block_measures_height_from_label() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 200.0, 400.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -2396,7 +2393,7 @@ mod tests {
             "This is a much longer message that should wrap to multiple lines in a narrow container",
         );
 
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         let short_rect = scene.resolved_element(short).unwrap().rect;
         let long_rect = scene.resolved_element(long).unwrap().rect;
 
@@ -2412,7 +2409,6 @@ mod tests {
     #[test]
     fn text_block_stacks_in_column() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 300.0, 600.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -2427,7 +2423,7 @@ mod tests {
         let b = ui.append_child(column, overstory::TYPE_TEXT_BLOCK);
         ui.set_label(b, "Second message");
 
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         let a_rect = scene.resolved_element(a).unwrap().rect;
         let b_rect = scene.resolved_element(b).unwrap().rect;
 
@@ -2443,7 +2439,7 @@ mod tests {
         let mut app = DemoApp::new();
         app.resize_ui(PhysicalSize::new(960, 640), 1.0);
 
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let content_rect = scene
             .resolved_element(app.ids.content)
             .expect("content panel")
@@ -2485,7 +2481,7 @@ mod tests {
         app.sync_messages();
 
         // Find where the messages scroll view is.
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let msg_rect = scene
             .resolved_element(app.ids.messages)
             .expect("messages scroll view")
@@ -2515,7 +2511,7 @@ mod tests {
                 state,
             });
 
-        let batch = app.ui.handle_pointer_event(&scroll_event, &mut app.text);
+        let batch = app.ui.handle_pointer_event(&scroll_event);
         assert!(
             app.ui.scroll_offset(app.ids.messages) > 0.0,
             "scroll offset should have changed, got {}",
@@ -2537,7 +2533,6 @@ mod tests {
         };
 
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 400.0, 200.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
 
@@ -2555,15 +2550,15 @@ mod tests {
             is_composing: false,
         };
 
-        let _ = ui.handle_keyboard_event(&key_event(Key::Character("H".into())), &mut text);
-        let _ = ui.handle_keyboard_event(&key_event(Key::Character("i".into())), &mut text);
+        let _ = ui.handle_keyboard_event(&key_event(Key::Character("H".into())));
+        let _ = ui.handle_keyboard_event(&key_event(Key::Character("i".into())));
         assert_eq!(ui.text_buffer(input), "Hi");
 
-        let _ = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Backspace)), &mut text);
+        let _ = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Backspace)));
         assert_eq!(ui.text_buffer(input), "H");
 
         // Plain Enter inserts newline now; Cmd+Enter submits.
-        let _ = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Enter)), &mut text);
+        let _ = ui.handle_keyboard_event(&key_event(Key::Named(NamedKey::Enter)));
         assert_eq!(ui.text_buffer(input), "H\n");
 
         let submit_event = KeyboardEvent {
@@ -2575,7 +2570,7 @@ mod tests {
             repeat: false,
             is_composing: false,
         };
-        let batch = ui.handle_keyboard_event(&submit_event, &mut text);
+        let batch = ui.handle_keyboard_event(&submit_event);
         assert!(
             batch
                 .events()
@@ -2604,7 +2599,7 @@ mod tests {
             .get(ThemeKeys::ACCENT_BACKGROUND)
             .expect("primary background in theme");
 
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let roomy = scene
             .resolved_element(app.ids.roomy)
             .expect("roomy resolved element");
@@ -2615,7 +2610,7 @@ mod tests {
         assert_eq!(compact.background, theme_button);
 
         app.apply_density(false);
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let roomy = scene
             .resolved_element(app.ids.roomy)
             .expect("roomy resolved element");
@@ -2639,7 +2634,7 @@ mod tests {
         let block = app
             .element_for_entry(entry)
             .expect("streaming entry should have a UI element");
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let resolved = scene
             .resolved_element(block)
             .expect("typing indicator should be visible while in progress");
@@ -2648,7 +2643,7 @@ mod tests {
         let _ = app.transcript.set_status(entry, EntryStatus::Complete);
         app.refresh_entry_element(entry);
 
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         assert!(
             scene.resolved_element(block).is_none(),
             "completed empty typing indicator should disappear"
@@ -2668,7 +2663,7 @@ mod tests {
             .cloned()
             .expect("background row should exist");
 
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let deploy = scene
             .resolved_element(app.ids.deploy)
             .expect("deploy button should be visible");
@@ -2705,7 +2700,7 @@ mod tests {
                     .map(|label| (*chip, label.to_string()))
             })
             .collect();
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let visible_state_labels: Vec<_> = state_row
             .chips
             .iter()
@@ -2739,7 +2734,7 @@ mod tests {
                     .map(|label| (*chip, label.to_string()))
             })
             .collect();
-        let scene = app.ui.scene(&mut app.text);
+        let scene = app.ui.scene();
         let visible_clip_labels: Vec<_> = clips_row
             .chips
             .iter()

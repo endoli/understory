@@ -15,16 +15,70 @@ use crate::{BuiltInProperties, Element, ElementId, InteractionBatch, ResolvedEle
 use cursor_icon::CursorIcon;
 use invalidation::ChannelSet;
 use kurbo::{Rect, Size};
+use parley::{FontContext, LayoutContext};
+use peniko::Brush;
 use ui_events::pointer::PointerEvent;
 use understory_display::{DisplayNode, TextEngine};
 use understory_property::{DependencyObjectExt, Property, PropertyRegistry};
+
+/// Narrow text/layout services exposed to Overstory widgets.
+///
+/// This keeps raw [`TextEngine`] ownership out of widget-facing APIs while
+/// still supporting text measurement and editor-style layout operations.
+pub struct TextServices<'a> {
+    text: &'a mut TextEngine,
+}
+
+impl core::fmt::Debug for TextServices<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TextServices").finish_non_exhaustive()
+    }
+}
+
+impl<'a> TextServices<'a> {
+    pub(crate) fn new(text: &'a mut TextEngine) -> Self {
+        Self { text }
+    }
+
+    /// Measures a text string and returns its rendered size.
+    ///
+    /// `font_size` is in logical display units. `font_family` is a CSS-like
+    /// family string. `max_width` constrains line breaking.
+    #[must_use]
+    pub fn measure_text(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        font_family: &str,
+        max_width: Option<f32>,
+    ) -> Size {
+        self.text
+            .measure_text(text, font_size, font_family, max_width)
+    }
+
+    /// Executes one operation with direct Parley font/layout contexts.
+    ///
+    /// This is primarily for editor-style widgets that need cursor movement or
+    /// selection geometry against live text layout.
+    pub fn with_contexts<R>(
+        &mut self,
+        f: impl FnOnce(&mut FontContext, &mut LayoutContext<Brush>) -> R,
+    ) -> R {
+        let (font_cx, layout_cx) = self.text.contexts();
+        f(font_cx, layout_cx)
+    }
+
+    pub(crate) fn engine_mut(&mut self) -> &mut TextEngine {
+        self.text
+    }
+}
 
 /// Context provided to widgets during measurement.
 ///
 /// Exposes text measurement without leaking `TextEngine` or Parley
 /// directly into the widget interface.
 pub struct MeasureCtx<'a> {
-    text: &'a mut TextEngine,
+    text: TextServices<'a>,
 }
 
 impl core::fmt::Debug for MeasureCtx<'_> {
@@ -36,7 +90,9 @@ impl core::fmt::Debug for MeasureCtx<'_> {
 impl<'a> MeasureCtx<'a> {
     /// Creates a measurement context wrapping a text engine.
     pub fn new(text: &'a mut TextEngine) -> Self {
-        Self { text }
+        Self {
+            text: TextServices::new(text),
+        }
     }
 
     /// Measures a text string and returns its rendered size.
@@ -146,11 +202,7 @@ impl<'a> PointerEventCtx<'a> {
     clippy::cast_possible_truncation,
     reason = "Font size is a small positive value; f32 is sufficient."
 )]
-pub fn text_label_node(
-    label: &str,
-    brush: peniko::Brush,
-    resolved: &ResolvedElement,
-) -> DisplayNode {
+pub fn text_label_node(label: &str, brush: Brush, resolved: &ResolvedElement) -> DisplayNode {
     DisplayNode::text(
         label,
         brush,
@@ -171,7 +223,7 @@ pub fn text_label_node(
 )]
 pub fn text_label_node_constrained(
     label: &str,
-    brush: peniko::Brush,
+    brush: Brush,
     resolved: &ResolvedElement,
     max_width: f64,
 ) -> DisplayNode {
@@ -222,7 +274,7 @@ pub trait Widget {
         &mut self,
         _id: ElementId,
         _event: &ui_events::keyboard::KeyboardEvent,
-        _text: &mut TextEngine,
+        _text: &mut TextServices<'_>,
         _batch: &mut InteractionBatch,
     ) -> bool {
         false
@@ -239,7 +291,7 @@ pub trait Widget {
         _event: &PointerEvent,
         _resolved: &ResolvedElement,
         _ctx: &mut PointerEventCtx<'_>,
-        _text: &mut TextEngine,
+        _text: &mut TextServices<'_>,
         _batch: &mut InteractionBatch,
     ) -> bool {
         false
@@ -252,7 +304,7 @@ pub trait Widget {
     ///
     /// Called before each scene rebuild for widgets that cache layout data
     /// (e.g., text editor glyph positions).
-    fn refresh_layout(&mut self, _text: &mut TextEngine) {}
+    fn refresh_layout(&mut self, _text: &mut TextServices<'_>) {}
 
     /// Return the widget's effective label text, if any.
     ///

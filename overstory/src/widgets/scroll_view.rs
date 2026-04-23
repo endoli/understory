@@ -3,8 +3,7 @@
 
 //! Scroll view widget with vertical scroll offset and content tracking.
 
-use crate::Widget;
-use understory_display::TextEngine;
+use crate::{TextServices, Widget};
 
 /// Scrollable container widget that tracks scroll offset, content height,
 /// and viewport height.
@@ -66,7 +65,7 @@ impl Widget for ScrollViewWidget {
         true
     }
 
-    fn refresh_layout(&mut self, _text: &mut TextEngine) {}
+    fn refresh_layout(&mut self, _text: &mut TextServices<'_>) {}
 
     crate::impl_widget_any!();
 }

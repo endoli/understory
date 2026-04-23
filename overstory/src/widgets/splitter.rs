@@ -227,7 +227,7 @@ impl Widget for SplitterWidget {
         event: &PointerEvent,
         resolved: &ResolvedElement,
         ctx: &mut crate::PointerEventCtx<'_>,
-        _text: &mut understory_display::TextEngine,
+        _text: &mut crate::TextServices<'_>,
         _batch: &mut crate::InteractionBatch,
     ) -> bool {
         let Some(target) = self.target else {

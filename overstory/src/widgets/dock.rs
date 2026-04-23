@@ -192,12 +192,10 @@ mod tests {
     use super::*;
     use crate::{TYPE_BUTTON, TYPE_PANEL, TYPE_SPLITTER, default_theme};
     use kurbo::Rect;
-    use understory_display::TextEngine;
 
     #[test]
     fn collapsing_hides_splitter_and_content() {
         let mut ui = Ui::new(default_theme());
-        let mut text = TextEngine::new();
         ui.set_view_rect(Rect::new(0.0, 0.0, 640.0, 320.0));
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
@@ -234,14 +232,14 @@ mod tests {
         });
 
         dock.sync(&mut ui);
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         assert_eq!(scene.resolved_element(pane).unwrap().rect.width(), 280.0);
         assert!(scene.resolved_element(splitter).is_some());
         assert!(scene.resolved_element(hidden).is_some());
 
         dock.set_collapsed(true);
         dock.sync(&mut ui);
-        let scene = ui.scene(&mut text);
+        let scene = ui.scene();
         assert_eq!(scene.resolved_element(pane).unwrap().rect.width(), 44.0);
         assert!(scene.resolved_element(splitter).is_none());
         assert!(scene.resolved_element(hidden).is_none());
