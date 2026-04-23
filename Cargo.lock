@@ -1769,6 +1769,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "overstory_transcript"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.16.1",
+ "overstory",
+ "understory_transcript",
+]
+
+[[package]]
 name = "owned_ttf_parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2677,6 +2686,7 @@ dependencies = [
  "imaging_vello_hybrid",
  "kurbo",
  "overstory",
+ "overstory_transcript",
  "peniko",
  "pollster",
  "serde",

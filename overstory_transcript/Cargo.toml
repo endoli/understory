@@ -1,0 +1,18 @@
+[package]
+name = "overstory_transcript"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Transcript surface integration for Overstory"
+readme = "README.md"
+keywords = ["ui", "transcript", "chat", "overstory", "understory"]
+categories = ["gui", "data-structures"]
+
+[dependencies]
+hashbrown.workspace = true
+overstory = { path = "../overstory" }
+understory_transcript = { path = "../understory_transcript" }
+
+[lints]
+workspace = true

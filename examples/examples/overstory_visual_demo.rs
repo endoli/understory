@@ -24,6 +24,7 @@ use overstory::widgets::{DockPaneController, DockPaneIds, DockPaneStyle};
 use overstory::{
     ButtonClass, Color, ElementId, Interaction, LayoutClass, ThemeKeys, Ui, default_theme,
 };
+use overstory_transcript::TranscriptViewController;
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
 use understory_display::{BoxConstraints, TextEngine};
 use understory_examples::llm_api::{self, ApiConfig, StreamEvent};
@@ -34,7 +35,7 @@ use understory_style::{
     IdSet, Selector, StyleBuilder, StyleCascade, StyleCascadeBuilder, StyleOrigin,
     StyleSheetBuilder, Theme, ThemeBuilder, TypeTag,
 };
-use understory_transcript::{EntryId, EntryKind, EntryStatus, MessageRole, NewEntry, Transcript};
+use understory_transcript::{EntryId, EntryStatus, MessageRole, NewEntry, Transcript};
 use wgpu::TextureFormat;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -231,14 +232,6 @@ struct PropertyRowElements {
     chips: Vec<ElementId>,
 }
 
-#[derive(Copy, Clone, Debug)]
-struct TranscriptRowElements {
-    entry_id: EntryId,
-    row: ElementId,
-    text: ElementId,
-    spinner: ElementId,
-}
-
 #[allow(
     clippy::large_enum_variant,
     reason = "This is example-local window/render state; keeping the active path inline is clearer than boxing renderer fields."
@@ -409,15 +402,12 @@ struct DemoApp {
     text: TextEngine,
     render_state: RenderState,
     transcript: Transcript,
-    message_count: usize,
     /// Receiver for LLM API streaming events.
     api_receiver: Option<std::sync::mpsc::Receiver<StreamEvent>>,
     /// The transcript entry currently being streamed into.
     streaming_entry: Option<EntryId>,
     /// Tool calls with their results, waiting to be sent back to the API.
     pending_tool_calls: Vec<(String, String, serde_json::Value, String)>,
-    /// Map from transcript entry to its retained row elements.
-    entry_elements: Vec<TranscriptRowElements>,
     /// Messages sent to the LLM (for context continuity).
     api_messages: Vec<llm_api::Message>,
     /// Accumulated text for the current assistant stream.
@@ -437,6 +427,7 @@ struct DemoApp {
     /// Whether the inspector tree has been initially expanded.
     inspector_initialized: bool,
     inspector_dock: DockPaneController,
+    transcript_view: TranscriptViewController,
 }
 
 impl DemoApp {
@@ -472,6 +463,7 @@ impl DemoApp {
             inspector_rail_width(),
         );
         inspector_dock.set_style(inspector_dock_style(true));
+        let transcript_view = TranscriptViewController::new(ids.messages);
 
         let mut app = Self {
             ui,
@@ -481,11 +473,9 @@ impl DemoApp {
             text: TextEngine::new(),
             render_state: RenderState::Suspended,
             transcript,
-            message_count: 0,
             api_receiver: None,
             streaming_entry: None,
             pending_tool_calls: Vec::new(),
-            entry_elements: Vec::new(),
             api_messages: Vec::new(),
             streaming_api_text: String::new(),
             api_config: config,
@@ -496,6 +486,7 @@ impl DemoApp {
             prop_row_elements: Vec::new(),
             inspector_initialized: false,
             inspector_dock,
+            transcript_view,
         };
         app.sync_messages();
         app.apply_density(true);
@@ -555,17 +546,6 @@ impl DemoApp {
         self.sync_messages();
     }
 
-    fn entry_display_state(&self, entry_id: EntryId) -> Option<(String, bool, bool)> {
-        let entry = self.transcript.entry(entry_id)?;
-        let EntryKind::Message(msg) = &entry.kind else {
-            return None;
-        };
-        let body = msg.body.as_text().unwrap_or("");
-        let visible = !(entry.status == EntryStatus::Complete && body.is_empty());
-        let show_spinner = entry.status == EntryStatus::InProgress;
-        Some((body.to_string(), visible, show_spinner))
-    }
-
     fn current_api_request_messages(&self) -> Vec<llm_api::Message> {
         let mut messages = vec![llm_api::Message::text(
             "system",
@@ -575,31 +555,6 @@ impl DemoApp {
         )];
         messages.extend(self.api_messages.clone());
         messages
-    }
-
-    fn refresh_entry_element(&mut self, entry_id: EntryId) {
-        let Some((row, text, spinner)) = self.entry_element_ids(entry_id) else {
-            return;
-        };
-        let Some((label, visible, show_spinner)) = self.entry_display_state(entry_id) else {
-            return;
-        };
-        let show_text = visible && !label.is_empty();
-        self.ui
-            .set_local(row, self.ui.properties().visible, visible);
-        self.ui
-            .set_local(text, self.ui.properties().visible, show_text);
-        self.ui.set_label(text, label);
-        self.ui.set_local(
-            spinner,
-            self.ui.properties().visible,
-            visible && show_spinner,
-        );
-        if visible && show_spinner {
-            self.ui.start_spinner(spinner);
-        } else {
-            self.ui.stop_spinner(spinner);
-        }
     }
 
     fn finish_streaming_without_tools(&mut self) {
@@ -628,7 +583,7 @@ impl DemoApp {
                     if let Some(eid) = self.streaming_entry {
                         let _ = self.transcript.append_chunk(eid, text.as_str());
                         self.streaming_api_text.push_str(&text);
-                        self.refresh_entry_element(eid);
+                        self.sync_messages();
                     }
                     needs_redraw = true;
                 }
@@ -665,7 +620,7 @@ impl DemoApp {
                         let _ = self.transcript.set_status(eid, EntryStatus::Failed);
                         let message = format!("[error: {err}]");
                         let _ = self.transcript.append_chunk(eid, message.as_str());
-                        self.refresh_entry_element(eid);
+                        self.sync_messages();
                         self.streaming_api_text.clear();
                     } else {
                         self.transcript.append(NewEntry::message(
@@ -692,17 +647,10 @@ impl DemoApp {
         }
     }
 
-    fn entry_element_ids(&self, entry_id: EntryId) -> Option<(ElementId, ElementId, ElementId)> {
-        self.entry_elements
-            .iter()
-            .find(|entry| entry.entry_id == entry_id)
-            .map(|entry| (entry.row, entry.text, entry.spinner))
-    }
-
     fn complete_streaming_entry(&mut self) {
         if let Some(eid) = self.streaming_entry.take() {
             let _ = self.transcript.set_status(eid, EntryStatus::Complete);
-            self.refresh_entry_element(eid);
+            self.sync_messages();
         }
     }
 
@@ -783,60 +731,17 @@ impl DemoApp {
     }
 
     fn is_at_tail(&self) -> bool {
-        let offset = self.ui.scroll_offset(self.ids.messages);
-        let content_h = self.ui.content_height(self.ids.messages);
-        let viewport_h = self.ui.viewport_height(self.ids.messages);
-        content_h <= viewport_h || offset + viewport_h >= content_h - 1.0
+        self.transcript_view.is_at_tail(&self.ui)
     }
 
     /// Scrolls the messages ScrollView to the bottom.
     fn scroll_to_tail(&mut self) {
-        let _ = self.ui.scene(); // rebuild to get updated content_height
-        let content_h = self.ui.content_height(self.ids.messages);
-        let viewport_h = self.ui.viewport_height(self.ids.messages);
-        self.ui
-            .set_scroll_offset(self.ids.messages, (content_h - viewport_h).max(0.0));
+        self.transcript_view.scroll_to_tail(&mut self.ui);
     }
 
     fn sync_messages(&mut self) {
-        let entries: Vec<_> = self.transcript.entries().to_vec();
-        for entry in entries.iter().skip(self.message_count) {
-            if let EntryKind::Message(msg) = &entry.kind {
-                let is_user = msg.role == MessageRole::User;
-                let row = self.ui.append_child(self.ids.messages, overstory::TYPE_ROW);
-                self.ui.set_local(row, self.ui.properties().padding, 0.0);
-                self.ui.set_local(row, self.ui.properties().gap, 8.0);
-                self.ui
-                    .set_local(row, self.ui.properties().background, Color::TRANSPARENT);
-
-                let spinner = self.ui.append_child_with(
-                    row,
-                    overstory::TYPE_SPINNER,
-                    Some(Box::new(overstory::widgets::Spinner::new(18.0))),
-                );
-                self.ui
-                    .set_local(spinner, self.ui.properties().visible, false);
-
-                let block = self.ui.append_child(row, overstory::TYPE_TEXT_BLOCK);
-                self.ui
-                    .set_local(block, self.ui.properties().label_padding, 8.0);
-                self.ui.set_local(block, self.ui.properties().padding, 8.0);
-                self.ui
-                    .set_local(block, self.ui.properties().corner_radius, 8.0);
-                if is_user {
-                    self.ui
-                        .add_class(block, overstory::MessageClass::User.class_id());
-                }
-                self.entry_elements.push(TranscriptRowElements {
-                    entry_id: entry.id,
-                    row,
-                    text: block,
-                    spinner,
-                });
-                self.refresh_entry_element(entry.id);
-            }
-        }
-        self.message_count = entries.len();
+        self.transcript_view
+            .sync_default(&mut self.ui, &self.transcript);
     }
 
     fn sync_inspector(&mut self) {
@@ -2672,29 +2577,30 @@ mod tests {
         );
         app.sync_messages();
 
-        let (row, text, spinner) = app
-            .entry_element_ids(entry)
+        let row_ids = app
+            .transcript_view
+            .row_ids(entry)
             .expect("streaming entry should have UI elements");
         let scene = app.ui.scene();
         assert!(
-            scene.resolved_element(row).is_some(),
+            scene.resolved_element(row_ids.row).is_some(),
             "streaming row should be visible while in progress"
         );
         assert!(
-            scene.resolved_element(spinner).is_some(),
+            scene.resolved_element(row_ids.spinner).is_some(),
             "spinner should be visible while the streamed entry is empty"
         );
         assert!(
-            scene.resolved_element(text).is_none(),
+            scene.resolved_element(row_ids.text).is_none(),
             "text block should stay hidden until content arrives"
         );
 
         let _ = app.transcript.set_status(entry, EntryStatus::Complete);
-        app.refresh_entry_element(entry);
+        app.sync_messages();
 
         let scene = app.ui.scene();
         assert!(
-            scene.resolved_element(row).is_none(),
+            scene.resolved_element(row_ids.row).is_none(),
             "completed empty typing indicator should disappear"
         );
     }
@@ -2708,20 +2614,21 @@ mod tests {
         );
         app.sync_messages();
 
-        let (_, text, spinner) = app
-            .entry_element_ids(entry)
+        let row_ids = app
+            .transcript_view
+            .row_ids(entry)
             .expect("streaming entry should have UI elements");
         let _ = app.transcript.append_chunk(entry, "Hello");
-        app.refresh_entry_element(entry);
+        app.sync_messages();
 
         let scene = app.ui.scene();
         assert!(
-            scene.resolved_element(spinner).is_some(),
+            scene.resolved_element(row_ids.spinner).is_some(),
             "spinner should remain visible while the assistant turn is still in progress"
         );
         assert_eq!(
             scene
-                .resolved_element(text)
+                .resolved_element(row_ids.text)
                 .and_then(|resolved| resolved.label.as_deref()),
             Some("Hello")
         );
