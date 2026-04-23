@@ -1688,6 +1688,7 @@ mod tests {
         ui.set_local(left, ui.properties().height, 80.0);
 
         let right = ui.append_child(row, TYPE_PANEL);
+        ui.set_local(right, ui.properties().fill, true);
         ui.set_local(right, ui.properties().height, 80.0);
 
         let scene = ui.rebuild();
@@ -1727,6 +1728,77 @@ mod tests {
         assert!(short_rect.width() < 200.0);
         assert!(long_rect.x0 >= short_rect.x1 + 12.0);
         assert!(long_rect.x1 < 480.0);
+    }
+
+    #[test]
+    fn row_non_fill_panel_uses_intrinsic_content_width() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 480.0, 160.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let row = ui.append_child(ui.root(), TYPE_ROW);
+        ui.set_local(row, ui.properties().padding, 0.0);
+        ui.set_local(row, ui.properties().gap, 12.0);
+
+        let panel = ui.append_child(row, TYPE_PANEL);
+        ui.set_local(panel, ui.properties().padding, 0.0);
+
+        let button = ui.append_child(panel, TYPE_BUTTON);
+        ui.widget_mut::<crate::Button>(button)
+            .expect("button")
+            .set_text("Inspect");
+
+        let fill = ui.append_child(row, TYPE_PANEL);
+        ui.set_local(fill, ui.properties().fill, true);
+
+        let scene = ui.rebuild();
+        let panel_rect = scene.resolved_element(panel).expect("panel resolved").rect;
+        let button_rect = scene
+            .resolved_element(button)
+            .expect("button resolved")
+            .rect;
+        let fill_rect = scene.resolved_element(fill).expect("fill resolved").rect;
+
+        assert_eq!(panel_rect.width(), button_rect.width());
+        assert!(panel_rect.width() < 200.0);
+        assert_eq!(fill_rect.x0, panel_rect.x1 + 12.0);
+        assert_eq!(fill_rect.x1, 480.0);
+    }
+
+    #[test]
+    fn column_children_stretch_to_container_width() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 360.0, 180.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let column = ui.append_child(ui.root(), TYPE_COLUMN);
+        ui.set_local(column, ui.properties().padding, 0.0);
+        ui.set_local(column, ui.properties().gap, 8.0);
+
+        let panel = ui.append_child(column, TYPE_PANEL);
+        ui.set_local(panel, ui.properties().padding, 0.0);
+
+        let button = ui.append_child(panel, TYPE_BUTTON);
+        ui.widget_mut::<crate::Button>(button)
+            .expect("button")
+            .set_text("Inspect");
+
+        let scene = ui.rebuild();
+        let column_rect = scene
+            .resolved_element(column)
+            .expect("column resolved")
+            .rect;
+        let panel_rect = scene.resolved_element(panel).expect("panel resolved").rect;
+        let button_rect = scene
+            .resolved_element(button)
+            .expect("button resolved")
+            .rect;
+
+        assert_eq!(column_rect.width(), 360.0);
+        assert_eq!(panel_rect.width(), 360.0);
+        assert_eq!(button_rect.width(), 360.0);
     }
 
     fn primary_pointer() -> PointerInfo {

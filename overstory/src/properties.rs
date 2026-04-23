@@ -99,7 +99,7 @@ impl ThemeKeys {
 /// Built-in dependency properties for layout and visuals.
 #[derive(Clone, Debug)]
 pub struct BuiltInProperties {
-    /// Explicit width; `0.0` means fill available width.
+    /// Explicit width; `0.0` means use the container's default placement policy.
     pub width: Property<f64>,
     /// Explicit height; `0.0` means auto-size for containers.
     pub height: Property<f64>,

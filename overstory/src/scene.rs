@@ -130,6 +130,7 @@ impl SceneSnapshot {
             Point::new(view_rect.x0, view_rect.y0),
             view_rect,
             None,
+            None,
             0,
         );
         let _ = tree.commit();
@@ -219,6 +220,7 @@ impl<'a> SceneBuilder<'a> {
         id: ElementId,
         origin: Point,
         available_rect: Rect,
+        parent_horizontal: Option<bool>,
         parent_node: Option<NodeId>,
         depth: u16,
     ) -> LayoutSize {
@@ -238,12 +240,18 @@ impl<'a> SceneBuilder<'a> {
         let is_root = element.is_root;
         let width = if is_root {
             available_rect.width()
+        } else if style.width > 0.0 {
+            clamp_explicit_dim(style.width, available_rect.width())
+        } else if matches!(parent_horizontal, Some(true)) && !style.fill {
+            measured_size.width
         } else {
-            resolve_dim(style.width, available_rect.width())
+            available_rect.width().max(0.0)
         };
         let height = if is_root {
             available_rect.height()
-        } else if style.fill && style.height <= 0.0 {
+        } else if style.height > 0.0 {
+            style.height.max(0.0)
+        } else if style.fill && matches!(parent_horizontal, Some(false)) {
             available_rect.height().max(0.0)
         } else {
             measured_size.height
@@ -403,8 +411,14 @@ impl<'a> SceneBuilder<'a> {
                         )
                     }
                 };
-                let child_size =
-                    self.layout_element(child, child_origin, child_rect, Some(node), depth + 1);
+                let child_size = self.layout_element(
+                    child,
+                    child_origin,
+                    child_rect,
+                    Some(horizontal),
+                    Some(node),
+                    depth + 1,
+                );
                 cursor += if horizontal {
                     child_size.width
                 } else {
@@ -460,7 +474,7 @@ impl<'a> SceneBuilder<'a> {
             if let Some(measured) = widget.measure(available, &style.measure_style(), &mut ctx) {
                 return LayoutSize {
                     width: if style.width > 0.0 {
-                        resolve_dim(style.width, available.width)
+                        clamp_explicit_dim(style.width, available.width)
                     } else {
                         measured.width.max(0.0)
                     },
@@ -476,7 +490,7 @@ impl<'a> SceneBuilder<'a> {
         if !element.is_container {
             return LayoutSize {
                 width: if style.width > 0.0 {
-                    resolve_dim(style.width, available.width)
+                    clamp_explicit_dim(style.width, available.width)
                 } else {
                     0.0
                 },
@@ -489,12 +503,10 @@ impl<'a> SceneBuilder<'a> {
         }
 
         let base_width = if style.width > 0.0 {
-            resolve_dim(style.width, available.width)
+            clamp_explicit_dim(style.width, available.width)
         } else {
-            available.width.max(0.0)
+            0.0
         };
-        let child_width = (base_width - style.padding * 2.0).max(0.0);
-
         if element.horizontal {
             let mut total_width = style.padding * 2.0;
             let mut max_height = 0.0_f64;
@@ -505,7 +517,7 @@ impl<'a> SceneBuilder<'a> {
                 };
                 let child_style = self.resolve_style(child_element);
                 let child_size = self.measure_size(
-                    kurbo::Size::new(child_width, available.height),
+                    kurbo::Size::new(available.width, available.height),
                     child_element,
                     &child_style,
                 );
@@ -540,7 +552,7 @@ impl<'a> SceneBuilder<'a> {
                 };
                 let child_style = self.resolve_style(child_element);
                 let child_size = self.measure_size(
-                    kurbo::Size::new(child_width, available.height),
+                    kurbo::Size::new(available.width, available.height),
                     child_element,
                     &child_style,
                 );
@@ -796,14 +808,9 @@ fn build_pseudos(element: &Element) -> Vec<PseudoClassId> {
     pseudos
 }
 
-/// Resolves a style dimension: if the style specifies a positive value, clamp
-/// it to the available space; otherwise use the full available space.
-fn resolve_dim(style_value: f64, available: f64) -> f64 {
-    if style_value > 0.0 {
-        style_value.min(available).max(0.0)
-    } else {
-        available.max(0.0)
-    }
+/// Clamps an explicit dimension to the available space.
+fn clamp_explicit_dim(style_value: f64, available: f64) -> f64 {
+    style_value.min(available).max(0.0)
 }
 
 fn inset_rect(rect: Rect, inset: f64) -> Rect {
