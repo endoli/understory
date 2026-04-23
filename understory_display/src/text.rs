@@ -9,8 +9,8 @@ use core::fmt;
 
 use kurbo::Rect;
 use parley::{
-    Alignment, AlignmentOptions, FontContext, FontFamily, LayoutContext, PositionedLayoutItem,
-    StyleProperty,
+    Alignment, AlignmentOptions, FontContext, FontFamily, LayoutContext, PlainEditor,
+    PlainEditorDriver, PositionedLayoutItem, StyleProperty,
 };
 use peniko::Brush;
 
@@ -39,6 +39,25 @@ impl TextEngine {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Runs one operation against a [`PlainEditor`] using this engine's
+    /// shared Parley font and layout contexts.
+    ///
+    /// This keeps widget code out of direct `FontContext` / `LayoutContext`
+    /// threading while still allowing editor-style operations.
+    pub fn with_plain_editor<R>(
+        &mut self,
+        editor: &mut PlainEditor<Brush>,
+        f: impl FnOnce(&mut PlainEditorDriver<'_, Brush>) -> R,
+    ) -> R {
+        let mut driver = editor.driver(&mut self.font_cx, &mut self.layout_cx);
+        f(&mut driver)
+    }
+
+    /// Refreshes cached layout for one [`PlainEditor`].
+    pub fn refresh_plain_editor_layout(&mut self, editor: &mut PlainEditor<Brush>) {
+        editor.refresh_layout(&mut self.font_cx, &mut self.layout_cx);
     }
 
     /// Shapes one text string into retained glyph runs.
