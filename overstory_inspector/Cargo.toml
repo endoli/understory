@@ -1,0 +1,17 @@
+[package]
+name = "overstory_inspector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Inspector and property-grid surfaces for Overstory"
+readme = "README.md"
+keywords = ["ui", "inspector", "property-grid", "overstory", "understory"]
+categories = ["gui"]
+
+[dependencies]
+overstory = { path = "../overstory" }
+understory_inspector = { path = "../understory_inspector" }
+
+[lints]
+workspace = true
