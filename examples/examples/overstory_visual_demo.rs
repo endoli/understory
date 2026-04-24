@@ -27,6 +27,7 @@ use overstory::{
 };
 use overstory_inspector::{
     InspectorTreeController, PropertyBadge, PropertyGridController, PropertyGridRow, PropertyValue,
+    themed_tree_style,
 };
 use overstory_transcript::TranscriptViewController;
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
@@ -720,6 +721,14 @@ impl DemoApp {
     }
 
     fn sync_inspector(&mut self) {
+        let selected_background = *self
+            .ui
+            .theme()
+            .get(ThemeKeys::CONTROL_BACKGROUND_EMPHASIZED)
+            .expect("control emphasized background in theme");
+        self.inspector
+            .set_style(themed_tree_style(Color::TRANSPARENT, selected_background));
+
         // Rebuild model from current UI state, excluding the inspector panels.
         *self.inspector.inspector_mut().model_mut() =
             ElementTreeModel::from_ui(&self.ui, vec![self.ids.inspector_panel]);
@@ -949,9 +958,11 @@ impl DemoApp {
                     _ => {
                         // Check if it's an inspector tree row click.
                         if let Some(click) = self.inspector.handle_row_click(target) {
-                            self.selected_element = Some(click.key);
+                            if !click.toggled {
+                                self.selected_element = Some(click.key);
+                                self.sync_property_grid();
+                            }
                             self.sync_inspector();
-                            self.sync_property_grid();
                         }
                     }
                 }
