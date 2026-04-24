@@ -43,6 +43,7 @@ pub struct TextInput {
     cached_cursor_rect: Option<Rect>,
     cached_selection_rects: Vec<Rect>,
     placeholder: Option<alloc::string::String>,
+    single_line: bool,
     /// Last measured content width, used to set editor wrap width in `refresh_layout`.
     last_content_width: Cell<Option<f32>>,
     /// Whether the cursor is currently visible (toggles for blink).
@@ -61,6 +62,7 @@ impl TextInput {
             cached_cursor_rect: None,
             cached_selection_rects: Vec::new(),
             placeholder: None,
+            single_line: false,
             last_content_width: Cell::new(None),
             cursor_visible: true,
             blink_timer: None,
@@ -95,6 +97,13 @@ impl TextInput {
     #[must_use]
     pub fn placeholder(mut self, placeholder: impl Into<alloc::string::String>) -> Self {
         self.set_placeholder(placeholder);
+        self
+    }
+
+    /// Restricts the input to one line and treats `Enter` as submit.
+    #[must_use]
+    pub fn single_line(mut self) -> Self {
+        self.single_line = true;
         self
     }
 
@@ -399,9 +408,13 @@ impl Widget for TextInput {
                         driver.move_to_line_end();
                         true
                     }
-                    NamedKey::Enter if action_mod || event.modifiers.contains(Modifiers::SHIFT) => {
+                    NamedKey::Enter
+                        if self.single_line
+                            || action_mod
+                            || event.modifiers.contains(Modifiers::SHIFT) =>
+                    {
                         batch.push(Interaction::Submitted(id));
-                        false
+                        true
                     }
                     NamedKey::Enter => {
                         driver.insert_or_replace_selection("\n");

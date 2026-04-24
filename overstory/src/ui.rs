@@ -556,9 +556,9 @@ impl Ui {
     }
 
     /// Sets the desired root-space origin for a `Dropdown` surface.
-    pub fn set_dropdown_position(&mut self, id: ElementId, position: Point) {
+    pub fn set_dropdown_position(&mut self, id: ElementId, x: f64, y: f64) {
         if let Some(dropdown) = self.widget_mut::<crate::widgets::Dropdown>(id) {
-            dropdown.set_position(position);
+            dropdown.set_position(Point::new(x, y));
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
     }
@@ -2438,6 +2438,21 @@ mod tests {
     }
 
     #[test]
+    fn single_line_text_input_submits_on_enter() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 120.0));
+
+        let input = ui.append(ui.root(), crate::TextInput::new(16.0).single_line());
+        ui.set_focus(input);
+        let enter = KeyboardEvent::key_down(Key::Named(NamedKey::Enter), Code::Enter);
+
+        let batch = ui.handle_keyboard_event(&enter);
+
+        assert!(batch.events().contains(&Interaction::Submitted(input)));
+        assert_eq!(ui.text_buffer(input), "");
+    }
+
+    #[test]
     fn tooltip_surface_is_out_of_flow() {
         let mut ui = Ui::new(default_theme());
         ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 240.0));
@@ -2506,7 +2521,7 @@ mod tests {
                 .display_name("Autocomplete dropdown"),
         );
 
-        ui.set_dropdown_position(dropdown, Point::new(24.0, 64.0));
+        ui.set_dropdown_position(dropdown, 24.0, 64.0);
         ui.set_dropdown_open(dropdown, true);
 
         let plan = ui.surface_plan();

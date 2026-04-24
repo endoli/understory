@@ -1,0 +1,17 @@
+[package]
+name = "overstory_autocomplete"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Autocomplete surface integration for Overstory"
+readme = "README.md"
+keywords = ["ui", "autocomplete", "dropdown", "overstory", "understory"]
+categories = ["gui"]
+
+[dependencies]
+overstory = { path = "../overstory" }
+overstory_list = { path = "../overstory_list" }
+
+[lints]
+workspace = true

@@ -1770,6 +1770,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "overstory_autocomplete"
+version = "0.1.0"
+dependencies = [
+ "overstory",
+ "overstory_list",
+]
+
+[[package]]
 name = "overstory_inspector"
 version = "0.1.0"
 dependencies = [
