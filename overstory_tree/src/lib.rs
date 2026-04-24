@@ -13,6 +13,6 @@ extern crate alloc;
 mod tree;
 
 pub use tree::{
-    TreeRowAction, TreeRowIds, TreeRowPresentation, TreeViewController, TreeViewRealizedRow,
-    TreeViewStyle,
+    TreeKeyboardAction, TreeRowAction, TreeRowIds, TreeRowPresentation, TreeViewController,
+    TreeViewRealizedRow, TreeViewStyle,
 };
