@@ -189,7 +189,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::{TYPE_BUTTON, TYPE_PANEL, TYPE_SPLITTER, default_theme};
+    use crate::{Button, Panel, Row, Splitter, default_theme};
     use kurbo::Rect;
 
     #[test]
@@ -199,19 +199,15 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), crate::TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 0.0);
+        let row = ui.append(ui.root(), Row::new().padding(0.0).gap(0.0));
 
-        let content = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(content, ui.properties().fill, true);
+        let content = ui.append(row, Panel::new().fill());
 
-        let splitter = ui.append_child(row, TYPE_SPLITTER);
-        ui.set_local(splitter, ui.properties().width, 12.0);
+        let splitter = ui.append(row, Splitter::vertical(content).width(12.0));
 
-        let pane = ui.append_child(row, TYPE_PANEL);
-        let toggle = ui.append_child(pane, TYPE_BUTTON);
-        let hidden = ui.append_child(pane, TYPE_PANEL);
+        let pane = ui.append(row, Panel::new());
+        let toggle = ui.append(pane, Button::new());
+        let hidden = ui.append(pane, Panel::new());
 
         let ids = DockPaneIds {
             pane,

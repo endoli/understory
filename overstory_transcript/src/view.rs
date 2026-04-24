@@ -309,7 +309,7 @@ mod tests {
     fn sync_default_creates_user_row_with_message_style() {
         let mut ui = Ui::new(default_theme());
         ui.set_view_rect(overstory::peniko::kurbo::Rect::new(0.0, 0.0, 400.0, 200.0));
-        let scroll = ui.append_child(ui.root(), overstory::TYPE_SCROLL_VIEW);
+        let scroll = ui.append(ui.root(), overstory::ScrollView::new());
         let mut controller = TranscriptViewController::new(scroll);
         let mut transcript = Transcript::new();
         let entry = transcript.append(NewEntry::message(MessageRole::User, "hello"));
@@ -335,7 +335,7 @@ mod tests {
     fn sync_default_shows_spinner_for_in_progress_message() {
         let mut ui = Ui::new(default_theme());
         ui.set_view_rect(overstory::peniko::kurbo::Rect::new(0.0, 0.0, 400.0, 200.0));
-        let scroll = ui.append_child(ui.root(), overstory::TYPE_SCROLL_VIEW);
+        let scroll = ui.append(ui.root(), overstory::ScrollView::new());
         let mut controller = TranscriptViewController::new(scroll);
         let mut transcript = Transcript::new();
         let entry = transcript.append(

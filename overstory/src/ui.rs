@@ -1224,14 +1224,10 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let column = ui.append_child(ui.root(), TYPE_COLUMN);
-        ui.set_local(column, ui.properties().padding, 0.0);
-        ui.set_local(column, ui.properties().gap, 8.0);
+        let column = ui.append(ui.root(), crate::Column::new().padding(0.0).gap(8.0));
 
-        let first = ui.append_child(column, TYPE_BUTTON);
-        ui.set_local(first, ui.properties().height, 20.0);
-        let second = ui.append_child(column, TYPE_BUTTON);
-        ui.set_local(second, ui.properties().height, 30.0);
+        let first = ui.append(column, crate::Button::new().height(20.0));
+        let second = ui.append(column, crate::Button::new().height(30.0));
 
         let scene = ui.rebuild();
         let first_rect = scene.resolved_element(first).unwrap().rect;
@@ -1248,7 +1244,7 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let button = ui.append_child(ui.root(), TYPE_BUTTON);
+        let button = ui.append(ui.root(), crate::Button::new());
         ui.add_button_class(button, ButtonClass::Primary);
 
         let base = StyleBuilder::new()
@@ -1322,10 +1318,7 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let button = ui.append_child(ui.root(), TYPE_BUTTON);
-        ui.widget_mut::<crate::Button>(button)
-            .expect("button")
-            .set_text("Launch");
+        let button = ui.append(ui.root(), crate::Button::new().with_text("Launch"));
 
         let move_batch = ui.handle_pointer_event(&PointerEvent::Move(PointerUpdate {
             pointer: primary_pointer(),
@@ -1366,27 +1359,23 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 0.0);
-        ui.set_local(row, ui.properties().width, 640.0);
-        ui.set_local(row, ui.properties().height, 240.0);
-
-        let left = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(left, ui.properties().width, 180.0);
-        ui.set_local(left, ui.properties().height, 240.0);
-
-        let splitter = ui.append_child_with(
-            row,
-            TYPE_SPLITTER,
-            Some(Box::new(crate::widgets::Splitter::vertical(left))),
+        let row = ui.append(
+            ui.root(),
+            crate::Row::new()
+                .padding(0.0)
+                .gap(0.0)
+                .width(640.0)
+                .height(240.0),
         );
-        ui.set_local(splitter, ui.properties().width, 14.0);
-        ui.set_local(splitter, ui.properties().height, 240.0);
 
-        let right = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(right, ui.properties().fill, true);
-        ui.set_local(right, ui.properties().height, 240.0);
+        let left = ui.append(row, crate::Panel::new().width(180.0).height(240.0));
+
+        let splitter = ui.append(
+            row,
+            crate::Splitter::vertical(left).width(14.0).height(240.0),
+        );
+
+        let _right = ui.append(row, crate::Panel::new().fill().height(240.0));
 
         let scene = ui.rebuild();
         let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
@@ -1409,27 +1398,23 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 0.0);
-        ui.set_local(row, ui.properties().width, 640.0);
-        ui.set_local(row, ui.properties().height, 240.0);
-
-        let left = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(left, ui.properties().width, 180.0);
-        ui.set_local(left, ui.properties().height, 240.0);
-
-        let splitter = ui.append_child_with(
-            row,
-            TYPE_SPLITTER,
-            Some(Box::new(crate::widgets::Splitter::vertical(left))),
+        let row = ui.append(
+            ui.root(),
+            crate::Row::new()
+                .padding(0.0)
+                .gap(0.0)
+                .width(640.0)
+                .height(240.0),
         );
-        ui.set_local(splitter, ui.properties().width, 14.0);
-        ui.set_local(splitter, ui.properties().height, 240.0);
 
-        let right = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(right, ui.properties().fill, true);
-        ui.set_local(right, ui.properties().height, 240.0);
+        let left = ui.append(row, crate::Panel::new().width(180.0).height(240.0));
+
+        let splitter = ui.append(
+            row,
+            crate::Splitter::vertical(left).width(14.0).height(240.0),
+        );
+
+        let _right = ui.append(row, crate::Panel::new().fill().height(240.0));
 
         let scene = ui.rebuild();
         let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
@@ -1463,27 +1448,23 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 0.0);
-        ui.set_local(row, ui.properties().width, 640.0);
-        ui.set_local(row, ui.properties().height, 240.0);
-
-        let left = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(left, ui.properties().width, 180.0);
-        ui.set_local(left, ui.properties().height, 240.0);
-
-        let splitter = ui.append_child_with(
-            row,
-            TYPE_SPLITTER,
-            Some(Box::new(crate::widgets::Splitter::vertical(left))),
+        let row = ui.append(
+            ui.root(),
+            crate::Row::new()
+                .padding(0.0)
+                .gap(0.0)
+                .width(640.0)
+                .height(240.0),
         );
-        ui.set_local(splitter, ui.properties().width, 14.0);
-        ui.set_local(splitter, ui.properties().height, 240.0);
 
-        let right = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(right, ui.properties().fill, true);
-        ui.set_local(right, ui.properties().height, 240.0);
+        let left = ui.append(row, crate::Panel::new().width(180.0).height(240.0));
+
+        let splitter = ui.append(
+            row,
+            crate::Splitter::vertical(left).width(14.0).height(240.0),
+        );
+
+        let _right = ui.append(row, crate::Panel::new().fill().height(240.0));
 
         let scene = ui.rebuild();
         let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
@@ -1626,31 +1607,27 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 0.0);
-        ui.set_local(row, ui.properties().width, 640.0);
-        ui.set_local(row, ui.properties().height, 240.0);
-
-        let left = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(left, ui.properties().width, 180.0);
-        ui.set_local(left, ui.properties().height, 240.0);
-
-        let splitter = ui.append_child_with(
-            row,
-            TYPE_SPLITTER,
-            Some(Box::new(
-                crate::widgets::Splitter::vertical(left)
-                    .with_min_primary(140.0)
-                    .with_min_secondary(220.0),
-            )),
+        let row = ui.append(
+            ui.root(),
+            crate::Row::new()
+                .padding(0.0)
+                .gap(0.0)
+                .width(640.0)
+                .height(240.0),
         );
-        ui.set_local(splitter, ui.properties().width, 14.0);
-        ui.set_local(splitter, ui.properties().height, 240.0);
 
-        let right = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(right, ui.properties().fill, true);
-        ui.set_local(right, ui.properties().height, 240.0);
+        let left = ui.append(row, crate::Panel::new().width(180.0).height(240.0));
+
+        let splitter = ui.append(
+            row,
+            crate::Splitter::vertical(left)
+                .with_min_primary(140.0)
+                .with_min_secondary(220.0)
+                .width(14.0)
+                .height(240.0),
+        );
+
+        let right = ui.append(row, crate::Panel::new().fill().height(240.0));
 
         let scene = ui.rebuild();
         let splitter_rect = scene.resolved_element(splitter).unwrap().rect;
@@ -1695,31 +1672,27 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 0.0);
-        ui.set_local(row, ui.properties().width, 640.0);
-        ui.set_local(row, ui.properties().height, 240.0);
-
-        let left = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(left, ui.properties().width, 180.0);
-        ui.set_local(left, ui.properties().height, 240.0);
-
-        let splitter = ui.append_child_with(
-            row,
-            TYPE_SPLITTER,
-            Some(Box::new(
-                crate::widgets::Splitter::vertical(left)
-                    .with_min_primary(140.0)
-                    .with_min_secondary(220.0),
-            )),
+        let row = ui.append(
+            ui.root(),
+            crate::Row::new()
+                .padding(0.0)
+                .gap(0.0)
+                .width(640.0)
+                .height(240.0),
         );
-        ui.set_local(splitter, ui.properties().width, 14.0);
-        ui.set_local(splitter, ui.properties().height, 240.0);
 
-        let right = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(right, ui.properties().fill, true);
-        ui.set_local(right, ui.properties().height, 240.0);
+        let left = ui.append(row, crate::Panel::new().width(180.0).height(240.0));
+
+        let splitter = ui.append(
+            row,
+            crate::Splitter::vertical(left)
+                .with_min_primary(140.0)
+                .with_min_secondary(220.0)
+                .width(14.0)
+                .height(240.0),
+        );
+
+        let right = ui.append(row, crate::Panel::new().fill().height(240.0));
 
         let scene = ui.rebuild();
         let center = scene
@@ -1737,17 +1710,11 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 12.0);
+        let row = ui.append(ui.root(), crate::Row::new().padding(0.0).gap(12.0));
 
-        let left = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(left, ui.properties().width, 100.0);
-        ui.set_local(left, ui.properties().height, 80.0);
+        let left = ui.append(row, crate::Panel::new().width(100.0).height(80.0));
 
-        let right = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(right, ui.properties().fill, true);
-        ui.set_local(right, ui.properties().height, 80.0);
+        let right = ui.append(row, crate::Panel::new().fill().height(80.0));
 
         let scene = ui.rebuild();
         let left_rect = scene.resolved_element(left).unwrap().rect;
@@ -1764,19 +1731,14 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 12.0);
+        let row = ui.append(ui.root(), crate::Row::new().padding(0.0).gap(12.0));
 
-        let short = ui.append_child(row, TYPE_BUTTON);
-        ui.widget_mut::<crate::Button>(short)
-            .expect("short button")
-            .set_text("A");
+        let short = ui.append(row, crate::Button::new().with_text("A"));
 
-        let long = ui.append_child(row, TYPE_BUTTON);
-        ui.widget_mut::<crate::Button>(long)
-            .expect("long button")
-            .set_text("A much longer button label");
+        let long = ui.append(
+            row,
+            crate::Button::new().with_text("A much longer button label"),
+        );
 
         let scene = ui.rebuild();
         let short_rect = scene.resolved_element(short).expect("short resolved").rect;
@@ -1795,20 +1757,13 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 12.0);
+        let row = ui.append(ui.root(), crate::Row::new().padding(0.0).gap(12.0));
 
-        let panel = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(panel, ui.properties().padding, 0.0);
+        let panel = ui.append(row, crate::Panel::new().padding(0.0));
 
-        let button = ui.append_child(panel, TYPE_BUTTON);
-        ui.widget_mut::<crate::Button>(button)
-            .expect("button")
-            .set_text("Inspect");
+        let button = ui.append(panel, crate::Button::new().with_text("Inspect"));
 
-        let fill = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(fill, ui.properties().fill, true);
+        let fill = ui.append(row, crate::Panel::new().fill());
 
         let scene = ui.rebuild();
         let panel_rect = scene.resolved_element(panel).expect("panel resolved").rect;
@@ -1831,17 +1786,11 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let column = ui.append_child(ui.root(), TYPE_COLUMN);
-        ui.set_local(column, ui.properties().padding, 0.0);
-        ui.set_local(column, ui.properties().gap, 8.0);
+        let column = ui.append(ui.root(), crate::Column::new().padding(0.0).gap(8.0));
 
-        let panel = ui.append_child(column, TYPE_PANEL);
-        ui.set_local(panel, ui.properties().padding, 0.0);
+        let panel = ui.append(column, crate::Panel::new().padding(0.0));
 
-        let button = ui.append_child(panel, TYPE_BUTTON);
-        ui.widget_mut::<crate::Button>(button)
-            .expect("button")
-            .set_text("Inspect");
+        let button = ui.append(panel, crate::Button::new().with_text("Inspect"));
 
         let scene = ui.rebuild();
         let column_rect = scene
@@ -1866,18 +1815,14 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let row = ui.append_child(ui.root(), TYPE_ROW);
-        ui.set_local(row, ui.properties().padding, 0.0);
-        ui.set_local(row, ui.properties().gap, 12.0);
-        ui.set_local(row, ui.properties().height, 180.0);
+        let row = ui.append(
+            ui.root(),
+            crate::Row::new().padding(0.0).gap(12.0).height(180.0),
+        );
 
-        let panel = ui.append_child(row, TYPE_PANEL);
-        ui.set_local(panel, ui.properties().padding, 0.0);
+        let panel = ui.append(row, crate::Panel::new().padding(0.0));
 
-        let button = ui.append_child(panel, TYPE_BUTTON);
-        ui.widget_mut::<crate::Button>(button)
-            .expect("button")
-            .set_text("Inspect");
+        let button = ui.append(panel, crate::Button::new().with_text("Inspect"));
 
         let scene = ui.rebuild();
         let row_rect = scene.resolved_element(row).expect("row resolved").rect;
@@ -1899,21 +1844,16 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 0.0);
 
-        let column = ui.append_child(ui.root(), TYPE_COLUMN);
-        ui.set_local(column, ui.properties().padding, 0.0);
-        ui.set_local(column, ui.properties().gap, 8.0);
-        ui.set_local(column, ui.properties().height, 240.0);
+        let column = ui.append(
+            ui.root(),
+            crate::Column::new().padding(0.0).gap(8.0).height(240.0),
+        );
 
-        let panel = ui.append_child(column, TYPE_PANEL);
-        ui.set_local(panel, ui.properties().padding, 0.0);
+        let panel = ui.append(column, crate::Panel::new().padding(0.0));
 
-        let button = ui.append_child(panel, TYPE_BUTTON);
-        ui.widget_mut::<crate::Button>(button)
-            .expect("button")
-            .set_text("Inspect");
+        let button = ui.append(panel, crate::Button::new().with_text("Inspect"));
 
-        let fill = ui.append_child(column, TYPE_PANEL);
-        ui.set_local(fill, ui.properties().fill, true);
+        let fill = ui.append(column, crate::Panel::new().fill());
 
         let scene = ui.rebuild();
         let panel_rect = scene.resolved_element(panel).expect("panel resolved").rect;

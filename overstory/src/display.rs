@@ -170,7 +170,7 @@ fn display_node_for(
 
 #[cfg(test)]
 mod tests {
-    use crate::{Ui, default_theme};
+    use crate::{Button, Panel, Row, Ui, default_theme};
 
     #[test]
     fn display_tree_preserves_scene_parent_child_structure() {
@@ -179,20 +179,13 @@ mod tests {
         ui.set_local(ui.root(), ui.properties().padding, 0.0);
         ui.set_local(ui.root(), ui.properties().gap, 10.0);
 
-        let shell = ui.append_child(ui.root(), crate::TYPE_ROW);
-        ui.set_local(shell, ui.properties().padding, 0.0);
-        ui.set_local(shell, ui.properties().gap, 10.0);
+        let shell = ui.append(ui.root(), Row::new().padding(0.0).gap(10.0));
 
-        let left = ui.append_child(shell, crate::TYPE_PANEL);
-        ui.set_local(left, ui.properties().width, 80.0);
-        ui.set_local(left, ui.properties().padding, 8.0);
+        let left = ui.append(shell, Panel::new().width(80.0).padding(8.0));
 
-        let child = ui.append_child(left, crate::TYPE_BUTTON);
-        ui.set_label(child, "Child");
-        ui.set_local(child, ui.properties().height, 28.0);
+        let _child = ui.append(left, Button::new().with_text("Child").height(28.0));
 
-        let right = ui.append_child(shell, crate::TYPE_PANEL);
-        ui.set_local(right, ui.properties().padding, 8.0);
+        let _right = ui.append(shell, Panel::new().padding(8.0));
 
         let (tree, _) = ui.display_tree();
         let root = tree.root();
