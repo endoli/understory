@@ -13,6 +13,7 @@ use peniko::Color;
 use ui_events::pointer::{PointerButton, PointerEvent, PointerInfo};
 use understory_box_tree::NodeFlags;
 use understory_display::{TextAlign, TextEngine};
+use understory_focus::{DefaultPolicy, FocusEntry, FocusPolicy, FocusSpace, Navigation, WrapMode};
 use understory_property::{DependencyObjectExt, Property, PropertyRegistry};
 use understory_style::{ClassId, IdSet, StyleCascade, Theme, ThemeBuilder, TypeTag};
 
@@ -544,7 +545,9 @@ impl Ui {
 
     /// Handles one keyboard event from `ui-events`.
     ///
-    /// Delegates to the focused element's widget if it has one.
+    /// Delegates to the focused element's widget first. If the focused widget
+    /// does not consume the event, Overstory applies built-in focus traversal
+    /// for `Tab` / `Shift+Tab` and directional arrows using `understory_focus`.
     pub fn handle_keyboard_event(
         &mut self,
         event: &ui_events::keyboard::KeyboardEvent,
@@ -558,11 +561,11 @@ impl Ui {
         text: &mut TextEngine,
     ) -> InteractionBatch {
         let mut batch = InteractionBatch::default();
-        let Some(focused) = self.runtime.focused else {
-            return batch;
-        };
         self.rebuild_with(text);
-        if let Some(handle) = self.elements.get(focused.index()).and_then(|e| e.widget)
+        let focused = self.runtime.focused;
+        let mut handled = false;
+        if let Some(focused) = focused
+            && let Some(handle) = self.elements.get(focused.index()).and_then(|e| e.widget)
             && let Some(scene) = self.scene.as_ref()
         {
             let resolved_slice = scene.resolved();
@@ -577,12 +580,61 @@ impl Ui {
             let Some(widget) = self.widget_arena.get_mut(handle) else {
                 return batch;
             };
-            let handled = widget.keyboard_event(focused, event, &mut ctx, text, &mut batch);
+            handled = widget.keyboard_event(focused, event, &mut ctx, text, &mut batch);
             if handled {
                 self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
             }
         }
+        if !handled
+            && let Some(navigation) = navigation_for_key_event(event)
+            && let Some(next) = self.next_focus_target(navigation)
+        {
+            self.set_focus(next);
+            batch.push(Interaction::FocusChanged(next));
+        }
         batch
+    }
+
+    fn next_focus_target(&self, navigation: Navigation) -> Option<ElementId> {
+        let scene = self.scene.as_ref()?;
+        let entries = self.focus_entries(scene);
+        if entries.is_empty() {
+            return None;
+        }
+        let space = FocusSpace { nodes: &entries };
+        let policy = DefaultPolicy {
+            wrap: WrapMode::Scope,
+        };
+        match self.runtime.focused {
+            Some(origin) => policy
+                .next(origin, navigation, &space)
+                .or_else(|| initial_focus_target(&entries, navigation)),
+            None => initial_focus_target(&entries, navigation),
+        }
+    }
+
+    fn focus_entries(&self, scene: &SceneSnapshot) -> Vec<FocusEntry<ElementId>> {
+        let mut entries = Vec::new();
+        for resolved in scene.resolved() {
+            let Some(node) = scene.node_for(resolved.id) else {
+                continue;
+            };
+            let Some(flags) = scene.box_tree().flags(node) else {
+                continue;
+            };
+            if !flags.contains(NodeFlags::FOCUSABLE | NodeFlags::VISIBLE) {
+                continue;
+            }
+            entries.push(FocusEntry {
+                id: resolved.id,
+                rect: resolved.rect,
+                order: None,
+                group: None,
+                enabled: true,
+                scope_depth: u8::try_from(resolved.depth).unwrap_or(u8::MAX),
+            });
+        }
+        entries
     }
 
     /// Updates tooltip visibility and positioning based on current hover state.
@@ -1200,6 +1252,69 @@ fn scroll_delta_y(delta: ui_events::ScrollDelta) -> f64 {
         ui_events::ScrollDelta::PixelDelta(pos) => pos.y,
         ui_events::ScrollDelta::LineDelta(_, y) => f64::from(y) * SCROLL_LINE_HEIGHT,
         ui_events::ScrollDelta::PageDelta(_, y) => f64::from(y) * 400.0,
+    }
+}
+
+fn navigation_for_key_event(event: &ui_events::keyboard::KeyboardEvent) -> Option<Navigation> {
+    if !event.state.is_down() {
+        return None;
+    }
+    match event.key {
+        ui_events::keyboard::Key::Named(ui_events::keyboard::NamedKey::Tab) => {
+            if event
+                .modifiers
+                .contains(ui_events::keyboard::Modifiers::SHIFT)
+            {
+                Some(Navigation::Prev)
+            } else {
+                Some(Navigation::Next)
+            }
+        }
+        ui_events::keyboard::Key::Named(ui_events::keyboard::NamedKey::ArrowUp) => {
+            Some(Navigation::Up)
+        }
+        ui_events::keyboard::Key::Named(ui_events::keyboard::NamedKey::ArrowDown) => {
+            Some(Navigation::Down)
+        }
+        ui_events::keyboard::Key::Named(ui_events::keyboard::NamedKey::ArrowLeft) => {
+            Some(Navigation::Left)
+        }
+        ui_events::keyboard::Key::Named(ui_events::keyboard::NamedKey::ArrowRight) => {
+            Some(Navigation::Right)
+        }
+        _ => None,
+    }
+}
+
+fn initial_focus_target(
+    entries: &[FocusEntry<ElementId>],
+    navigation: Navigation,
+) -> Option<ElementId> {
+    let mut enabled: Vec<&FocusEntry<ElementId>> =
+        entries.iter().filter(|entry| entry.enabled).collect();
+    if enabled.is_empty() {
+        return None;
+    }
+    enabled.sort_by(|a, b| {
+        a.rect
+            .y0
+            .partial_cmp(&b.rect.y0)
+            .unwrap_or(core::cmp::Ordering::Equal)
+            .then_with(|| {
+                a.rect
+                    .x0
+                    .partial_cmp(&b.rect.x0)
+                    .unwrap_or(core::cmp::Ordering::Equal)
+            })
+    });
+    match navigation {
+        Navigation::Prev | Navigation::Up | Navigation::Left => {
+            enabled.last().map(|entry| entry.id)
+        }
+        Navigation::Next | Navigation::Down | Navigation::Right => {
+            enabled.first().map(|entry| entry.id)
+        }
+        Navigation::EnterScope | Navigation::ExitScope => None,
     }
 }
 
@@ -1890,5 +2005,70 @@ mod tests {
         state.count = 1;
         state.scale_factor = 1.0;
         state
+    }
+
+    #[test]
+    fn tab_moves_focus_between_buttons() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 120.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let row = ui.append(ui.root(), crate::Row::new().padding(0.0).gap(12.0));
+        let first = ui.append(row, crate::Button::new().with_text("First"));
+        let second = ui.append(row, crate::Button::new().with_text("Second"));
+
+        let tab = KeyboardEvent {
+            key: Key::Named(NamedKey::Tab),
+            code: Code::Unidentified,
+            state: KeyState::Down,
+            modifiers: Modifiers::empty(),
+            location: Location::Standard,
+            repeat: false,
+            is_composing: false,
+        };
+        let shift_tab = KeyboardEvent {
+            modifiers: Modifiers::SHIFT,
+            ..tab.clone()
+        };
+
+        let batch = ui.handle_keyboard_event(&tab);
+        assert_eq!(ui.runtime.focused, Some(first));
+        assert!(batch.events().contains(&Interaction::FocusChanged(first)));
+
+        let batch = ui.handle_keyboard_event(&tab);
+        assert_eq!(ui.runtime.focused, Some(second));
+        assert!(batch.events().contains(&Interaction::FocusChanged(second)));
+
+        let batch = ui.handle_keyboard_event(&shift_tab);
+        assert_eq!(ui.runtime.focused, Some(first));
+        assert!(batch.events().contains(&Interaction::FocusChanged(first)));
+    }
+
+    #[test]
+    fn arrow_navigation_moves_button_focus_when_widget_does_not_handle() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 120.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let row = ui.append(ui.root(), crate::Row::new().padding(0.0).gap(12.0));
+        let first = ui.append(row, crate::Button::new().with_text("First"));
+        let second = ui.append(row, crate::Button::new().with_text("Second"));
+        ui.set_focus(first);
+
+        let right = KeyboardEvent {
+            key: Key::Named(NamedKey::ArrowRight),
+            code: Code::Unidentified,
+            state: KeyState::Down,
+            modifiers: Modifiers::empty(),
+            location: Location::Standard,
+            repeat: false,
+            is_composing: false,
+        };
+
+        let batch = ui.handle_keyboard_event(&right);
+        assert_eq!(ui.runtime.focused, Some(second));
+        assert!(batch.events().contains(&Interaction::FocusChanged(second)));
     }
 }
