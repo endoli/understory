@@ -159,13 +159,15 @@ impl Widget for Button {
         &mut self,
         id: ElementId,
         event: &KeyboardEvent,
-        _ctx: &mut KeyboardEventCtx<'_>,
+        ctx: &mut KeyboardEventCtx<'_>,
         _text: &mut understory_display::TextEngine,
         batch: &mut InteractionBatch,
     ) -> bool {
         match (&event.key, event.state) {
             (Key::Named(NamedKey::Enter), KeyState::Down) if !event.repeat => {
+                ctx.set_pressed(id, true);
                 batch.push(Interaction::PressStarted(id));
+                ctx.set_pressed(id, false);
                 batch.push(Interaction::PressEnded(id));
                 batch.push(Interaction::Clicked(id));
                 true
@@ -173,6 +175,7 @@ impl Widget for Button {
             (Key::Character(space), KeyState::Down) if !event.repeat && &**space == " " => {
                 if !self.space_armed {
                     self.space_armed = true;
+                    ctx.set_pressed(id, true);
                     batch.push(Interaction::PressStarted(id));
                 }
                 true
@@ -180,6 +183,7 @@ impl Widget for Button {
             (Key::Character(space), KeyState::Up) if &**space == " " => {
                 if self.space_armed {
                     self.space_armed = false;
+                    ctx.set_pressed(id, false);
                     batch.push(Interaction::PressEnded(id));
                     batch.push(Interaction::Clicked(id));
                 }

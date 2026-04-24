@@ -263,6 +263,18 @@ impl<'a> KeyboardEventCtx<'a> {
         Some(self.resolved_element(id)?.rect)
     }
 
+    /// Sets the pressed pseudo-state for an element and marks paint dirty.
+    pub fn set_pressed(&mut self, id: ElementId, pressed: bool) {
+        let Some(element) = self.elements.get_mut(id.index()) else {
+            return;
+        };
+        if element.pseudos.pressed != pressed {
+            element.pseudos.pressed = pressed;
+            *self.dirty |=
+                crate::DirtyChannels::LAYOUT.into_set() | crate::DirtyChannels::PAINT.into_set();
+        }
+    }
+
     /// Sets one local property value on an element and accumulates dirty channels.
     pub fn set_local<T>(&mut self, id: ElementId, property: Property<T>, value: T)
     where

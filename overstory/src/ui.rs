@@ -481,6 +481,9 @@ impl Ui {
         if let Some(prev) = self.runtime.focused.take() {
             if let Some(element) = self.elements.get_mut(prev.index()) {
                 element.pseudos.focused = false;
+                if self.runtime.pressed_target != Some(prev) {
+                    element.pseudos.pressed = false;
+                }
             }
             if let Some(handle) = self.elements.get(prev.index()).and_then(|e| e.widget)
                 && let Some(w) = self.widget_arena.get_mut(handle)
@@ -2120,10 +2123,62 @@ mod tests {
                 .contains(&Interaction::PressStarted(button))
         );
         assert!(!down_batch.events().contains(&Interaction::Clicked(button)));
+        let pressed_scene = ui.rebuild();
+        assert!(
+            pressed_scene
+                .resolved_element(button)
+                .expect("button resolved")
+                .pressed
+        );
 
         let up_batch = ui.handle_keyboard_event(&space_up);
         assert!(up_batch.events().contains(&Interaction::PressEnded(button)));
         assert!(up_batch.events().contains(&Interaction::Clicked(button)));
+        let released_scene = ui.rebuild();
+        assert!(
+            !released_scene
+                .resolved_element(button)
+                .expect("button resolved")
+                .pressed
+        );
+    }
+
+    #[test]
+    fn focused_button_clears_keyboard_pressed_state_on_focus_change() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 120.0));
+
+        let row = ui.append(ui.root(), crate::Row::new().padding(0.0).gap(12.0));
+        let first = ui.append(row, crate::Button::new().with_text("First"));
+        let second = ui.append(row, crate::Button::new().with_text("Second"));
+        ui.set_focus(first);
+
+        let space_down = KeyboardEvent {
+            key: Key::Character(" ".into()),
+            code: Code::Unidentified,
+            state: KeyState::Down,
+            modifiers: Modifiers::empty(),
+            location: Location::Standard,
+            repeat: false,
+            is_composing: false,
+        };
+
+        let _ = ui.handle_keyboard_event(&space_down);
+        assert!(
+            ui.rebuild()
+                .resolved_element(first)
+                .expect("button resolved")
+                .pressed
+        );
+
+        ui.set_focus(second);
+        let scene = ui.rebuild();
+        assert!(
+            !scene
+                .resolved_element(first)
+                .expect("button resolved")
+                .pressed
+        );
     }
 
     #[test]
