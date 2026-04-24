@@ -19,5 +19,6 @@ pub use property_grid::{
     PropertyGridRowIds, PropertyGridStyle, PropertyValue,
 };
 pub use tree::{
-    InspectorTreeClick, InspectorTreeController, InspectorTreeRealizedRow, InspectorTreeStyle,
+    InspectorTreeClick, InspectorTreeController, InspectorTreeRealizedRow, InspectorTreeRowIds,
+    InspectorTreeStyle, themed_tree_style,
 };

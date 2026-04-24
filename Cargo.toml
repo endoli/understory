@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "overstory",
   "overstory_inspector",
+  "overstory_tree",
   "overstory_transcript",
   "understory_display",
   "understory_index",

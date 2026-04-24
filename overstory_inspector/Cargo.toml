@@ -11,6 +11,7 @@ categories = ["gui"]
 
 [dependencies]
 overstory = { path = "../overstory" }
+overstory_tree = { path = "../overstory_tree" }
 understory_inspector = { path = "../understory_inspector" }
 
 [lints]

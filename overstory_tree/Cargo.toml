@@ -1,0 +1,16 @@
+[package]
+name = "overstory_tree"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Reusable tree surface integration for Overstory"
+readme = "README.md"
+keywords = ["ui", "tree", "outline", "overstory", "understory"]
+categories = ["gui"]
+
+[dependencies]
+overstory = { path = "../overstory" }
+
+[lints]
+workspace = true

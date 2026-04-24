@@ -1774,6 +1774,7 @@ name = "overstory_inspector"
 version = "0.1.0"
 dependencies = [
  "overstory",
+ "overstory_tree",
  "understory_inspector",
 ]
 
@@ -1784,6 +1785,13 @@ dependencies = [
  "hashbrown 0.16.1",
  "overstory",
  "understory_transcript",
+]
+
+[[package]]
+name = "overstory_tree"
+version = "0.1.0"
+dependencies = [
+ "overstory",
 ]
 
 [[package]]
