@@ -25,6 +25,9 @@ use overstory::{
     Interaction, Panel, Row, ScrollView, Splitter, TextBlock, TextInput, ThemeKeys, Tooltip, Ui,
     default_theme,
 };
+use overstory_inspector::{
+    InspectorTreeController, PropertyBadge, PropertyGridController, PropertyGridRow, PropertyValue,
+};
 use overstory_transcript::TranscriptViewController;
 use ui_events_winit::{WindowEventReducer, WindowEventTranslation};
 use understory_display::{BoxConstraints, TextEngine};
@@ -201,36 +204,6 @@ struct DemoIds {
     input: ElementId,
     inspector_tree: ElementId,
     inspector_props: ElementId,
-}
-
-#[derive(Clone, Debug)]
-struct PropertyBadge {
-    label: String,
-    background: Color,
-    foreground: Color,
-}
-
-#[derive(Clone, Debug)]
-enum PropertyValue {
-    Text(String),
-    Color(Color),
-    Badges(Vec<PropertyBadge>),
-}
-
-#[derive(Clone, Debug)]
-struct PropertyRow {
-    name: String,
-    value: PropertyValue,
-}
-
-#[derive(Clone, Debug)]
-struct PropertyRowElements {
-    row: ElementId,
-    name: ElementId,
-    detail: ElementId,
-    swatch: ElementId,
-    value: ElementId,
-    chips: Vec<ElementId>,
 }
 
 #[allow(
@@ -417,14 +390,12 @@ struct DemoApp {
     api_config: ApiConfig,
     /// Monotonic epoch for converting between Instant and u64 nanos.
     epoch: std::time::Instant,
-    /// Element tree inspector controller.
-    inspector: Inspector<ElementTreeModel>,
+    /// Element tree inspector surface controller.
+    inspector: InspectorTreeController<ElementTreeModel>,
     /// Currently selected element in the inspector.
     selected_element: Option<ElementId>,
-    /// UI elements representing tree rows.
-    tree_row_elements: Vec<ElementId>,
-    /// UI elements representing property rows.
-    prop_row_elements: Vec<PropertyRowElements>,
+    /// Property-grid surface controller.
+    property_grid: PropertyGridController,
     /// Whether the inspector tree has been initially expanded.
     inspector_initialized: bool,
     inspector_dock: DockPaneController,
@@ -447,7 +418,10 @@ impl DemoApp {
         ));
 
         let inspector_model = ElementTreeModel::from_ui(&ui, vec![ids.inspector_panel]);
-        let inspector = Inspector::new(inspector_model, InspectorConfig::fixed_rows(16.0, 200.0));
+        let inspector = InspectorTreeController::new(
+            ids.inspector_tree,
+            Inspector::new(inspector_model, InspectorConfig::fixed_rows(16.0, 200.0)),
+        );
         let mut inspector_dock = DockPaneController::new(
             DockPaneIds {
                 pane: ids.inspector_panel,
@@ -465,6 +439,7 @@ impl DemoApp {
         );
         inspector_dock.set_style(inspector_dock_style(true));
         let transcript_view = TranscriptViewController::new(ids.messages);
+        let inspector_props = ids.inspector_props;
 
         let mut app = Self {
             ui,
@@ -483,8 +458,7 @@ impl DemoApp {
             epoch: std::time::Instant::now(),
             inspector,
             selected_element: None,
-            tree_row_elements: Vec::new(),
-            prop_row_elements: Vec::new(),
+            property_grid: PropertyGridController::new(inspector_props),
             inspector_initialized: false,
             inspector_dock,
             transcript_view,
@@ -747,10 +721,10 @@ impl DemoApp {
 
     fn sync_inspector(&mut self) {
         // Rebuild model from current UI state, excluding the inspector panels.
-        *self.inspector.model_mut() =
+        *self.inspector.inspector_mut().model_mut() =
             ElementTreeModel::from_ui(&self.ui, vec![self.ids.inspector_panel]);
-        self.inspector.mark_dirty();
-        self.inspector.sync();
+        self.inspector.inspector_mut().mark_dirty();
+        self.inspector.inspector_mut().sync();
 
         // Expand all nodes on first sync so the tree starts fully open.
         if !self.inspector_initialized {
@@ -758,6 +732,7 @@ impl DemoApp {
             for _ in 0..10 {
                 let unexpanded: Vec<_> = self
                     .inspector
+                    .inspector_mut()
                     .visible_rows()
                     .iter()
                     .filter(|r| r.has_children && !r.is_expanded)
@@ -767,49 +742,13 @@ impl DemoApp {
                     break;
                 }
                 for key in unexpanded {
-                    let _ = self.inspector.expand(key);
+                    let _ = self.inspector.inspector_mut().expand(key);
                 }
             }
         }
 
-        let rows = self.inspector.visible_rows().to_vec();
-
-        // Ensure we have enough TextBlock elements for the visible rows.
-        while self.tree_row_elements.len() < rows.len() {
-            let block = self.ui.append(
-                self.ids.inspector_tree,
-                TextBlock::new()
-                    .label_padding(2.0)
-                    .padding(1.0)
-                    .font_size(11.0),
-            );
-            self.ui
-                .set_local(block, self.ui.properties().pickable, true);
-            self.tree_row_elements.push(block);
-        }
-
-        // Update labels and hide excess rows.
-        for (i, block) in self.tree_row_elements.iter().enumerate() {
-            if let Some(row) = rows.get(i) {
-                let item = self.inspector.item(&row.key).unwrap_or_default();
-                let indent = "  ".repeat(row.depth);
-                let disclosure = match (row.has_children, row.is_expanded) {
-                    (true, true) => "▾ ",
-                    (true, false) => "▸ ",
-                    (false, _) => "  ",
-                };
-                let selected = self.selected_element == Some(row.key);
-                let marker = if selected { "● " } else { "" };
-                let label = format!("{indent}{disclosure}{marker}{item}");
-                set_text_block_text(&mut self.ui, *block, label);
-                self.ui
-                    .set_local(*block, self.ui.properties().visible, true);
-            } else {
-                set_text_block_text(&mut self.ui, *block, "");
-                self.ui
-                    .set_local(*block, self.ui.properties().visible, false);
-            }
-        }
+        self.inspector
+            .sync_default(&mut self.ui, self.selected_element.as_ref());
     }
 
     fn sync_property_grid(&mut self) {
@@ -828,85 +767,79 @@ impl DemoApp {
             .theme()
             .get(ThemeKeys::FOREGROUND)
             .expect("foreground in theme");
-        let props: Vec<PropertyRow> = if let Some(sel) = self.selected_element {
+        let props: Vec<PropertyGridRow> = if let Some(sel) = self.selected_element {
             let scene = self.ui.scene();
             if let Some(resolved) = scene.resolved_element(sel).cloned() {
                 let name = type_tag_name(resolved.type_tag);
                 let mut p = vec![
-                    PropertyRow {
-                        name: "type".into(),
-                        value: PropertyValue::Text(name.into()),
-                    },
-                    PropertyRow {
-                        name: "id".into(),
-                        value: PropertyValue::Text(format!("{sel:?}")),
-                    },
+                    PropertyGridRow::new("type", PropertyValue::Text(name.into())),
+                    PropertyGridRow::new("id", PropertyValue::Text(format!("{sel:?}").into())),
                 ];
                 if let Some(text) = &resolved.text {
-                    p.push(PropertyRow {
-                        name: "text".into(),
-                        value: PropertyValue::Text(text.to_string()),
-                    });
+                    p.push(PropertyGridRow::new(
+                        "text",
+                        PropertyValue::Text(text.to_string().into()),
+                    ));
                 }
                 let r = resolved.rect;
-                p.push(PropertyRow {
-                    name: "x".into(),
-                    value: PropertyValue::Text(format!("{:.0}", r.x0)),
-                });
-                p.push(PropertyRow {
-                    name: "y".into(),
-                    value: PropertyValue::Text(format!("{:.0}", r.y0)),
-                });
-                p.push(PropertyRow {
-                    name: "width".into(),
-                    value: PropertyValue::Text(format!("{:.0}", r.width())),
-                });
-                p.push(PropertyRow {
-                    name: "height".into(),
-                    value: PropertyValue::Text(format!("{:.0}", r.height())),
-                });
-                p.push(PropertyRow {
-                    name: "background".into(),
-                    value: PropertyValue::Color(resolved.background),
-                });
-                p.push(PropertyRow {
-                    name: "foreground".into(),
-                    value: PropertyValue::Color(resolved.foreground),
-                });
-                p.push(PropertyRow {
-                    name: "font_size".into(),
-                    value: PropertyValue::Text(format!("{:.1}", resolved.font_size)),
-                });
-                p.push(PropertyRow {
-                    name: "font_family".into(),
-                    value: PropertyValue::Text(resolved.font_family.to_string()),
-                });
-                p.push(PropertyRow {
-                    name: "text_align".into(),
-                    value: PropertyValue::Text(format!("{:?}", resolved.text_align)),
-                });
-                p.push(PropertyRow {
-                    name: "corner_radius".into(),
-                    value: PropertyValue::Text(format!("{:.1}", resolved.corner_radius)),
-                });
+                p.push(PropertyGridRow::new(
+                    "x",
+                    PropertyValue::Text(format!("{:.0}", r.x0).into()),
+                ));
+                p.push(PropertyGridRow::new(
+                    "y",
+                    PropertyValue::Text(format!("{:.0}", r.y0).into()),
+                ));
+                p.push(PropertyGridRow::new(
+                    "width",
+                    PropertyValue::Text(format!("{:.0}", r.width()).into()),
+                ));
+                p.push(PropertyGridRow::new(
+                    "height",
+                    PropertyValue::Text(format!("{:.0}", r.height()).into()),
+                ));
+                p.push(PropertyGridRow::new(
+                    "background",
+                    PropertyValue::Color(resolved.background),
+                ));
+                p.push(PropertyGridRow::new(
+                    "foreground",
+                    PropertyValue::Color(resolved.foreground),
+                ));
+                p.push(PropertyGridRow::new(
+                    "font_size",
+                    PropertyValue::Text(format!("{:.1}", resolved.font_size).into()),
+                ));
+                p.push(PropertyGridRow::new(
+                    "font_family",
+                    PropertyValue::Text(resolved.font_family.to_string().into()),
+                ));
+                p.push(PropertyGridRow::new(
+                    "text_align",
+                    PropertyValue::Text(format!("{:?}", resolved.text_align).into()),
+                ));
+                p.push(PropertyGridRow::new(
+                    "corner_radius",
+                    PropertyValue::Text(format!("{:.1}", resolved.corner_radius).into()),
+                ));
                 if resolved.border.width > 0.0 {
-                    p.push(PropertyRow {
-                        name: "border_width".into(),
-                        value: PropertyValue::Text(format!("{:.1}", resolved.border.width)),
-                    });
-                    p.push(PropertyRow {
-                        name: "border_color".into(),
-                        value: PropertyValue::Color(resolved.border.color),
-                    });
+                    p.push(PropertyGridRow::new(
+                        "border_width",
+                        PropertyValue::Text(format!("{:.1}", resolved.border.width).into()),
+                    ));
+                    p.push(PropertyGridRow::new(
+                        "border_color",
+                        PropertyValue::Color(resolved.border.color),
+                    ));
                 }
-                p.push(PropertyRow {
-                    name: "clips".into(),
-                    value: PropertyValue::Badges(vec![if resolved.clips_content {
+                p.push(PropertyGridRow::new(
+                    "clips",
+                    PropertyValue::Badges(vec![if resolved.clips_content {
                         active_badge("yes", primary_bg)
                     } else {
                         idle_badge("no", button_bg, foreground)
                     }]),
-                });
+                ));
                 let mut states = Vec::new();
                 if resolved.hovered {
                     states.push(active_badge("hovered", primary_bg));
@@ -920,28 +853,25 @@ impl DemoApp {
                 if states.is_empty() {
                     states.push(idle_badge("idle", button_bg, foreground));
                 }
-                p.push(PropertyRow {
-                    name: "state".into(),
-                    value: PropertyValue::Badges(states),
-                });
+                p.push(PropertyGridRow::new("state", PropertyValue::Badges(states)));
                 if resolved.scroll_offset != 0.0 {
-                    p.push(PropertyRow {
-                        name: "scroll".into(),
-                        value: PropertyValue::Text(format!("{:.1}", resolved.scroll_offset)),
-                    });
+                    p.push(PropertyGridRow::new(
+                        "scroll",
+                        PropertyValue::Text(format!("{:.1}", resolved.scroll_offset).into()),
+                    ));
                 }
                 p
             } else {
-                vec![PropertyRow {
-                    name: "(not visible)".into(),
-                    value: PropertyValue::Text(String::new()),
-                }]
+                vec![PropertyGridRow::new(
+                    "(not visible)",
+                    PropertyValue::Text(String::new().into()),
+                )]
             }
         } else {
-            vec![PropertyRow {
-                name: "(no selection)".into(),
-                value: PropertyValue::Text(String::new()),
-            }]
+            vec![PropertyGridRow::new(
+                "(no selection)",
+                PropertyValue::Text(String::new().into()),
+            )]
         };
 
         let border_color = *self
@@ -949,157 +879,13 @@ impl DemoApp {
             .theme()
             .get(ThemeKeys::BORDER_COLOR)
             .expect("border color in theme");
-
-        // Ensure enough structured rows.
-        while self.prop_row_elements.len() < props.len() {
-            let row = self.ui.append(
-                self.ids.inspector_props,
-                Row::new()
-                    .padding(1.0)
-                    .gap(6.0)
-                    .background(Color::TRANSPARENT),
-            );
-
-            let name = self.ui.append(
-                row,
-                TextBlock::new()
-                    .label_padding(2.0)
-                    .padding(1.0)
-                    .font_size(11.0)
-                    .background(Color::TRANSPARENT),
-            );
-            self.ui.set_local(name, self.ui.properties().width, 84.0);
-
-            let detail = self.ui.append(
-                row,
-                Row::new()
-                    .fill()
-                    .padding(0.0)
-                    .gap(6.0)
-                    .background(Color::TRANSPARENT),
-            );
-
-            let swatch = self.ui.append(
-                detail,
-                Panel::new().width(14.0).height(14.0).corner_radius(3.0),
-            );
-            self.ui
-                .set_local(swatch, self.ui.properties().border_width, 1.0);
-            self.ui
-                .set_local(swatch, self.ui.properties().border_color, border_color);
-
-            let value = self.ui.append(
-                detail,
-                TextBlock::new()
-                    .fill()
-                    .label_padding(2.0)
-                    .padding(1.0)
-                    .font_size(11.0)
-                    .background(Color::TRANSPARENT),
-            );
-
-            self.prop_row_elements.push(PropertyRowElements {
-                row,
-                name,
-                detail,
-                swatch,
-                value,
-                chips: Vec::new(),
+        let badge_font_size = self.property_grid.style().badge_font_size;
+        self.property_grid
+            .sync(&mut self.ui, &props, border_color, |label| {
+                self.text
+                    .measure_text(label, badge_font_size as f32, "sans-serif", None)
+                    .width
             });
-        }
-
-        for i in 0..self.prop_row_elements.len() {
-            let row = &mut self.prop_row_elements[i];
-            if let Some(prop) = props.get(i) {
-                set_text_block_text(&mut self.ui, row.name, prop.name.as_str());
-                self.ui
-                    .set_local(row.row, self.ui.properties().visible, true);
-                match &prop.value {
-                    PropertyValue::Text(value) => {
-                        set_text_block_text(&mut self.ui, row.value, value.as_str());
-                        self.ui
-                            .set_local(row.swatch, self.ui.properties().visible, false);
-                        self.ui
-                            .set_local(row.value, self.ui.properties().visible, true);
-                        for chip in &row.chips {
-                            self.ui
-                                .set_local(*chip, self.ui.properties().visible, false);
-                        }
-                    }
-                    PropertyValue::Color(color) => {
-                        set_text_block_text(&mut self.ui, row.value, format_color(*color));
-                        self.ui
-                            .set_local(row.swatch, self.ui.properties().visible, true);
-                        self.ui
-                            .set_local(row.swatch, self.ui.properties().background, *color);
-                        self.ui
-                            .set_local(row.value, self.ui.properties().visible, true);
-                        for chip in &row.chips {
-                            self.ui
-                                .set_local(*chip, self.ui.properties().visible, false);
-                        }
-                    }
-                    PropertyValue::Badges(chips) => {
-                        self.ui
-                            .set_local(row.swatch, self.ui.properties().visible, false);
-                        self.ui
-                            .set_local(row.value, self.ui.properties().visible, false);
-
-                        while row.chips.len() < chips.len() {
-                            let chip = self.ui.append(
-                                row.detail,
-                                TextBlock::new()
-                                    .label_padding(3.0)
-                                    .padding(2.0)
-                                    .font_size(10.0)
-                                    .corner_radius(6.0),
-                            );
-                            row.chips.push(chip);
-                        }
-
-                        for (chip_id, chip) in row.chips.iter().zip(chips.iter()) {
-                            let width = self
-                                .text
-                                .measure_text(&chip.label, 10.0, "sans-serif", None)
-                                .width
-                                + 14.0;
-                            set_text_block_text(&mut self.ui, *chip_id, chip.label.as_str());
-                            self.ui
-                                .set_local(*chip_id, self.ui.properties().width, width);
-                            self.ui.set_local(
-                                *chip_id,
-                                self.ui.properties().background,
-                                chip.background,
-                            );
-                            self.ui.set_local(
-                                *chip_id,
-                                self.ui.properties().foreground,
-                                chip.foreground,
-                            );
-                            self.ui
-                                .set_local(*chip_id, self.ui.properties().visible, true);
-                        }
-                        for chip_id in row.chips.iter().skip(chips.len()) {
-                            self.ui
-                                .set_local(*chip_id, self.ui.properties().visible, false);
-                        }
-                    }
-                }
-            } else {
-                set_text_block_text(&mut self.ui, row.name, "");
-                set_text_block_text(&mut self.ui, row.value, "");
-                self.ui
-                    .set_local(row.swatch, self.ui.properties().visible, false);
-                self.ui
-                    .set_local(row.value, self.ui.properties().visible, false);
-                for chip in &row.chips {
-                    self.ui
-                        .set_local(*chip, self.ui.properties().visible, false);
-                }
-                self.ui
-                    .set_local(row.row, self.ui.properties().visible, false);
-            }
-        }
     }
 
     fn process_pointer_translation(
@@ -1162,19 +948,10 @@ impl DemoApp {
                     }
                     _ => {
                         // Check if it's an inspector tree row click.
-                        if let Some(row_index) =
-                            self.tree_row_elements.iter().position(|el| *el == target)
-                        {
-                            let rows = self.inspector.visible_rows().to_vec();
-                            if let Some(row) = rows.get(row_index) {
-                                let key = row.key;
-                                if row.has_children {
-                                    let _ = self.inspector.toggle(key);
-                                }
-                                self.selected_element = Some(key);
-                                self.sync_inspector();
-                                self.sync_property_grid();
-                            }
+                        if let Some(click) = self.inspector.handle_row_click(target) {
+                            self.selected_element = Some(click.key);
+                            self.sync_inspector();
+                            self.sync_property_grid();
                         }
                     }
                 }
@@ -1858,6 +1635,7 @@ fn inspector_dock_style(roomy: bool) -> DockPaneStyle {
     }
 }
 
+#[cfg(test)]
 fn format_color(color: Color) -> String {
     let rgba = color.to_rgba8();
     format!("#{:02x}{:02x}{:02x}{:02x}", rgba.r, rgba.g, rgba.b, rgba.a)
@@ -1870,26 +1648,12 @@ fn set_button_text(ui: &mut Ui, id: ElementId, text: impl Into<Box<str>>) {
         .set_text(text);
 }
 
-fn set_text_block_text(ui: &mut Ui, id: ElementId, text: impl Into<Box<str>>) {
-    ui.widget_mut::<TextBlock>(id)
-        .expect("element should host a TextBlock widget")
-        .set_text(text);
+fn active_badge(label: impl Into<Box<str>>, background: Color) -> PropertyBadge {
+    PropertyBadge::active(label, background)
 }
 
-fn active_badge(label: impl Into<String>, background: Color) -> PropertyBadge {
-    PropertyBadge {
-        label: label.into(),
-        background,
-        foreground: palette::css::WHITE,
-    }
-}
-
-fn idle_badge(label: impl Into<String>, background: Color, foreground: Color) -> PropertyBadge {
-    PropertyBadge {
-        label: label.into(),
-        background,
-        foreground,
-    }
+fn idle_badge(label: impl Into<Box<str>>, background: Color, foreground: Color) -> PropertyBadge {
+    PropertyBadge::new(label, background, foreground)
 }
 
 #[cfg(test)]
@@ -2605,9 +2369,10 @@ mod tests {
         app.sync_property_grid();
 
         let background_row = app
-            .prop_row_elements
+            .property_grid
+            .realized_rows()
             .iter()
-            .find(|row| app.ui.display_name(row.name) == Some("background"))
+            .find(|row| row.name.as_ref() == "background")
             .cloned()
             .expect("background row should exist");
 
@@ -2616,12 +2381,12 @@ mod tests {
             .resolved_element(app.ids.deploy)
             .expect("deploy button should be visible");
         let swatch = scene
-            .resolved_element(background_row.swatch)
+            .resolved_element(background_row.ids.swatch)
             .expect("background swatch should be visible");
         let expected_label = format_color(deploy.background);
         assert_eq!(swatch.background, deploy.background);
         assert_eq!(
-            app.ui.display_name(background_row.value),
+            app.ui.display_name(background_row.ids.value),
             Some(expected_label.as_str())
         );
     }
@@ -2633,9 +2398,10 @@ mod tests {
         app.sync_property_grid();
 
         let state_row = app
-            .prop_row_elements
+            .property_grid
+            .realized_rows()
             .iter()
-            .find(|row| app.ui.display_name(row.name) == Some("state"))
+            .find(|row| row.name.as_ref() == "state")
             .cloned()
             .expect("state row should exist");
         let state_chip_info: Vec<_> = state_row
@@ -2666,9 +2432,10 @@ mod tests {
         );
 
         let clips_row = app
-            .prop_row_elements
+            .property_grid
+            .realized_rows()
             .iter()
-            .find(|row| app.ui.display_name(row.name) == Some("clips"))
+            .find(|row| row.name.as_ref() == "clips")
             .cloned()
             .expect("clips row should exist");
         let clip_chip_info: Vec<_> = clips_row

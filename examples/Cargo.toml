@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 overstory = { path = "../overstory" }
+overstory_inspector = { path = "../overstory_inspector" }
 overstory_transcript = { path = "../overstory_transcript" }
 understory_display = { path = "../understory_display", features = ["std"] }
 imaging = { git = "https://github.com/forest-rs/imaging", rev = "999b356f7f2e043292e3c649e1eb803374c347ee", features = ["std"] }
