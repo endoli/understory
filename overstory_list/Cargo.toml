@@ -1,0 +1,16 @@
+[package]
+name = "overstory_list"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Reusable linear list surface integration for Overstory"
+readme = "README.md"
+keywords = ["ui", "list", "overstory", "understory"]
+categories = ["gui"]
+
+[dependencies]
+overstory = { path = "../overstory" }
+
+[lints]
+workspace = true
