@@ -122,7 +122,12 @@ fn panel_styles(props: &BuiltInProperties) -> StyleCascade {
 fn button_styles(props: &BuiltInProperties) -> StyleCascade {
     let base = StyleBuilder::new()
         .set_resource(props.background, ThemeKeys::CONTROL_BACKGROUND)
+        .set_resource(props.border_color, ThemeKeys::BORDER_COLOR)
+        .set(props.border_width, 1.0)
         .set_resource(props.height, ThemeKeys::BUTTON_HEIGHT)
+        .build();
+    let focused = StyleBuilder::new()
+        .set_resource(props.border_color, ThemeKeys::FOCUS_RING_COLOR)
         .build();
     let hover = StyleBuilder::new()
         .set_resource(props.background, ThemeKeys::CONTROL_BACKGROUND_EMPHASIZED)
@@ -146,6 +151,11 @@ fn button_styles(props: &BuiltInProperties) -> StyleCascade {
         required_classes: IdSet::default(),
         required_pseudos: IdSet::from_ids([PSEUDO_HOVER]),
     };
+    let selector_focused = Selector {
+        type_tag: Some(TYPE_BUTTON),
+        required_classes: IdSet::default(),
+        required_pseudos: IdSet::from_ids([PSEUDO_FOCUSED]),
+    };
     let selector_pressed = Selector {
         type_tag: Some(TYPE_BUTTON),
         required_classes: IdSet::default(),
@@ -168,6 +178,7 @@ fn button_styles(props: &BuiltInProperties) -> StyleCascade {
     };
 
     let sheet = StyleSheetBuilder::new()
+        .rule(selector_focused, focused)
         .rule(selector_hover, hover)
         .rule(selector_pressed, pressed)
         .rule(selector_primary, primary)
@@ -262,12 +273,28 @@ fn text_block_styles(props: &BuiltInProperties) -> StyleCascade {
 }
 
 fn text_input_styles(props: &BuiltInProperties) -> StyleCascade {
+    let focused = StyleBuilder::new()
+        .set_resource(props.border_color, ThemeKeys::FOCUS_RING_COLOR)
+        .build();
+    let selector_focused = Selector {
+        type_tag: Some(TYPE_TEXT_INPUT),
+        required_classes: IdSet::default(),
+        required_pseudos: IdSet::from_ids([PSEUDO_FOCUSED]),
+    };
     StyleCascadeBuilder::new()
         .push_style(
             StyleOrigin::Base,
             StyleBuilder::new()
                 .set_resource(props.background, ThemeKeys::SURFACE_BACKGROUND)
+                .set_resource(props.border_color, ThemeKeys::BORDER_COLOR)
+                .set(props.border_width, 1.0)
                 .set_resource(props.height, ThemeKeys::BUTTON_HEIGHT)
+                .build(),
+        )
+        .push_sheet(
+            StyleOrigin::Sheet,
+            StyleSheetBuilder::new()
+                .rule(selector_focused, focused)
                 .build(),
         )
         .build()

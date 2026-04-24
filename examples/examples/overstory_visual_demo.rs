@@ -2835,6 +2835,10 @@ fn dark_theme() -> Theme {
         .set(ThemeKeys::ACCENT_FOREGROUND, Color::WHITE)
         .set(ThemeKeys::FOREGROUND, Color::from_rgba8(210, 212, 216, 255))
         .set(ThemeKeys::BORDER_COLOR, Color::from_rgba8(58, 58, 62, 255))
+        .set(
+            ThemeKeys::FOCUS_RING_COLOR,
+            Color::from_rgba8(62, 180, 138, 255),
+        )
         .set(ThemeKeys::CORNER_RADIUS, 10.0_f64)
         .set(ThemeKeys::PADDING, 16.0_f64)
         .set(ThemeKeys::GAP, 12.0_f64)

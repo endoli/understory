@@ -597,24 +597,31 @@ impl Ui {
 
     fn next_focus_target(&self, navigation: Navigation) -> Option<ElementId> {
         let scene = self.scene.as_ref()?;
-        let entries = self.focus_entries(scene);
+        let (entries, autofocus) = self.focus_entries(scene);
         if entries.is_empty() {
             return None;
         }
-        let space = FocusSpace { nodes: &entries };
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus,
+        };
         let policy = DefaultPolicy {
             wrap: WrapMode::Scope,
         };
         match self.runtime.focused {
             Some(origin) => policy
                 .next(origin, navigation, &space)
-                .or_else(|| initial_focus_target(&entries, navigation)),
-            None => initial_focus_target(&entries, navigation),
+                .or_else(|| policy.initial(navigation, &space)),
+            None => policy.initial(navigation, &space),
         }
     }
 
-    fn focus_entries(&self, scene: &SceneSnapshot) -> Vec<FocusEntry<ElementId>> {
+    fn focus_entries(
+        &self,
+        scene: &SceneSnapshot,
+    ) -> (Vec<FocusEntry<ElementId>>, Option<ElementId>) {
         let mut entries = Vec::new();
+        let mut autofocus = None;
         for resolved in scene.resolved() {
             let Some(node) = scene.node_for(resolved.id) else {
                 continue;
@@ -625,16 +632,31 @@ impl Ui {
             if !flags.contains(NodeFlags::FOCUSABLE | NodeFlags::VISIBLE) {
                 continue;
             }
+            let Some(element) = self.elements.get(resolved.id.index()) else {
+                continue;
+            };
+            let order = element
+                .store
+                .get_effective_local(self.props.focus_order, &self.registry);
+            let group = element
+                .store
+                .get_effective_local(self.props.focus_group, &self.registry);
+            let entry_autofocus = element
+                .store
+                .get_effective_local(self.props.autofocus, &self.registry);
+            if entry_autofocus && autofocus.is_none() {
+                autofocus = Some(resolved.id);
+            }
             entries.push(FocusEntry {
                 id: resolved.id,
                 rect: resolved.rect,
-                order: None,
-                group: None,
+                order,
+                group,
                 enabled: true,
                 scope_depth: u8::try_from(resolved.depth).unwrap_or(u8::MAX),
             });
         }
-        entries
+        (entries, autofocus)
     }
 
     /// Updates tooltip visibility and positioning based on current hover state.
@@ -1175,6 +1197,10 @@ pub fn default_theme() -> Theme {
             ThemeKeys::BORDER_COLOR,
             Color::from_rgba8(143, 133, 122, 255),
         )
+        .set(
+            ThemeKeys::FOCUS_RING_COLOR,
+            Color::from_rgba8(24, 92, 72, 255),
+        )
         .set(ThemeKeys::CORNER_RADIUS, 10.0_f64)
         .set(ThemeKeys::PADDING, 16.0_f64)
         .set(ThemeKeys::GAP, 12.0_f64)
@@ -1283,38 +1309,6 @@ fn navigation_for_key_event(event: &ui_events::keyboard::KeyboardEvent) -> Optio
             Some(Navigation::Right)
         }
         _ => None,
-    }
-}
-
-fn initial_focus_target(
-    entries: &[FocusEntry<ElementId>],
-    navigation: Navigation,
-) -> Option<ElementId> {
-    let mut enabled: Vec<&FocusEntry<ElementId>> =
-        entries.iter().filter(|entry| entry.enabled).collect();
-    if enabled.is_empty() {
-        return None;
-    }
-    enabled.sort_by(|a, b| {
-        a.rect
-            .y0
-            .partial_cmp(&b.rect.y0)
-            .unwrap_or(core::cmp::Ordering::Equal)
-            .then_with(|| {
-                a.rect
-                    .x0
-                    .partial_cmp(&b.rect.x0)
-                    .unwrap_or(core::cmp::Ordering::Equal)
-            })
-    });
-    match navigation {
-        Navigation::Prev | Navigation::Up | Navigation::Left => {
-            enabled.last().map(|entry| entry.id)
-        }
-        Navigation::Next | Navigation::Down | Navigation::Right => {
-            enabled.first().map(|entry| entry.id)
-        }
-        Navigation::EnterScope | Navigation::ExitScope => None,
     }
 }
 
@@ -2046,6 +2040,34 @@ mod tests {
     }
 
     #[test]
+    fn tab_prefers_autofocus_candidate_when_unfocused() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 120.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let row = ui.append(ui.root(), crate::Row::new().padding(0.0).gap(12.0));
+        let first = ui.append(row, crate::Button::new().with_text("First"));
+        let second = ui.append(row, crate::Button::new().with_text("Second"));
+        ui.set_local(second, ui.properties().autofocus, true);
+
+        let tab = KeyboardEvent {
+            key: Key::Named(NamedKey::Tab),
+            code: Code::Unidentified,
+            state: KeyState::Down,
+            modifiers: Modifiers::empty(),
+            location: Location::Standard,
+            repeat: false,
+            is_composing: false,
+        };
+
+        let batch = ui.handle_keyboard_event(&tab);
+        assert_eq!(ui.runtime.focused, Some(second));
+        assert!(batch.events().contains(&Interaction::FocusChanged(second)));
+        assert_ne!(ui.runtime.focused, Some(first));
+    }
+
+    #[test]
     fn arrow_navigation_moves_button_focus_when_widget_does_not_handle() {
         let mut ui = Ui::new(default_theme());
         ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 120.0));
@@ -2070,5 +2092,77 @@ mod tests {
         let batch = ui.handle_keyboard_event(&right);
         assert_eq!(ui.runtime.focused, Some(second));
         assert!(batch.events().contains(&Interaction::FocusChanged(second)));
+    }
+
+    #[test]
+    fn arrow_navigation_prefers_same_focus_group() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 360.0, 160.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let column = ui.append(ui.root(), crate::Column::new().padding(0.0).gap(8.0));
+        let top = ui.append(column, crate::Button::new().with_text("Top"));
+        let row = ui.append(column, crate::Row::new().padding(0.0).gap(12.0));
+        let left = ui.append(row, crate::Button::new().with_text("Left"));
+        let right = ui.append(row, crate::Button::new().with_text("Right"));
+
+        let group = Some(understory_focus::FocusSymbol(7));
+        ui.set_local(left, ui.properties().focus_group, group);
+        ui.set_local(right, ui.properties().focus_group, group);
+        ui.set_focus(left);
+
+        let up = KeyboardEvent {
+            key: Key::Named(NamedKey::ArrowUp),
+            code: Code::Unidentified,
+            state: KeyState::Down,
+            modifiers: Modifiers::empty(),
+            location: Location::Standard,
+            repeat: false,
+            is_composing: false,
+        };
+
+        let batch = ui.handle_keyboard_event(&up);
+        assert_eq!(ui.runtime.focused, Some(right));
+        assert!(batch.events().contains(&Interaction::FocusChanged(right)));
+        assert_ne!(ui.runtime.focused, Some(top));
+    }
+
+    #[test]
+    fn focused_button_uses_focus_ring_border() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 240.0, 120.0));
+
+        let button = ui.append(ui.root(), crate::Button::new().with_text("Save"));
+        ui.set_focus(button);
+
+        let theme_focus_ring = *ui
+            .theme()
+            .get(ThemeKeys::FOCUS_RING_COLOR)
+            .expect("focus ring color in theme");
+        let scene = ui.rebuild();
+        let resolved = scene.resolved_element(button).expect("button resolved");
+
+        assert_eq!(resolved.border.color, theme_focus_ring);
+        assert_eq!(resolved.border.width, 1.0);
+    }
+
+    #[test]
+    fn focused_text_input_uses_focus_ring_border() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 240.0, 120.0));
+
+        let input = ui.append(ui.root(), crate::TextInput::new(16.0));
+        ui.set_focus(input);
+
+        let theme_focus_ring = *ui
+            .theme()
+            .get(ThemeKeys::FOCUS_RING_COLOR)
+            .expect("focus ring color in theme");
+        let scene = ui.rebuild();
+        let resolved = scene.resolved_element(input).expect("text input resolved");
+
+        assert_eq!(resolved.border.color, theme_focus_ring);
+        assert_eq!(resolved.border.width, 1.0);
     }
 }

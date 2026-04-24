@@ -23,6 +23,7 @@ use alloc::boxed::Box;
 use invalidation::Channel;
 use peniko::Color;
 use understory_display::TextAlign;
+use understory_focus::FocusSymbol;
 use understory_property::{Property, PropertyMetadataBuilder, PropertyRegistry};
 use understory_style::ResourceKey;
 
@@ -94,6 +95,8 @@ impl ThemeKeys {
     pub const DIVIDER_BACKGROUND_EMPHASIZED: ResourceKey = ResourceKey::new(20);
     /// Strong divider fill for active drag states.
     pub const DIVIDER_BACKGROUND_STRONG: ResourceKey = ResourceKey::new(21);
+    /// Shared focus ring color for keyboard-visible focus states.
+    pub const FOCUS_RING_COLOR: ResourceKey = ResourceKey::new(22);
 }
 
 /// Built-in dependency properties for layout and visuals.
@@ -123,6 +126,12 @@ pub struct BuiltInProperties {
     pub pickable: Property<bool>,
     /// Focusable toggle.
     pub focusable: Property<bool>,
+    /// Initial focus preference when this element's focus space activates.
+    pub autofocus: Property<bool>,
+    /// Optional explicit focus traversal ordering key.
+    pub focus_order: Property<Option<i32>>,
+    /// Optional logical focus group identifier.
+    pub focus_group: Property<Option<FocusSymbol>>,
     /// Fill remaining space in the parent container.
     pub fill: Property<bool>,
     /// Font size for label text.
@@ -218,6 +227,24 @@ impl BuiltInProperties {
             focusable: registry.register(
                 "Focusable",
                 PropertyMetadataBuilder::new(false)
+                    .affects_channels(DirtyChannels::INTERACTION.into_set())
+                    .build(),
+            ),
+            autofocus: registry.register(
+                "Autofocus",
+                PropertyMetadataBuilder::new(false)
+                    .affects_channels(DirtyChannels::INTERACTION.into_set())
+                    .build(),
+            ),
+            focus_order: registry.register(
+                "FocusOrder",
+                PropertyMetadataBuilder::new(None::<i32>)
+                    .affects_channels(DirtyChannels::INTERACTION.into_set())
+                    .build(),
+            ),
+            focus_group: registry.register(
+                "FocusGroup",
+                PropertyMetadataBuilder::new(None::<FocusSymbol>)
                     .affects_channels(DirtyChannels::INTERACTION.into_set())
                     .build(),
             ),
