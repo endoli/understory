@@ -205,6 +205,120 @@ impl<K> TreeViewController<K> {
         self.focused_key = key;
     }
 
+    /// Focuses the first visible row and returns its key.
+    pub fn focus_first_visible(&mut self) -> Option<K>
+    where
+        K: Clone,
+    {
+        let key = self.rows.first()?.key.clone();
+        self.focused_key = Some(key.clone());
+        Some(key)
+    }
+
+    /// Focuses the last visible row and returns its key.
+    pub fn focus_last_visible(&mut self) -> Option<K>
+    where
+        K: Clone,
+    {
+        let key = self.rows.last()?.key.clone();
+        self.focused_key = Some(key.clone());
+        Some(key)
+    }
+
+    /// Focuses the previous visible row and returns its key.
+    pub fn focus_prev_visible(&mut self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        let index = self.focused_index()?.checked_sub(1)?;
+        let key = self.rows.get(index)?.key.clone();
+        self.focused_key = Some(key.clone());
+        Some(key)
+    }
+
+    /// Focuses the next visible row and returns its key.
+    pub fn focus_next_visible(&mut self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        let index = self.focused_index()? + 1;
+        let key = self.rows.get(index)?.key.clone();
+        self.focused_key = Some(key.clone());
+        Some(key)
+    }
+
+    /// Focuses the parent of the focused row and returns its key.
+    pub fn focus_parent(&mut self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        let focused_index = self.focused_index()?;
+        let key = self.parent_row(focused_index)?.key.clone();
+        self.focused_key = Some(key.clone());
+        Some(key)
+    }
+
+    /// Focuses the first visible child of the focused row and returns its key.
+    pub fn focus_first_child(&mut self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        let focused_index = self.focused_index()?;
+        let focused = self.rows.get(focused_index)?;
+        let row = self.rows.get(focused_index + 1)?;
+        if row.depth != focused.depth + 1 {
+            return None;
+        }
+        let key = row.key.clone();
+        self.focused_key = Some(key.clone());
+        Some(key)
+    }
+
+    /// Selects the focused row and returns its key.
+    pub fn select_focused(&mut self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        let key = self.focused_key()?.clone();
+        self.selected_key = Some(key.clone());
+        Some(key)
+    }
+
+    /// Returns the focused row key and also marks it selected.
+    pub fn activate_focused(&mut self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        self.select_focused()
+    }
+
+    /// Returns the focused row key if it should be expanded.
+    pub fn expand_focused(&self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        let focused = self.focused_row()?;
+        (focused.can_toggle && !focused.is_expanded).then(|| focused.key.clone())
+    }
+
+    /// Returns the focused row key if it should be collapsed.
+    pub fn collapse_focused(&self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        let focused = self.focused_row()?;
+        (focused.can_toggle && focused.is_expanded).then(|| focused.key.clone())
+    }
+
+    /// Returns the focused row key if its disclosure should toggle.
+    pub fn toggle_focused_disclosure(&self) -> Option<K>
+    where
+        K: Clone + PartialEq,
+    {
+        let focused = self.focused_row()?;
+        focused.can_toggle.then(|| focused.key.clone())
+    }
+
     /// Syncs projected tree rows into Overstory.
     pub fn sync(&mut self, ui: &mut Ui, rows: &[TreeRowPresentation<K>])
     where
@@ -266,7 +380,7 @@ impl<K> TreeViewController<K> {
     /// Maps a clicked Overstory element back into a tree row action.
     pub fn handle_click(&mut self, target: ElementId) -> Option<TreeRowAction<K>>
     where
-        K: Clone,
+        K: Clone + PartialEq,
     {
         let realized = self.rows.iter().find(|row| {
             let ids = row.ids;
@@ -276,8 +390,7 @@ impl<K> TreeViewController<K> {
         if target == realized.ids.disclosure && realized.can_toggle {
             Some(TreeRowAction::Toggle(realized.key.clone()))
         } else {
-            self.selected_key = Some(realized.key.clone());
-            Some(TreeRowAction::Select(realized.key.clone()))
+            Some(TreeRowAction::Select(self.select_focused()?))
         }
     }
 
@@ -290,58 +403,35 @@ impl<K> TreeViewController<K> {
         if !event.state.is_down() {
             return None;
         }
-        let focused_index = self.focused_index()?;
-        let focused = self.rows.get(focused_index)?;
-        let parent_key = self.parent_row(focused_index).map(|row| row.key.clone());
+        self.focused_index()?;
         match &event.key {
-            Key::Named(NamedKey::ArrowUp) => focused_index
-                .checked_sub(1)
-                .and_then(|index| self.rows.get(index))
-                .map(|row| {
-                    self.focused_key = Some(row.key.clone());
-                    TreeKeyboardAction::Focus(row.key.clone())
-                }),
-            Key::Named(NamedKey::ArrowDown) => self.rows.get(focused_index + 1).map(|row| {
-                self.focused_key = Some(row.key.clone());
-                TreeKeyboardAction::Focus(row.key.clone())
-            }),
-            Key::Named(NamedKey::Home) => self.rows.first().map(|row| {
-                self.focused_key = Some(row.key.clone());
-                TreeKeyboardAction::Focus(row.key.clone())
-            }),
-            Key::Named(NamedKey::End) => self.rows.last().map(|row| {
-                self.focused_key = Some(row.key.clone());
-                TreeKeyboardAction::Focus(row.key.clone())
-            }),
+            Key::Named(NamedKey::ArrowUp) => {
+                self.focus_prev_visible().map(TreeKeyboardAction::Focus)
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                self.focus_next_visible().map(TreeKeyboardAction::Focus)
+            }
+            Key::Named(NamedKey::Home) => self.focus_first_visible().map(TreeKeyboardAction::Focus),
+            Key::Named(NamedKey::End) => self.focus_last_visible().map(TreeKeyboardAction::Focus),
             Key::Named(NamedKey::ArrowRight) => {
-                if focused.can_toggle && !focused.is_expanded {
-                    Some(TreeKeyboardAction::Expand(focused.key.clone()))
+                if let Some(key) = self.expand_focused() {
+                    Some(TreeKeyboardAction::Expand(key))
                 } else {
-                    self.rows.get(focused_index + 1).and_then(|row| {
-                        (row.depth == focused.depth + 1).then(|| {
-                            self.focused_key = Some(row.key.clone());
-                            TreeKeyboardAction::Focus(row.key.clone())
-                        })
-                    })
+                    self.focus_first_child().map(TreeKeyboardAction::Focus)
                 }
             }
             Key::Named(NamedKey::ArrowLeft) => {
-                if focused.can_toggle && focused.is_expanded {
-                    Some(TreeKeyboardAction::Collapse(focused.key.clone()))
+                if let Some(key) = self.collapse_focused() {
+                    Some(TreeKeyboardAction::Collapse(key))
                 } else {
-                    parent_key.map(|key| {
-                        self.focused_key = Some(key.clone());
-                        TreeKeyboardAction::Focus(key)
-                    })
+                    self.focus_parent().map(TreeKeyboardAction::Focus)
                 }
             }
             Key::Named(NamedKey::Enter) => {
-                self.selected_key = Some(focused.key.clone());
-                Some(TreeKeyboardAction::Activate(focused.key.clone()))
+                self.activate_focused().map(TreeKeyboardAction::Activate)
             }
             Key::Character(space) if &**space == " " => {
-                self.selected_key = Some(focused.key.clone());
-                Some(TreeKeyboardAction::Activate(focused.key.clone()))
+                self.activate_focused().map(TreeKeyboardAction::Activate)
             }
             _ => None,
         }
@@ -355,6 +445,13 @@ impl<K> TreeViewController<K> {
             .as_ref()
             .and_then(|key| self.rows.iter().position(|row| &row.key == key))
             .or_else(|| (!self.rows.is_empty()).then_some(0))
+    }
+
+    fn focused_row(&self) -> Option<&TreeViewRealizedRow<K>>
+    where
+        K: PartialEq,
+    {
+        self.rows.get(self.focused_index()?)
     }
 
     fn parent_row(&self, focused_index: usize) -> Option<&TreeViewRealizedRow<K>> {
@@ -581,6 +678,7 @@ mod tests {
             )),
             Some(TreeKeyboardAction::Activate(2))
         );
+        assert_eq!(tree.selected_key(), Some(&2));
     }
 
     #[test]
@@ -622,5 +720,34 @@ mod tests {
             )),
             Some(TreeKeyboardAction::Focus(1))
         );
+    }
+
+    #[test]
+    fn composite_navigation_methods_update_state() {
+        let mut ui = Ui::new(default_theme());
+        let scroll = ui.append(ui.root(), ScrollView::new().fill());
+        let mut tree = TreeViewController::<u32>::new(scroll);
+        tree.sync(
+            &mut ui,
+            &[
+                TreeRowPresentation::new(1, "Root", 0, true, true),
+                TreeRowPresentation::new(2, "Child", 1, false, false),
+                TreeRowPresentation::new(3, "Sibling", 0, false, false),
+            ],
+        );
+
+        assert_eq!(tree.focused_key(), Some(&1));
+        assert_eq!(tree.focus_first_child(), Some(2));
+        assert_eq!(tree.focused_key(), Some(&2));
+        assert_eq!(tree.focus_parent(), Some(1));
+        assert_eq!(tree.focused_key(), Some(&1));
+        assert_eq!(tree.focus_next_visible(), Some(2));
+        assert_eq!(tree.focus_last_visible(), Some(3));
+        assert_eq!(tree.focus_prev_visible(), Some(2));
+        assert_eq!(tree.focus_first_visible(), Some(1));
+        assert_eq!(tree.activate_focused(), Some(1));
+        assert_eq!(tree.selected_key(), Some(&1));
+        assert_eq!(tree.expand_focused(), None);
+        assert_eq!(tree.toggle_focused_disclosure(), Some(1));
     }
 }
