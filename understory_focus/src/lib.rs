@@ -43,7 +43,10 @@
 //!     },
 //! ];
 //!
-//! let space = FocusSpace { nodes: &entries };
+//! let space = FocusSpace {
+//!     nodes: &entries,
+//!     autofocus: None,
+//! };
 //! let policy = DefaultPolicy { wrap: WrapMode::Scope };
 //!
 //! // Tab moves from the first button to the second…
@@ -237,6 +240,12 @@ pub struct FocusEntry<K> {
 pub struct FocusSpace<'a, K> {
     /// Focusable candidates visible to the current scope and policy.
     pub nodes: &'a [FocusEntry<K>],
+    /// Optional initial focus target selected by the host or adapter.
+    ///
+    /// This lets higher layers resolve autofocus semantics once, while leaving
+    /// traversal policy in the focus layer. Policies should treat it as a
+    /// hint, not as an enabled-state override.
+    pub autofocus: Option<K>,
 }
 
 /// Wrap mode configuration for focus traversal.
@@ -285,11 +294,67 @@ impl Default for DefaultPolicy {
     }
 }
 
+impl DefaultPolicy {
+    /// Compute an initial focus target for a scope.
+    ///
+    /// If `space.autofocus` is set and refers to an enabled node, that target
+    /// wins. Otherwise the policy falls back to its normal linear ordering and
+    /// chooses either the first or last candidate depending on the navigation
+    /// direction.
+    pub fn initial<K>(&self, direction: Navigation, space: &FocusSpace<'_, K>) -> Option<K>
+    where
+        K: Copy + Eq,
+    {
+        if let Some(autofocus) = space.autofocus
+            && space
+                .nodes
+                .iter()
+                .any(|entry| entry.id == autofocus && entry.enabled)
+        {
+            return Some(autofocus);
+        }
+
+        let step = match direction {
+            Navigation::Prev | Navigation::Up | Navigation::Left => Step::Backward,
+            Navigation::Next | Navigation::Down | Navigation::Right => Step::Forward,
+            Navigation::EnterScope | Navigation::ExitScope => return None,
+        };
+        initial_linear(space, step)
+    }
+}
+
 impl<K> FocusPolicy<K> for DefaultPolicy
 where
     K: Copy + Eq,
 {
     fn next(&self, origin: K, direction: Navigation, space: &FocusSpace<'_, K>) -> Option<K> {
+        if let Some(group_indices) = group_filtered_indices(origin, space) {
+            let grouped_next = match direction {
+                Navigation::Next => {
+                    next_linear_filtered(origin, space, &group_indices, self.wrap, Step::Forward)
+                }
+                Navigation::Prev => {
+                    next_linear_filtered(origin, space, &group_indices, self.wrap, Step::Backward)
+                }
+                Navigation::Up | Navigation::Down | Navigation::Left | Navigation::Right => {
+                    next_directional_filtered(origin, direction, space, &group_indices).or_else(
+                        || {
+                            let step = match direction {
+                                Navigation::Up | Navigation::Left => Step::Backward,
+                                Navigation::Down | Navigation::Right => Step::Forward,
+                                _ => Step::Forward,
+                            };
+                            next_linear_filtered(origin, space, &group_indices, self.wrap, step)
+                        },
+                    )
+                }
+                Navigation::EnterScope | Navigation::ExitScope => None,
+            };
+            if grouped_next.is_some() {
+                return grouped_next;
+            }
+        }
+
         match direction {
             Navigation::Next => next_linear(origin, space, self.wrap, Step::Forward),
             Navigation::Prev => next_linear(origin, space, self.wrap, Step::Backward),
@@ -315,6 +380,61 @@ where
 enum Step {
     Forward,
     Backward,
+}
+
+fn initial_linear<K>(space: &FocusSpace<'_, K>, step: Step) -> Option<K>
+where
+    K: Copy + Eq,
+{
+    let nodes = space.nodes;
+    if nodes.is_empty() {
+        return None;
+    }
+
+    let mut indices: Vec<usize> = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| e.enabled.then_some(i))
+        .collect();
+    if indices.is_empty() {
+        return None;
+    }
+    indices.sort_by(|&ia, &ib| compare_linear(&nodes[ia], &nodes[ib]));
+    match step {
+        Step::Forward => Some(nodes[indices[0]].id),
+        Step::Backward => Some(nodes[indices[indices.len() - 1]].id),
+    }
+}
+
+fn group_filtered_indices<K>(origin: K, space: &FocusSpace<'_, K>) -> Option<Vec<usize>>
+where
+    K: Copy + Eq,
+{
+    let origin_group = space
+        .nodes
+        .iter()
+        .find(|entry| entry.id == origin && entry.enabled)?
+        .group?;
+
+    let same_group_count = space
+        .nodes
+        .iter()
+        .filter(|entry| entry.enabled && entry.group == Some(origin_group))
+        .count();
+    if same_group_count <= 1 {
+        return None;
+    }
+
+    Some(
+        space
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                (entry.enabled && entry.group == Some(origin_group)).then_some(index)
+            })
+            .collect(),
+    )
 }
 
 fn next_linear<K>(origin: K, space: &FocusSpace<'_, K>, wrap: WrapMode, step: Step) -> Option<K>
@@ -370,6 +490,53 @@ where
     }
 }
 
+fn next_linear_filtered<K>(
+    origin: K,
+    space: &FocusSpace<'_, K>,
+    indices: &[usize],
+    wrap: WrapMode,
+    step: Step,
+) -> Option<K>
+where
+    K: Copy + Eq,
+{
+    if indices.is_empty() {
+        return None;
+    }
+
+    let nodes = space.nodes;
+    let mut ordered = indices.to_vec();
+    ordered.sort_by(|&ia, &ib| compare_linear(&nodes[ia], &nodes[ib]));
+    let origin_pos = ordered.iter().position(|&i| nodes[i].id == origin);
+
+    match step {
+        Step::Forward => match origin_pos {
+            Some(pos) => {
+                if pos + 1 < ordered.len() {
+                    Some(nodes[ordered[pos + 1]].id)
+                } else if matches!(wrap, WrapMode::Scope | WrapMode::Global) {
+                    Some(nodes[ordered[0]].id)
+                } else {
+                    None
+                }
+            }
+            None => Some(nodes[ordered[0]].id),
+        },
+        Step::Backward => match origin_pos {
+            Some(pos) => {
+                if pos > 0 {
+                    Some(nodes[ordered[pos - 1]].id)
+                } else if matches!(wrap, WrapMode::Scope | WrapMode::Global) {
+                    Some(nodes[ordered[ordered.len() - 1]].id)
+                } else {
+                    None
+                }
+            }
+            None => Some(nodes[ordered[ordered.len() - 1]].id),
+        },
+    }
+}
+
 fn compare_linear<K>(a: &FocusEntry<K>, b: &FocusEntry<K>) -> Ordering {
     // First, honor explicit order when present.
     match (a.order, b.order) {
@@ -380,6 +547,62 @@ fn compare_linear<K>(a: &FocusEntry<K>, b: &FocusEntry<K>) -> Ordering {
         (None, Some(_)) => Ordering::Greater,
         (None, None) => compare_rect_reading(&a.rect, &b.rect),
     }
+}
+
+fn next_directional_filtered<K>(
+    origin: K,
+    direction: Navigation,
+    space: &FocusSpace<'_, K>,
+    indices: &[usize],
+) -> Option<K>
+where
+    K: Copy + Eq,
+{
+    let nodes = space.nodes;
+    if indices.is_empty() {
+        return None;
+    }
+
+    let origin_entry = nodes.iter().find(|e| e.id == origin && e.enabled)?;
+    let oc = origin_entry.rect.center();
+
+    let mut best_idx: Option<usize> = None;
+    let mut best_score: f64 = f64::INFINITY;
+
+    for &i in indices {
+        let candidate = &nodes[i];
+        if candidate.id == origin {
+            continue;
+        }
+        let cc = candidate.rect.center();
+        let dx = cc.x - oc.x;
+        let dy = cc.y - oc.y;
+
+        let (primary, secondary, forward_sign) = match direction {
+            Navigation::Up => (-dy, dx.abs(), dy < 0.0),
+            Navigation::Down => (dy, dx.abs(), dy > 0.0),
+            Navigation::Left => (-dx, dy.abs(), dx < 0.0),
+            Navigation::Right => (dx, dy.abs(), dx > 0.0),
+            Navigation::Next
+            | Navigation::Prev
+            | Navigation::EnterScope
+            | Navigation::ExitScope => {
+                continue;
+            }
+        };
+
+        if !forward_sign {
+            continue;
+        }
+
+        let score = primary * 1000.0 + secondary;
+        if score < best_score {
+            best_score = score;
+            best_idx = Some(i);
+        }
+    }
+
+    best_idx.map(|i| nodes[i].id)
 }
 
 fn compare_rect_reading(a: &Rect, b: &Rect) -> Ordering {
@@ -473,7 +696,10 @@ mod tests {
                 scope_depth: 0,
             },
         ];
-        let space = FocusSpace { nodes: &entries };
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: None,
+        };
         let policy = DefaultPolicy {
             wrap: WrapMode::Scope,
         };
@@ -513,7 +739,10 @@ mod tests {
                 scope_depth: 0,
             },
         ];
-        let space = FocusSpace { nodes: &entries };
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: None,
+        };
         let policy = DefaultPolicy::default();
 
         assert_eq!(policy.next(1, Navigation::Right, &space), Some(2));
@@ -540,7 +769,10 @@ mod tests {
                 scope_depth: 0,
             },
         ];
-        let space = FocusSpace { nodes: &entries };
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: None,
+        };
         let policy = DefaultPolicy {
             wrap: WrapMode::Scope,
         };
@@ -578,7 +810,10 @@ mod tests {
                 scope_depth: 0,
             },
         ];
-        let space = FocusSpace { nodes: &entries };
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: None,
+        };
         let policy = DefaultPolicy {
             wrap: WrapMode::Scope,
         };
@@ -609,7 +844,10 @@ mod tests {
                 scope_depth: 0,
             },
         ];
-        let space = FocusSpace { nodes: &entries };
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: None,
+        };
         let policy = DefaultPolicy {
             wrap: WrapMode::Never,
         };
@@ -648,7 +886,10 @@ mod tests {
                 scope_depth: 0,
             },
         ];
-        let space = FocusSpace { nodes: &entries };
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: None,
+        };
         let policy = DefaultPolicy::default();
 
         // Right from 1 should skip disabled 2 and pick 3.
@@ -679,7 +920,10 @@ mod tests {
                 scope_depth: 0,
             },
         ];
-        let space = FocusSpace { nodes: &entries };
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: None,
+        };
         let policy = DefaultPolicy {
             wrap: WrapMode::Scope,
         };
@@ -687,5 +931,73 @@ mod tests {
         // Right finds no directional candidate, so it should fall back to
         // linear "next", which wraps to id 2 in this two-element space.
         assert_eq!(policy.next(1, Navigation::Right, &space), Some(2));
+    }
+
+    #[test]
+    fn initial_prefers_autofocus_candidate() {
+        let entries = vec![
+            FocusEntry {
+                id: 1_u32,
+                rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+                order: None,
+                group: None,
+                enabled: true,
+                scope_depth: 0,
+            },
+            FocusEntry {
+                id: 2_u32,
+                rect: Rect::new(20.0, 0.0, 30.0, 10.0),
+                order: None,
+                group: None,
+                enabled: true,
+                scope_depth: 0,
+            },
+        ];
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: Some(2),
+        };
+        let policy = DefaultPolicy::default();
+
+        assert_eq!(policy.initial(Navigation::Next, &space), Some(2));
+    }
+
+    #[test]
+    fn next_prefers_same_group_before_global_fallback() {
+        let group = FocusSymbol(7);
+        let entries = vec![
+            FocusEntry {
+                id: 1_u32,
+                rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+                order: None,
+                group: Some(group),
+                enabled: true,
+                scope_depth: 0,
+            },
+            FocusEntry {
+                id: 2_u32,
+                rect: Rect::new(40.0, 0.0, 50.0, 10.0),
+                order: None,
+                group: Some(group),
+                enabled: true,
+                scope_depth: 0,
+            },
+            FocusEntry {
+                id: 3_u32,
+                rect: Rect::new(20.0, 0.0, 30.0, 10.0),
+                order: None,
+                group: None,
+                enabled: true,
+                scope_depth: 0,
+            },
+        ];
+        let space = FocusSpace {
+            nodes: &entries,
+            autofocus: None,
+        };
+        let policy = DefaultPolicy::default();
+
+        assert_eq!(policy.next(1, Navigation::Next, &space), Some(2));
+        assert_eq!(policy.next(2, Navigation::Next, &space), Some(1));
     }
 }

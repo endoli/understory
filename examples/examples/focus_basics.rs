@@ -40,7 +40,10 @@ fn main() {
         },
     ];
 
-    let space = FocusSpace { nodes: &entries };
+    let space = FocusSpace {
+        nodes: &entries,
+        autofocus: None,
+    };
     let policy = DefaultPolicy {
         wrap: WrapMode::Scope,
     };

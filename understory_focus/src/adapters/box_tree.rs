@@ -94,9 +94,13 @@ where
     P: FocusPropsLookup<NodeId>,
 {
     out.clear();
+    let mut autofocus = None;
 
     if !tree.is_alive(scope_root) {
-        return FocusSpace { nodes: &[] };
+        return FocusSpace {
+            nodes: &[],
+            autofocus: None,
+        };
     }
 
     // Depth-first traversal with an explicit stack to stay within the subtree
@@ -114,6 +118,9 @@ where
             let focusable = flags.contains(NodeFlags::FOCUSABLE);
             let visible = flags.contains(NodeFlags::VISIBLE);
             if focusable && visible && fp.enabled {
+                if fp.autofocus && autofocus.is_none() {
+                    autofocus = Some(id);
+                }
                 out.push(FocusEntry {
                     id,
                     rect: bounds,
@@ -136,6 +143,7 @@ where
 
     FocusSpace {
         nodes: out.as_slice(),
+        autofocus,
     }
 }
 
@@ -277,5 +285,52 @@ mod tests {
         assert_eq!(policy.next(left, Navigation::Next, &space), Some(right));
         // Directional "Right" from left also prefers the right-hand child.
         assert_eq!(policy.next(left, Navigation::Right, &space), Some(right));
+    }
+
+    #[test]
+    fn adapter_exposes_autofocus_candidate() {
+        let mut tree = Tree::new();
+        let root = tree.insert(
+            None,
+            LocalNode {
+                flags: NodeFlags::VISIBLE,
+                ..LocalNode::default()
+            },
+        );
+        let first = tree.insert(
+            Some(root),
+            LocalNode {
+                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                ..LocalNode::default()
+            },
+        );
+        let second = tree.insert(
+            Some(root),
+            LocalNode {
+                flags: NodeFlags::VISIBLE | NodeFlags::FOCUSABLE,
+                ..LocalNode::default()
+            },
+        );
+        let _ = tree.commit();
+
+        struct AutofocusLookup {
+            target: NodeId,
+        }
+
+        impl FocusPropsLookup<NodeId> for AutofocusLookup {
+            fn props(&self, id: &NodeId) -> FocusProps {
+                FocusProps {
+                    autofocus: *id == self.target,
+                    ..FocusProps::default()
+                }
+            }
+        }
+
+        let lookup = AutofocusLookup { target: second };
+        let mut buf = Vec::new();
+        let space = build_focus_space_for_scope(&tree, root, &lookup, &mut buf);
+
+        assert_eq!(space.autofocus, Some(second));
+        assert_ne!(space.autofocus, Some(first));
     }
 }
