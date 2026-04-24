@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 overstory = { path = "../overstory" }
+overstory_autocomplete = { path = "../overstory_autocomplete" }
 overstory_list = { path = "../overstory_list" }
 overstory_inspector = { path = "../overstory_inspector" }
 overstory_transcript = { path = "../overstory_transcript" }

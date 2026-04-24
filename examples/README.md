@@ -66,6 +66,10 @@ These examples form a short, progressive walkthrough from routing basics to inte
   - Build a small retained Overstory list surface, then drive row click selection and keyboard navigation through `overstory_list`.
   - Run: `cargo run -p understory_examples --example overstory_list_basics`
 
+- overstory_autocomplete_basics
+  - Compose `TextInput`, `overstory_autocomplete`, and a promoted dropdown surface into a debounced type-ahead flow with list navigation and acceptance.
+  - Run: `cargo run -p understory_examples --example overstory_autocomplete_basics`
+
 - overstory_visual_demo
   - Ask Overstory's `SceneSnapshot` for a retained `understory_display::DisplayTree`, lay it out, lower it directly into `imaging::record::Scene`, and render it with `imaging_vello_hybrid` to a `wgpu` surface in a `winit` window driven by `ui-events-winit`.
   - Run: `cargo run -p understory_examples --example overstory_visual_demo`
