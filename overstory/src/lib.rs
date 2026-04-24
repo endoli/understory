@@ -71,8 +71,8 @@ pub use cursor_icon::{self, CursorIcon};
 pub use element::{
     ButtonClass, Element, ElementId, LayoutClass, MessageClass, PSEUDO_DISABLED,
     PSEUDO_FOCUS_VISIBLE, PSEUDO_FOCUSED, PSEUDO_HOVER, PSEUDO_PRESSED, PseudoState, TYPE_BUTTON,
-    TYPE_COLUMN, TYPE_DIVIDER, TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW, TYPE_SPACER,
-    TYPE_SPINNER, TYPE_SPLITTER, TYPE_TEXT_BLOCK, TYPE_TEXT_INPUT, TYPE_TOOLTIP,
+    TYPE_COLUMN, TYPE_DIVIDER, TYPE_DROPDOWN, TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW,
+    TYPE_SPACER, TYPE_SPINNER, TYPE_SPLITTER, TYPE_TEXT_BLOCK, TYPE_TEXT_INPUT, TYPE_TOOLTIP,
 };
 /// Re-export `peniko` so Overstory callers can use the shared color vocabulary
 /// and palettes without adding another direct dependency for basic styling.
@@ -93,8 +93,8 @@ pub use widget::{
     content_box, text_label_node, text_label_node_constrained,
 };
 pub use widgets::{
-    Button, Divider, DividerAxis, DockPaneController, DockPaneIds, DockPaneStyle, ScrollView,
-    Spinner, Splitter, SplitterAxis, SplitterSide, TextBlock, TextInput, Tooltip,
+    Button, Divider, DividerAxis, DockPaneController, DockPaneIds, DockPaneStyle, Dropdown,
+    ScrollView, Spinner, Splitter, SplitterAxis, SplitterSide, TextBlock, TextInput, Tooltip,
 };
 
 /// Re-export the transport-agnostic event vocabulary used by Overstory.

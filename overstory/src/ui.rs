@@ -536,9 +536,31 @@ impl Ui {
             .map_or("", |w| w.text())
     }
 
+    /// Replaces the current text buffer for a `TextInput` element.
+    pub fn set_text_buffer(&mut self, id: ElementId, text: &str) {
+        self.with_text_engine(|ui, engine| ui.set_text_buffer_with(id, text, engine));
+    }
+
     /// Clears the text buffer for a `TextInput` element.
     pub fn clear_text_buffer(&mut self, id: ElementId) {
         self.with_text_engine(|ui, text| ui.clear_text_buffer_with(id, text));
+    }
+
+    /// Sets whether a `Dropdown` surface is open.
+    pub fn set_dropdown_open(&mut self, id: ElementId, open: bool) {
+        if let Some(dropdown) = self.widget_mut::<crate::widgets::Dropdown>(id) {
+            dropdown.set_open(open);
+        }
+        self.set_local(id, self.props.visible, open);
+        self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
+    }
+
+    /// Sets the desired root-space origin for a `Dropdown` surface.
+    pub fn set_dropdown_position(&mut self, id: ElementId, position: Point) {
+        if let Some(dropdown) = self.widget_mut::<crate::widgets::Dropdown>(id) {
+            dropdown.set_position(position);
+            self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
+        }
     }
 
     /// Starts the animation timer for a `Spinner` element.
@@ -565,6 +587,14 @@ impl Ui {
     fn clear_text_buffer_with(&mut self, id: ElementId, text: &mut TextEngine) {
         if let Some(w) = self.widget_mut::<crate::widgets::TextInput>(id) {
             w.clear(text);
+            self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
+        }
+    }
+
+    fn set_text_buffer_with(&mut self, id: ElementId, value: &str, text: &mut TextEngine) {
+        if let Some(w) = self.widget_mut::<crate::widgets::TextInput>(id) {
+            w.set_text(value);
+            w.refresh_layout(text);
             self.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
         }
     }
@@ -881,15 +911,8 @@ impl Ui {
                 let layout_rect = snapshot
                     .resolved_element(*id)
                     .map_or(Rect::ZERO, |r| r.rect);
-                // Use the widget's desired position if set (e.g., tooltip
-                // positioning relative to trigger), otherwise use layout rect.
-                let bounds = self
-                    .widget::<crate::widgets::Tooltip>(*id)
-                    .and_then(|tw| {
-                        tw.position()
-                            .map(|pos| Rect::from_origin_size(pos, layout_rect.size()))
-                    })
-                    .unwrap_or(layout_rect);
+                let bounds = self.overlay_surface_bounds(*id, layout_rect);
+                let anchor = self.overlay_surface_anchor(*id);
                 plan.push(crate::SurfaceEntry {
                     element_id: *id,
                     role: *role,
@@ -898,13 +921,50 @@ impl Ui {
                     clip: None,
                     opacity: 1.0,
                     blend: crate::BlendModeHint::Normal,
-                    anchor: None,
+                    anchor,
                     content: crate::SurfaceContent::Display(Box::new(tree)),
                 });
             }
         }
 
         plan
+    }
+
+    fn overlay_surface_bounds(&self, id: ElementId, fallback: Rect) -> Rect {
+        if let Some(tooltip) = self.widget::<crate::widgets::Tooltip>(id)
+            && let Some(position) = tooltip.position()
+        {
+            return Rect::from_origin_size(position, fallback.size());
+        }
+        if let Some(dropdown) = self.widget::<crate::widgets::Dropdown>(id)
+            && let Some(position) = dropdown.position()
+        {
+            return Rect::from_origin_size(position, fallback.size());
+        }
+        fallback
+    }
+
+    fn overlay_surface_anchor(&self, id: ElementId) -> Option<crate::SurfaceAnchor> {
+        if let Some(tooltip) = self.widget::<crate::widgets::Tooltip>(id) {
+            return self.anchor_for(tooltip.trigger(), crate::AnchorKind::Tooltip);
+        }
+        if let Some(dropdown) = self.widget::<crate::widgets::Dropdown>(id) {
+            return self.anchor_for(dropdown.anchor(), crate::AnchorKind::Dropdown);
+        }
+        None
+    }
+
+    fn anchor_for(
+        &self,
+        owner: ElementId,
+        kind: crate::AnchorKind,
+    ) -> Option<crate::SurfaceAnchor> {
+        let rect_in_root = self.scene.as_ref()?.resolved_element(owner)?.rect;
+        Some(crate::SurfaceAnchor {
+            owner,
+            kind,
+            rect_in_root,
+        })
     }
 
     /// Handles one pointer event from `ui-events`.
@@ -2375,5 +2435,90 @@ mod tests {
         );
         assert_eq!(input_resolved.semantics.name.as_deref(), None);
         assert_eq!(input_resolved.semantics.value.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn tooltip_surface_is_out_of_flow() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 240.0));
+        ui.set_local(ui.root(), ui.properties().padding, 0.0);
+        ui.set_local(ui.root(), ui.properties().gap, 0.0);
+
+        let column = ui.append(ui.root(), crate::Column::new().padding(0.0).gap(8.0));
+        let first = ui.append(column, crate::Button::new().with_text("One"));
+        let second = ui.append(column, crate::Button::new().with_text("Two"));
+        let tooltip = ui.append(
+            ui.root(),
+            crate::Tooltip::new(first)
+                .with_text("Ships")
+                .width(120.0)
+                .height(28.0),
+        );
+
+        let expected_gap = {
+            let scene = ui.rebuild();
+            let first_rect = scene.resolved_element(first).expect("first resolved").rect;
+            let second_rect = scene
+                .resolved_element(second)
+                .expect("second resolved")
+                .rect;
+            second_rect.y0 - first_rect.y1
+        };
+
+        if let Some(widget) = ui.widget_mut::<crate::Tooltip>(tooltip) {
+            widget.set_visible(true);
+            widget.set_position(Point::new(40.0, 140.0));
+        }
+        ui.set_local(tooltip, ui.properties().visible, true);
+        ui.mark_dirty(DirtyChannels::LAYOUT.into_set() | DirtyChannels::PAINT.into_set());
+
+        let scene = ui.rebuild();
+        let first_rect = scene.resolved_element(first).expect("first resolved").rect;
+        let second_rect = scene
+            .resolved_element(second)
+            .expect("second resolved")
+            .rect;
+        let tooltip_rect = scene
+            .resolved_element(tooltip)
+            .expect("tooltip resolved")
+            .rect;
+
+        assert_eq!(second_rect.y0 - first_rect.y1, expected_gap);
+        assert_eq!(tooltip_rect.origin(), Point::new(40.0, 140.0));
+    }
+
+    #[test]
+    fn dropdown_surface_plan_uses_anchor_and_position() {
+        let mut ui = Ui::new(default_theme());
+        ui.set_view_rect(Rect::new(0.0, 0.0, 320.0, 240.0));
+
+        let input = ui.append(
+            ui.root(),
+            crate::TextInput::new(16.0).width(180.0).padding(8.0),
+        );
+        let dropdown = ui.append(
+            ui.root(),
+            crate::Dropdown::new(input)
+                .width(180.0)
+                .height(96.0)
+                .padding(4.0)
+                .background(Color::WHITE)
+                .display_name("Autocomplete dropdown"),
+        );
+
+        ui.set_dropdown_position(dropdown, Point::new(24.0, 64.0));
+        ui.set_dropdown_open(dropdown, true);
+
+        let plan = ui.surface_plan();
+        let surface = plan
+            .overlay_surfaces()
+            .find(|surface| surface.element_id == dropdown)
+            .expect("dropdown surface");
+
+        assert_eq!(surface.role, crate::SurfaceRole::Dropdown);
+        assert_eq!(surface.bounds.origin(), Point::new(24.0, 64.0));
+        let anchor = surface.anchor.as_ref().expect("dropdown anchor");
+        assert_eq!(anchor.owner, input);
+        assert_eq!(anchor.kind, crate::AnchorKind::Dropdown);
     }
 }

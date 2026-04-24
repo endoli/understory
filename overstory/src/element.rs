@@ -52,6 +52,8 @@ pub const TYPE_SPLITTER: TypeTag = TypeTag(11);
 pub const TYPE_DIVIDER: TypeTag = TypeTag(12);
 /// Type tag for animated loading indicators.
 pub const TYPE_SPINNER: TypeTag = TypeTag(13);
+/// Type tag for promoted dropdown surfaces.
+pub const TYPE_DROPDOWN: TypeTag = TypeTag(14);
 
 /// Small class vocabulary for common button styling.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

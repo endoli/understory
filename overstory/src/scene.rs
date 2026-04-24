@@ -6,7 +6,7 @@
 use alloc::{borrow::Cow, boxed::Box, vec, vec::Vec};
 
 use hashbrown::HashMap;
-use kurbo::{Affine, Point, Rect};
+use kurbo::{Affine, Point, Rect, Size};
 use understory_box_tree::{LocalNode, NodeFlags, NodeId, QueryFilter, Tree};
 use understory_display::{TextAlign, TextEngine};
 use understory_property::{DependencyObjectExt, PropertyRegistry, PropertyStore};
@@ -18,9 +18,9 @@ use understory_style::{
 use crate::{
     BuiltInProperties, Color, Element, ElementId, PSEUDO_DISABLED, PSEUDO_FOCUS_VISIBLE,
     PSEUDO_FOCUSED, PSEUDO_HOVER, PSEUDO_PRESSED, SemanticInfo, SemanticRole, SemanticState,
-    TYPE_BUTTON, TYPE_COLUMN, TYPE_DIVIDER, TYPE_PANEL, TYPE_ROOT, TYPE_ROW, TYPE_SCROLL_VIEW,
-    TYPE_SPINNER, TYPE_SPLITTER, TYPE_TEXT_BLOCK, TYPE_TEXT_INPUT, TYPE_TOOLTIP, ThemeKeys, Widget,
-    WidgetArena, WidgetHandle,
+    TYPE_BUTTON, TYPE_COLUMN, TYPE_DIVIDER, TYPE_DROPDOWN, TYPE_PANEL, TYPE_ROOT, TYPE_ROW,
+    TYPE_SCROLL_VIEW, TYPE_SPINNER, TYPE_SPLITTER, TYPE_TEXT_BLOCK, TYPE_TEXT_INPUT, TYPE_TOOLTIP,
+    ThemeKeys, Widget, WidgetArena, WidgetHandle,
     built_in_styles::BuiltInStyles,
     widget::{MeasureStyle, widget_text},
 };
@@ -242,7 +242,7 @@ impl<'a> SceneBuilder<'a> {
         }
 
         let measured_size = self.measure_size(
-            kurbo::Size::new(available_rect.width(), available_rect.height()),
+            Size::new(available_rect.width(), available_rect.height()),
             element,
             &style,
         );
@@ -357,13 +357,16 @@ impl<'a> SceneBuilder<'a> {
                     measured_children.push(LayoutSize::ZERO);
                     continue;
                 }
-                visible_count += 1;
                 let measured_child = self.measure_size(
-                    kurbo::Size::new(content.width(), content.height()),
+                    Size::new(content.width(), content.height()),
                     child_element,
                     &child_style,
                 );
                 measured_children.push(measured_child);
+                if self.is_promoted_overlay(child_element) {
+                    continue;
+                }
+                visible_count += 1;
                 if child_style.fill {
                     fill_count += 1;
                 } else {
@@ -398,6 +401,19 @@ impl<'a> SceneBuilder<'a> {
                     continue;
                 }
                 let measured_child = measured_children[index];
+                if self.is_promoted_overlay(child_element) {
+                    let child_rect =
+                        self.overlay_rect_for(child_element, &child_style, measured_child, content);
+                    let _ = self.layout_element(
+                        child,
+                        child_rect.origin(),
+                        child_rect,
+                        Some(horizontal),
+                        Some(node),
+                        depth + 1,
+                    );
+                    continue;
+                }
                 if previous_visible {
                     cursor += style.gap;
                 }
@@ -473,7 +489,7 @@ impl<'a> SceneBuilder<'a> {
 
     fn measure_size(
         &mut self,
-        available: kurbo::Size,
+        available: Size,
         element: &Element,
         style: &ResolvedStyle,
     ) -> LayoutSize {
@@ -530,8 +546,11 @@ impl<'a> SceneBuilder<'a> {
                     continue;
                 };
                 let child_style = self.resolve_style(child_element);
+                if self.is_promoted_overlay(child_element) {
+                    continue;
+                }
                 let child_size = self.measure_size(
-                    kurbo::Size::new(available.width, available.height),
+                    Size::new(available.width, available.height),
                     child_element,
                     &child_style,
                 );
@@ -565,8 +584,11 @@ impl<'a> SceneBuilder<'a> {
                     continue;
                 };
                 let child_style = self.resolve_style(child_element);
+                if self.is_promoted_overlay(child_element) {
+                    continue;
+                }
                 let child_size = self.measure_size(
-                    kurbo::Size::new(available.width, available.height),
+                    Size::new(available.width, available.height),
                     child_element,
                     &child_style,
                 );
@@ -739,6 +761,52 @@ impl<'a> SceneBuilder<'a> {
         }
         resolved
     }
+
+    fn is_promoted_overlay(&self, element: &Element) -> bool {
+        element
+            .widget
+            .and_then(|handle| self.widget_arena.get(handle))
+            .and_then(|widget| widget.surface_role())
+            .is_some()
+    }
+
+    fn overlay_origin(&self, element: &Element, fallback: Point) -> Point {
+        let Some(handle) = element.widget else {
+            return fallback;
+        };
+        let Some(widget) = self.widget_arena.get(handle) else {
+            return fallback;
+        };
+        if let Some(tooltip) = widget.as_any().downcast_ref::<crate::widgets::Tooltip>() {
+            return tooltip.position().unwrap_or(fallback);
+        }
+        if let Some(dropdown) = widget.as_any().downcast_ref::<crate::widgets::Dropdown>() {
+            return dropdown.position().unwrap_or(fallback);
+        }
+        fallback
+    }
+
+    fn overlay_rect_for(
+        &self,
+        element: &Element,
+        style: &ResolvedStyle,
+        measured: LayoutSize,
+        content: Rect,
+    ) -> Rect {
+        let origin = self.overlay_origin(element, content.origin());
+        let width = if style.width > 0.0 {
+            clamp_explicit_dim(style.width, content.width())
+        } else {
+            measured.width.max(0.0)
+        };
+        let height = if style.height > 0.0 {
+            style.height.max(0.0)
+        } else {
+            measured.height.max(0.0)
+        };
+        Rect::from_origin_size(origin, Size::new(width, height))
+    }
+
     fn alloc_z(&mut self) -> i32 {
         let value = self.next_z;
         self.next_z = self.next_z.saturating_add(1);
@@ -868,6 +936,7 @@ fn role_for_type_tag(type_tag: TypeTag) -> SemanticRole {
         TYPE_TEXT_BLOCK => SemanticRole::Text,
         TYPE_TEXT_INPUT => SemanticRole::TextInput,
         TYPE_TOOLTIP => SemanticRole::Tooltip,
+        TYPE_DROPDOWN => SemanticRole::Generic,
         TYPE_SPLITTER => SemanticRole::Splitter,
         TYPE_DIVIDER => SemanticRole::Separator,
         TYPE_SPINNER => SemanticRole::ProgressIndicator,
