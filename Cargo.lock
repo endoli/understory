@@ -2718,6 +2718,7 @@ dependencies = [
  "imaging_vello_hybrid",
  "kurbo",
  "overstory",
+ "overstory_autocomplete",
  "overstory_inspector",
  "overstory_list",
  "overstory_transcript",

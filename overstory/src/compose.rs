@@ -185,6 +185,20 @@ pub(crate) fn append_widget_spec<W: Widget + 'static>(
     id
 }
 
+pub(crate) fn append_container_widget_spec<W: Widget + 'static>(
+    ui: &mut Ui,
+    parent: ElementId,
+    type_tag: TypeTag,
+    horizontal: bool,
+    widget: W,
+    options: ElementOptions,
+) -> ElementId {
+    let props = ui.properties().clone();
+    let id = ui.append_container_with_widget(parent, type_tag, horizontal, Box::new(widget));
+    apply_element_options(ui, id, &props, options);
+    id
+}
+
 pub(crate) fn append_container_spec(
     ui: &mut Ui,
     parent: ElementId,

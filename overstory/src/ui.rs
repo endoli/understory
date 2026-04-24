@@ -237,6 +237,21 @@ impl Ui {
         id
     }
 
+    pub(crate) fn append_container_with_widget(
+        &mut self,
+        parent: ElementId,
+        type_tag: TypeTag,
+        horizontal: bool,
+        widget: Box<dyn Widget>,
+    ) -> ElementId {
+        let id = self.append_child_with(parent, type_tag, Some(widget));
+        if let Some(element) = self.elements.get_mut(id.index()) {
+            element.is_container = true;
+            element.horizontal = horizontal;
+        }
+        id
+    }
+
     /// Appends a child element with a built-in element type.
     ///
     /// This is a convenience wrapper that creates the appropriate widget and

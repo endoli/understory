@@ -119,7 +119,7 @@ impl Dropdown {
 impl AppendSpec for Dropdown {
     fn append_to(mut self, ui: &mut Ui, parent: ElementId) -> ElementId {
         let mount = core::mem::take(&mut self.mount);
-        compose::append_widget_spec(ui, parent, crate::TYPE_DROPDOWN, self, mount)
+        compose::append_container_widget_spec(ui, parent, crate::TYPE_DROPDOWN, false, self, mount)
     }
 }
 

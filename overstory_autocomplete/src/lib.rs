@@ -206,6 +206,18 @@ impl<K> AutocompleteController<K> {
         !self.options.is_empty()
     }
 
+    /// Returns the currently focused option key, if any.
+    #[must_use]
+    pub fn focused_key(&self) -> Option<&K> {
+        self.list.focused_key()
+    }
+
+    /// Returns the number of visible options.
+    #[must_use]
+    pub fn option_count(&self) -> usize {
+        self.options.len()
+    }
+
     /// Synchronizes the current input text and schedules debounce if it changed.
     pub fn sync_query_from_input(&mut self, ui: &mut Ui, now: u64)
     where
