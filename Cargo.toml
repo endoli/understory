@@ -32,10 +32,10 @@ repository = "https://github.com/endoli/understory"
 # let member crates opt into `std` or `libm` explicitly via their own features.
 kurbo = { version = "0.13.0", default-features = false }
 bitflags = "2.10.0"
-hashbrown = { version = "0.16.1", default-features = false, features = [
+hashbrown = { version = "0.17.0", default-features = false, features = [
   "default-hasher",
 ] }
-invalidation = "0.1.1"
+invalidation = "0.2.0"
 smallvec = { version = "1.13.2", default-features = false }
 
 [workspace.lints]
