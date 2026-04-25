@@ -44,6 +44,23 @@ Style and theme resolution are handled externally by `understory_style`.
 - `set_local(property, value)` - set a local value
 - `set_animation(property, value)` - set an animation value
 - `get_effective_local(property, registry)` - Animation → Local → default
+- `set_local_notifying(property, value, registry)` - set a local value and
+  return dirty channels when the effective local value changes
+
+## Invalidation Integration
+
+This crate does not own an invalidation graph or scheduler. Metadata stores
+the [`invalidation::ChannelSet`] affected by each property, and notifying
+helpers return that set when a write changes the effective local value.
+
+Treat the returned channels as dirty roots for your application-level
+invalidation coordinator:
+
+- Use [`invalidation::InvalidationTracker::mark_with`] when property changes
+  should follow graph dependencies, channel cascades, or cross-channel
+  edges.
+- Use [`invalidation::InvalidationTracker::mark`] only for deliberately
+  local channels where direct marking is enough.
 
 ## Quick Start
 

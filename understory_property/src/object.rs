@@ -371,11 +371,15 @@ pub trait DependencyObjectExt<K: Copy + Eq>: DependencyObject<K> {
     /// `T` must implement [`PartialEq`] so no-op effective changes can be
     /// suppressed reliably.
     ///
-    /// The caller is responsible for marking dirty channels:
+    /// The caller is responsible for routing dirty channels into its
+    /// invalidation coordinator. Use `mark_with` when property changes should
+    /// follow graph dependencies, channel cascades, or cross-channel edges; use
+    /// `mark` only for deliberately local channels.
+    ///
     /// ```ignore
     /// let channels = element.set_local_notifying(width, 100.0, &registry);
     /// for channel in channels {
-    ///     tracker.mark(element.key(), channel);
+    ///     tracker.mark_with(element.key(), channel, &LazyPolicy);
     /// }
     /// ```
     ///
