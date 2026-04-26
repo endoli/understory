@@ -92,6 +92,8 @@ Key operations:
   live [`NodeId`].
 - [`Tree::children_of`](Tree::children_of) returns the children of a live [`NodeId`].
 - [`Tree::next_depth_first`](Tree::next_depth_first) and [`Tree::prev_depth_first`](Tree::prev_depth_first) provide depth-first tree traversal.
+- [`Tree::set_world_position`](Tree::set_world_position) sets a node's world-space position
+  directly, useful for dragging nodes to follow the cursor; descendants move with it.
 
 ## Damage and debugging notes
 
