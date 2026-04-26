@@ -64,7 +64,9 @@
 //! - [`Tree::set_local_transform`](Tree::set_local_transform) / [`Tree::set_local_clip`](Tree::set_local_clip) /
 //!   [`Tree::set_local_bounds`](Tree::set_local_bounds) / [`Tree::set_flags`](Tree::set_flags)
 //! - [`Tree::commit`](Tree::commit) → damage summary; updates world data and the spatial index.
-//! - [`Tree::hit_test_point`](Tree::hit_test_point) and [`Tree::intersect_rect`](Tree::intersect_rect).
+//! - [`Tree::hit_test_point`](Tree::hit_test_point),
+//!   [`Tree::hit_test_visual_stack`](Tree::hit_test_visual_stack), and
+//!   [`Tree::intersect_rect`](Tree::intersect_rect).
 //! - [`Tree::z_index`](Tree::z_index) exposes the stacking order of a live [`NodeId`].
 //! - [`Tree::parent_of`](Tree::parent_of) returns the parent of a live [`NodeId`].
 //! - [`Tree::flags`](Tree::flags) returns the [`NodeFlags`] of a live [`NodeId`].
