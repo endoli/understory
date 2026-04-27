@@ -13,7 +13,7 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use smallvec::SmallVec;
 
 use crate::backend::Backend;
@@ -301,18 +301,24 @@ impl<T: GridScalar> Backend<T> for Grid<T> {
     fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<T>, mut f: F) {
         let (ix0, ix1) = self.cell_range(rect.min_x, rect.max_x, self.origin_x);
         let (iy0, iy1) = self.cell_range(rect.min_y, rect.max_y, self.origin_y);
-
-        let mut seen: HashSet<usize> = HashSet::new();
-
         for ix in ix0..=ix1 {
             for iy in iy0..=iy1 {
-                if let Some(cell) = self.cells.get(&(ix, iy)) {
-                    for &slot in &cell.slots {
-                        if !seen.insert(slot) {
-                            continue;
-                        }
-                        let entry = self.slot_entry(slot);
-                        if entry.aabb.overlaps(&rect) {
+                let Some(cell) = self.cells.get(&(ix, iy)) else {
+                    continue;
+                };
+                for &slot in &cell.slots {
+                    let Some(entry) = &self.slots[slot] else {
+                        continue;
+                    };
+                    // If the entry's AABB and `rect` overlap, then we should yield `slot`. We
+                    // yield it exactly once by checking whether the cell we're currently in (and
+                    // fetched the slot from) contains the top-left corner of the intersection of
+                    // AABB and `rect`.
+                    if entry.aabb.overlaps(&rect) {
+                        let intersection = entry.aabb.intersect(&rect);
+                        let x = T::cell_coord(intersection.min_x, self.origin_x, self.cell_size);
+                        let y = T::cell_coord(intersection.min_y, self.origin_y, self.cell_size);
+                        if ix == x && iy == y {
                             f(slot);
                         }
                     }
