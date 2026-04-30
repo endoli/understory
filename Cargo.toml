@@ -13,6 +13,7 @@ members = [
   "understory_responder",
   "understory_selection",
   "understory_style",
+  "understory_timing",
   "understory_transcript",
   "understory_view2d",
   "understory_virtual_list",

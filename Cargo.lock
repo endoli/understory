@@ -563,6 +563,7 @@ dependencies = [
  "understory_outline",
  "understory_precise_hit",
  "understory_responder",
+ "understory_timing",
  "understory_transcript",
  "understory_virtual_list",
 ]
@@ -643,6 +644,10 @@ version = "0.1.0"
 dependencies = [
  "understory_property",
 ]
+
+[[package]]
+name = "understory_timing"
+version = "0.1.0"
 
 [[package]]
 name = "understory_transcript"
