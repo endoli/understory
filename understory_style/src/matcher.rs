@@ -18,7 +18,9 @@ use core::cell::{Ref, RefCell};
 use invalidation::ChannelSet;
 use understory_property::{Property, PropertyId, PropertyRegistry};
 
-use crate::selector::{Selector, SelectorInputs, Specificity};
+use crate::selector::{
+    ClassId, PseudoClassId, Selector, SelectorInputs, Specificity, TargetTag, TypeTag,
+};
 use crate::style::{Style, StyleValueRef};
 use crate::stylesheet::StyleOrigin;
 
@@ -29,8 +31,18 @@ const DEAD_PROGRESS: u16 = u16::MAX;
 /// A state represents selector progress after entering a subject. Embedders
 /// should store it alongside their own style subject if they need to compare or
 /// reuse matching work.
+///
+/// `MatchState` values are scoped to the [`Matcher`] or [`StyleCascade`] that
+/// produced them. Passing a state to another matcher or cascade is a logic
+/// error. Debug builds detect this by carrying the producing matcher identity in
+/// the handle; release builds keep the handle compact and rely on the same
+/// invariant.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct MatchState(u32);
+pub struct MatchState {
+    index: u32,
+    #[cfg(debug_assertions)]
+    matcher_id: usize,
+}
 
 /// A path selector and style payload stored in a [`Matcher`].
 #[derive(Clone, Debug)]
@@ -79,10 +91,44 @@ struct StateData {
     progress: Box<[u16]>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SubjectKey {
+    type_tag: Option<TypeTag>,
+    target_tag: Option<TargetTag>,
+    classes: Box<[ClassId]>,
+    pseudos: Box<[PseudoClassId]>,
+}
+
+impl SubjectKey {
+    fn from_inputs(inputs: &SelectorInputs<'_>) -> Self {
+        Self {
+            type_tag: inputs.type_tag,
+            target_tag: inputs.target_tag,
+            classes: inputs.classes.into(),
+            pseudos: inputs.pseudos.into(),
+        }
+    }
+
+    fn matches(&self, inputs: &SelectorInputs<'_>) -> bool {
+        self.type_tag == inputs.type_tag
+            && self.target_tag == inputs.target_tag
+            && self.classes.as_ref() == inputs.classes
+            && self.pseudos.as_ref() == inputs.pseudos
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TransitionEntry {
+    parent: MatchState,
+    inputs: SubjectKey,
+    child: MatchState,
+}
+
 #[derive(Debug, Default)]
 struct MatcherData {
     rules: Vec<MatchRule>,
     states: RefCell<Vec<StateData>>,
+    transitions_by_parent: RefCell<Vec<Vec<TransitionEntry>>>,
 }
 
 /// Compiled path matcher for style rules.
@@ -111,7 +157,7 @@ impl Matcher {
     /// Returns the initial state before entering any subject.
     #[must_use]
     pub fn root_state(&self) -> MatchState {
-        MatchState(0)
+        self.make_state(0)
     }
 
     /// Advances selector progress by entering one style subject.
@@ -119,20 +165,40 @@ impl Matcher {
     /// The returned state is scoped to the entered subject. Sibling subjects
     /// should each be entered from the same parent state so progress does not
     /// leak between branches.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if `parent` was produced by a different
+    /// [`Matcher`] or [`StyleCascade`]. Passing a cross-matcher state is always
+    /// a logic error, even in release builds.
     #[must_use]
     pub fn enter_subject(&self, parent: MatchState, inputs: &SelectorInputs<'_>) -> MatchState {
+        self.assert_valid_state(parent);
+        if let Some(child) = self.cached_transition(parent, inputs) {
+            return child;
+        }
+
         let parent_index = state_index(parent);
         let progress = {
             let states = self.inner.states.borrow();
             let parent_progress = &states[parent_index].progress;
             self.advance_progress(parent_progress, inputs)
         };
-        self.intern_state(progress)
+        let child = self.intern_state(progress);
+        self.cache_transition(parent, inputs, child);
+        child
     }
 
     /// Returns the rules that match the given state.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if `state` was produced by a different
+    /// [`Matcher`] or [`StyleCascade`]. Passing a cross-matcher state is always
+    /// a logic error, even in release builds.
     #[must_use]
     pub fn matching_rules(&self, state: MatchState) -> RuleCursor<'_> {
+        self.assert_valid_state(state);
         let state_index = state_index(state);
         RuleCursor {
             rules: &self.inner.rules,
@@ -199,12 +265,70 @@ impl Matcher {
     fn intern_state(&self, progress: Box<[u16]>) -> MatchState {
         let mut states = self.inner.states.borrow_mut();
         if let Some(index) = states.iter().position(|state| state.progress == progress) {
-            return make_state(index);
+            return self.make_state(index);
         }
 
         let index = states.len();
         states.push(StateData { progress });
-        make_state(index)
+        self.inner
+            .transitions_by_parent
+            .borrow_mut()
+            .push(Vec::new());
+        self.make_state(index)
+    }
+
+    fn cached_transition(
+        &self,
+        parent: MatchState,
+        inputs: &SelectorInputs<'_>,
+    ) -> Option<MatchState> {
+        self.inner
+            .transitions_by_parent
+            .borrow()
+            .get(state_index(parent))?
+            .iter()
+            .find(|entry| entry.parent == parent && entry.inputs.matches(inputs))
+            .map(|entry| entry.child)
+    }
+
+    fn cache_transition(&self, parent: MatchState, inputs: &SelectorInputs<'_>, child: MatchState) {
+        let mut transitions_by_parent = self.inner.transitions_by_parent.borrow_mut();
+        transitions_by_parent[state_index(parent)].push(TransitionEntry {
+            parent,
+            inputs: SubjectKey::from_inputs(inputs),
+            child,
+        });
+    }
+
+    fn assert_valid_state(&self, state: MatchState) {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert_eq!(
+                state.matcher_id,
+                self.matcher_id(),
+                "MatchState belongs to a different Matcher or StyleCascade"
+            );
+        }
+
+        debug_assert!(
+            state_index(state) < self.inner.states.borrow().len(),
+            "MatchState index is out of bounds for this Matcher"
+        );
+    }
+
+    fn make_state(&self, index: usize) -> MatchState {
+        make_state(index, self.matcher_id())
+    }
+
+    fn matcher_id(&self) -> usize {
+        #[cfg(debug_assertions)]
+        {
+            Rc::as_ptr(&self.inner).cast::<()>() as usize
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            0
+        }
     }
 }
 
@@ -329,6 +453,12 @@ impl StyleCascade {
     }
 
     /// Advances the cascade matcher by entering one style subject.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if `parent` was produced by a different
+    /// [`StyleCascade`] or its underlying [`Matcher`]. Passing a cross-cascade
+    /// state is always a logic error, even in release builds.
     #[must_use]
     pub fn enter_subject(&self, parent: MatchState, inputs: &SelectorInputs<'_>) -> MatchState {
         self.inner.matcher.enter_subject(parent, inputs)
@@ -405,6 +535,16 @@ impl StyleCascade {
     /// The comparison is scoped to this cascade. It is intended for embedders
     /// that re-enter a subject after its selector inputs change and need to
     /// invalidate only the dependency-property channels affected by style.
+    ///
+    /// This is a source-based comparison, not a value-equality comparison. If
+    /// the winning rule or direct style changes, the property is reported even
+    /// when both sources currently produce equal concrete values.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if either state was produced by a different
+    /// [`StyleCascade`] or its underlying [`Matcher`]. Passing cross-cascade
+    /// states is always a logic error, even in release builds.
     #[must_use]
     pub fn changed_properties(&self, old: MatchState, new: MatchState) -> StyleChangeSet {
         let candidates = self.candidate_property_ids(old, new);
@@ -615,11 +755,15 @@ fn advance_rule(rule: &MatchRule, progress: u16, inputs: &SelectorInputs<'_>) ->
 }
 
 fn state_index(state: MatchState) -> usize {
-    usize::try_from(state.0).expect("match state index must fit in usize")
+    usize::try_from(state.index).expect("match state index must fit in usize")
 }
 
-fn make_state(index: usize) -> MatchState {
-    MatchState(u32::try_from(index).expect("too many matcher states"))
+fn make_state(index: usize, matcher_id: usize) -> MatchState {
+    MatchState {
+        index: u32::try_from(index).expect("too many matcher states"),
+        #[cfg(debug_assertions)]
+        matcher_id,
+    }
 }
 
 fn build_matcher(rules: Vec<MatchRule>) -> Matcher {
@@ -630,6 +774,7 @@ fn build_matcher(rules: Vec<MatchRule>) -> Matcher {
             states: RefCell::new(vec![StateData {
                 progress: root_progress,
             }]),
+            transitions_by_parent: RefCell::new(vec![Vec::new()]),
         }),
     }
 }
@@ -764,6 +909,16 @@ mod tests {
             &SelectorInputs::with_target(None, Some(CONTENT), &[], &[]),
         );
         assert_eq!(matcher.matching_rules(leaked).count(), 0);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "MatchState belongs to a different Matcher or StyleCascade")]
+    fn matcher_rejects_cross_matcher_states_in_debug_builds() {
+        let first = MatcherBuilder::new().build();
+        let second = MatcherBuilder::new().build();
+
+        let _ = second.enter_subject(first.root_state(), &SelectorInputs::EMPTY);
     }
 
     #[test]

@@ -25,11 +25,12 @@ pub struct Specificity(pub u32, pub u32, pub u32, pub u32);
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TypeTag(pub u32);
 
-/// A stable identifier for a style target within an element.
+/// A stable identifier for an embedder-defined style subject.
 ///
-/// This is application-defined. UI layers can use it for sub-targets such as
+/// This is application-defined. UI layers can use it for element parts such as
 /// `Button::icon`, `Toggle::track`, or `Slider::thumb`; non-UI embedders can
-/// use it for any owner-local target they want to style.
+/// use it for any addressable subject they want to style. The name is
+/// intentionally not tied to any particular widget, slot, or template system.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TargetTag(pub u32);
 
@@ -330,7 +331,10 @@ impl SelectorStep {
 ///
 /// The first implementation deliberately supports exact child paths only:
 /// every step corresponds to one entered subject. Descendant, sibling, and
-/// child-index selectors are intentionally out of scope for this type.
+/// child-index selectors are intentionally out of scope for this type. Embedders
+/// that want fallback behavior across both logical and structural relationships
+/// should enter the corresponding subjects explicitly; this selector does not
+/// skip intermediate subjects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selector {
     steps: Box<[SelectorStep]>,

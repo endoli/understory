@@ -139,7 +139,8 @@
 //! ### Path Matching And Style Changes
 //!
 //! [`StyleCascade`] is path-aware. Embedders walk their own style subject tree
-//! and carry a compact [`MatchState`] from parent to child:
+//! and carry a compact [`MatchState`] from parent to child. A `MatchState` is
+//! valid only with the cascade that produced it.
 //!
 //! ```rust
 //! use invalidation::Channel;
@@ -195,6 +196,12 @@
 //! assert_eq!(changed.property_ids(), &[background.id()]);
 //! assert!(changed.affected_channels(&registry).contains(PAINT));
 //! ```
+//!
+//! Selectors are exact paths in this first grammar. Each [`SelectorStep`]
+//! corresponds to one call to [`StyleCascade::enter_subject`], so selectors do
+//! not skip intermediate structural subjects. [`StyleCascade::changed_properties`]
+//! is conservative and reports properties whose winning style source changes;
+//! it does not compare concrete typed values for equality.
 //!
 //! ## `no_std` Support
 //!

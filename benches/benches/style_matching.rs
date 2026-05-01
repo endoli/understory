@@ -223,6 +223,23 @@ fn restyle(cascade: &StyleCascade, subjects: &[Subject], color: Property<u32>) -
     sum
 }
 
+fn match_states(cascade: &StyleCascade, subjects: &[Subject]) -> Vec<MatchState> {
+    let mut states = vec![MatchState::default(); subjects.len()];
+
+    for (index, subject) in subjects.iter().enumerate() {
+        let parent = subject
+            .parent
+            .map_or_else(|| cascade.root_state(), |parent| states[parent]);
+        states[index] = cascade.enter_subject(parent, &subject.inputs());
+    }
+
+    states
+}
+
+fn changed_property_count(cascade: &StyleCascade, old: MatchState, new: MatchState) -> usize {
+    cascade.changed_properties(old, new).len()
+}
+
 fn bench_style_matching(c: &mut Criterion) {
     let mut registry = PropertyRegistry::new();
     let color = registry.register("Color", PropertyMetadataBuilder::new(0_u32).build());
@@ -243,6 +260,39 @@ fn bench_style_matching(c: &mut Criterion) {
             },
         );
     }
+    group.finish();
+
+    let old_buttons = make_buttons(1_000, None);
+    let new_buttons = make_buttons(1_000, Some(125));
+    let old_button_states = match_states(&cascade, &old_buttons);
+    let new_button_states = match_states(&cascade, &new_buttons);
+    let button_root = 125 * 3;
+
+    let old_toggles = make_toggles(1_000, None);
+    let new_toggles = make_toggles(1_000, Some(125));
+    let old_toggle_states = match_states(&cascade, &old_toggles);
+    let new_toggle_states = match_states(&cascade, &new_toggles);
+    let toggle_track = 125 * 4 + 1;
+
+    let mut group = c.benchmark_group("style_matching/state_change");
+    group.bench_function("button_hover_root", |b| {
+        b.iter(|| {
+            black_box(changed_property_count(
+                &cascade,
+                old_button_states[button_root],
+                new_button_states[button_root],
+            ));
+        });
+    });
+    group.bench_function("toggle_checked_track", |b| {
+        b.iter(|| {
+            black_box(changed_property_count(
+                &cascade,
+                old_toggle_states[toggle_track],
+                new_toggle_states[toggle_track],
+            ));
+        });
+    });
     group.finish();
 }
 
