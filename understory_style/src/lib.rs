@@ -67,8 +67,8 @@
 //!
 //! ```rust
 //! use understory_style::{
-//!     ClassId, IdSet, PseudoClassId, ResolveCx, Selector, SelectorInputs, StyleCascade,
-//!     StyleCascadeBuilder, StyleBuilder, StyleOrigin, StyleSheetBuilder, ThemeBuilder,
+//!     ClassId, SelectorStep, PseudoClassId, ResolveCx, SelectorInputs, StyleCascade,
+//!     StyleCascadeBuilder, StyleBuilder, StyleOrigin, TargetTag, ThemeBuilder,
 //! };
 //! use understory_property::{
 //!     DependencyObject, PropertyMetadataBuilder, PropertyRegistry, PropertyStore,
@@ -81,32 +81,26 @@
 //!
 //! const PRIMARY: ClassId = ClassId(1);
 //! const HOVER: PseudoClassId = PseudoClassId(1);
+//! const ICON: TargetTag = TargetTag(1);
 //!
 //! // Base style for a "button"
 //! let base = StyleBuilder::new().set(width, 100.0).build();
 //! // Hover style when PRIMARY + HOVER
 //! let hover = StyleBuilder::new().set(width, 120.0).build();
 //!
-//! let hover_selector = Selector {
-//!     type_tag: None,
-//!     required_classes: IdSet::from_ids([PRIMARY]),
-//!     required_pseudos: IdSet::from_ids([HOVER]),
-//! };
-//!
-//! let sheet = StyleSheetBuilder::new()
-//!     .rule(hover_selector, hover)
-//!     .build();
-//!
 //! let style: StyleCascade = StyleCascadeBuilder::new()
 //!     .push_style(StyleOrigin::Base, base)
-//!     .push_sheet(StyleOrigin::Sheet, sheet)
+//!     .push_rule(
+//!         StyleOrigin::Sheet,
+//!         SelectorStep::class(PRIMARY).with_pseudo(HOVER),
+//!         hover,
+//!     )
 //!     .build();
 //!
 //! struct Element {
 //!     key: u32,
 //!     parent: Option<u32>,
 //!     store: PropertyStore<u32>,
-//!     style: Option<StyleCascade>,
 //! }
 //!
 //! impl DependencyObject<u32> for Element {
@@ -120,7 +114,6 @@
 //!     key: 1,
 //!     parent: None,
 //!     store: PropertyStore::new(1),
-//!     style: Some(style.clone()),
 //! };
 //!
 //! // Create resolution context
@@ -128,13 +121,79 @@
 //!
 //! // Resolve with style (no hover)
 //! let inputs = SelectorInputs::new(None, &[PRIMARY], &[]);
-//! let value = cx.get_value(&element, &inputs, width, element.style.as_ref());
+//! let state = style.enter_subject(style.root_state(), &inputs);
+//! let value = cx.get_value(&element, width, Some((&style, state)));
 //! assert_eq!(value, 100.0);
 //!
 //! // Resolve with style (hovered)
 //! let hovered = SelectorInputs::new(None, &[PRIMARY], &[HOVER]);
-//! let value = cx.get_value(&element, &hovered, width, element.style.as_ref());
+//! let hovered_state = style.enter_subject(style.root_state(), &hovered);
+//! let value = cx.get_value(&element, width, Some((&style, hovered_state)));
 //! assert_eq!(value, 120.0);
+//!
+//! // Targets are owner-local style addresses supplied by the embedder.
+//! let icon_inputs = SelectorInputs::with_target(None, Some(ICON), &[PRIMARY], &[]);
+//! assert_eq!(icon_inputs.target_tag, Some(ICON));
+//! ```
+//!
+//! ### Path Matching And Style Changes
+//!
+//! [`StyleCascade`] is path-aware. Embedders walk their own style subject tree
+//! and carry a compact [`MatchState`] from parent to child:
+//!
+//! ```rust
+//! use invalidation::Channel;
+//! use understory_property::{PropertyMetadataBuilder, PropertyRegistry};
+//! use understory_style::{
+//!     PseudoClassId, SelectorInputs, SelectorStep, StyleBuilder, StyleCascadeBuilder, StyleOrigin,
+//!     TargetTag, TypeTag,
+//! };
+//!
+//! const PAINT: Channel = Channel::new(1);
+//! const TOGGLE: TypeTag = TypeTag(1);
+//! const TRACK: TargetTag = TargetTag(2);
+//! const CHECKED: PseudoClassId = PseudoClassId(3);
+//!
+//! let mut registry = PropertyRegistry::new();
+//! let background = registry.register(
+//!     "Background",
+//!     PropertyMetadataBuilder::new(0_u32)
+//!         .affects_channels(PAINT.into_set())
+//!         .build(),
+//! );
+//!
+//! let cascade = StyleCascadeBuilder::new()
+//!     .push_rule(
+//!         StyleOrigin::Sheet,
+//!         [
+//!             SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
+//!             SelectorStep::target_tag(TRACK),
+//!         ],
+//!         StyleBuilder::new().set(background, 0x00ff00_u32).build(),
+//!     )
+//!     .build();
+//!
+//! let checked = [CHECKED];
+//! let unchecked_root = cascade.enter_subject(
+//!     cascade.root_state(),
+//!     &SelectorInputs::new(Some(TOGGLE), &[], &[]),
+//! );
+//! let checked_root = cascade.enter_subject(
+//!     cascade.root_state(),
+//!     &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+//! );
+//! let unchecked_track = cascade.enter_subject(
+//!     unchecked_root,
+//!     &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+//! );
+//! let checked_track = cascade.enter_subject(
+//!     checked_root,
+//!     &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+//! );
+//!
+//! let changed = cascade.changed_properties(unchecked_track, checked_track);
+//! assert_eq!(changed.property_ids(), &[background.id()]);
+//! assert!(changed.affected_channels(&registry).contains(PAINT));
 //! ```
 //!
 //! ## `no_std` Support
@@ -145,17 +204,22 @@
 
 extern crate alloc;
 
+mod matcher;
 mod resolve;
 mod selector;
 mod style;
 mod stylesheet;
 mod theme;
 
-pub use resolve::ResolveCx;
-pub use selector::{ClassId, IdSet, PseudoClassId, Selector, SelectorInputs, Specificity, TypeTag};
-pub use style::{Style, StyleBuilder, StyleValueRef};
-pub use stylesheet::{
-    StyleCascade, StyleCascadeBuilder, StyleOrigin, StyleRule, StyleSheet, StyleSheetBuilder,
-    StyleSource,
+pub use matcher::{
+    MatchRule, MatchState, Matcher, MatcherBuilder, RuleCursor, StyleCascade, StyleCascadeBuilder,
+    StyleChangeSet,
 };
+pub use resolve::ResolveCx;
+pub use selector::{
+    ClassId, IdSet, PseudoClassId, Selector, SelectorInputs, SelectorStep, Specificity, TargetTag,
+    TypeTag,
+};
+pub use style::{Style, StyleBuilder, StyleValueRef};
+pub use stylesheet::StyleOrigin;
 pub use theme::{ResourceKey, Theme, ThemeBuilder};

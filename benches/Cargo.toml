@@ -43,5 +43,9 @@ name = "property"
 harness = false
 
 [[bench]]
+name = "style_matching"
+harness = false
+
+[[bench]]
 name = "outline_inspector"
 harness = false

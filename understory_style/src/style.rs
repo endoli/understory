@@ -109,6 +109,13 @@ impl Style {
             .is_ok()
     }
 
+    pub(crate) fn contains_id(&self, property_id: PropertyId) -> bool {
+        self.inner
+            .entries
+            .binary_search_by_key(&property_id, |(id, _)| *id)
+            .is_ok()
+    }
+
     /// Returns the theme resource key for a property, if this style references one.
     #[must_use]
     pub fn resource_key<T: Clone + 'static>(&self, property: Property<T>) -> Option<ResourceKey> {

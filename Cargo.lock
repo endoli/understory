@@ -642,6 +642,7 @@ version = "0.1.0"
 name = "understory_style"
 version = "0.1.0"
 dependencies = [
+ "invalidation",
  "understory_property",
 ]
 
