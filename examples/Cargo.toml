@@ -18,6 +18,9 @@ understory_precise_hit = { path = "../understory_precise_hit" }
 understory_event_state = { path = "../understory_event_state" }
 understory_inspector = { path = "../understory_inspector" }
 understory_outline = { path = "../understory_outline" }
+understory_property = { path = "../understory_property" }
+understory_style = { path = "../understory_style" }
 understory_timing = { path = "../understory_timing" }
 understory_transcript = { path = "../understory_transcript" }
 understory_virtual_list = { path = "../understory_virtual_list" }
+invalidation.workspace = true

@@ -554,6 +554,7 @@ dependencies = [
 name = "understory_examples"
 version = "0.1.0"
 dependencies = [
+ "invalidation",
  "kurbo",
  "understory_box_tree",
  "understory_event_state",
@@ -562,7 +563,9 @@ dependencies = [
  "understory_inspector",
  "understory_outline",
  "understory_precise_hit",
+ "understory_property",
  "understory_responder",
+ "understory_style",
  "understory_timing",
  "understory_transcript",
  "understory_virtual_list",

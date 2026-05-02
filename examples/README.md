@@ -26,6 +26,10 @@ These examples form a short, progressive walkthrough from routing basics to inte
   - Insert, update, commit damage, and query using `understory_index`.
   - Run: `cargo run -p understory_examples --example index_basics`
 
+- style_subject_walk
+  - Walk an embedder-owned style subject tree, restyle one part after owner state changes, and inspect matched rules and winning style sources.
+  - Run: `cargo run -p understory_examples --example style_subject_walk`
+
 - box_tree_basics
   - Build a small scene, commit, move a node, compute damage, and hit-test using `understory_box_tree`.
   - Run: `cargo run -p understory_examples --example box_tree_basics`

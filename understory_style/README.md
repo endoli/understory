@@ -28,9 +28,137 @@ providing the full WinUI-style precedence chain:
 
 **Animation → Local → Style → Theme → Inherited → Default**
 
-### Core Concepts
+## Start Here
 
-#### Styles
+Use this crate when your application already owns a tree of UI, template, or
+model nodes and needs style matching over that tree. `understory_style` does
+not store the tree. The embedder walks its own style subjects and carries a
+compact [`MatchState`] from parent to child.
+
+The crate owns:
+
+- selector matching over child and descendant paths;
+- style and theme values for dependency properties;
+- conservative style invalidation through `invalidation` channels;
+- inspection hooks for matched rules and winning style sources.
+
+The crate does not own widgets, templates, layout, rendering, event
+dispatch, sibling relationships, parent queries, or structural selectors
+such as `nth-*`, `odd`, or `even`.
+
+### Glossary
+
+- **Style subject**: one addressable item in the embedder's walk. It may be
+  an element, generated template node, model row, or widget part.
+- **`TypeTag`**: an application-defined subject kind, such as `Button`,
+  `Toggle`, or `Row`.
+- **`PartTag`**: an owner-local part label, such as `track`, `thumb`, or
+  `icon`.
+- **`SelectorInputs`**: the type, part, class, and pseudoclass snapshot for
+  one subject.
+- **`MatchState`**: matcher progress after entering a subject. It is valid
+  only with the cascade that produced it.
+
+### First Example: Owner State Styling A Part
+
+This styles a `Toggle` owner's `track` part when the owner has `:checked`.
+The checked state stays on the owner; it is not copied into the part inputs.
+
+```rust
+use invalidation::Channel;
+use understory_property::{PropertyMetadataBuilder, PropertyRegistry};
+use understory_style::{
+    PartTag, PseudoClassId, Selector, SelectorInputs, SelectorStep, StyleBuilder,
+    StyleCascadeBuilder, StyleOrigin, TypeTag,
+};
+
+const PAINT: Channel = Channel::new(1);
+const TOGGLE: TypeTag = TypeTag(1);
+const TRACK: PartTag = PartTag(1);
+const CHECKED: PseudoClassId = PseudoClassId(1);
+
+let mut registry = PropertyRegistry::new();
+let background = registry.register(
+    "Background",
+    PropertyMetadataBuilder::new(0_u32)
+        .affects_channels(PAINT.into_set())
+        .build(),
+);
+
+let cascade = StyleCascadeBuilder::new()
+    .push_rule(
+        StyleOrigin::Sheet,
+        Selector::child(
+            SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
+            SelectorStep::part_tag(TRACK),
+        ),
+        StyleBuilder::new().set(background, 0x00ff00_u32).build(),
+    )
+    .build();
+
+let unchecked_owner = cascade.enter_subject(
+    cascade.root_state(),
+    &SelectorInputs::new(Some(TOGGLE), &[], &[]),
+);
+let unchecked_track = cascade.enter_subject(
+    unchecked_owner,
+    &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+);
+
+let checked = [CHECKED];
+let checked_owner = cascade.enter_subject(
+    cascade.root_state(),
+    &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+);
+let restyle = cascade.restyle_subject(
+    &registry,
+    unchecked_track,
+    checked_owner,
+    &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+);
+
+assert_eq!(cascade.get_value_ref(restyle.state(), background), Some(&0x00ff00));
+assert!(restyle.changed_channels().contains(PAINT));
+assert_eq!(cascade.matching_rules(restyle.state()).count(), 1);
+assert!(cascade.winning_source(restyle.state(), background).unwrap().rule().is_some());
+```
+
+### Long-Lived Rules Of Thumb
+
+Anchor part selectors under an owner [`TypeTag`]. [`PartTag`] values are
+application-defined and may be reused by unrelated owners:
+
+```rust
+use understory_style::{PartTag, Selector, SelectorStep, TypeTag};
+
+const BUTTON: TypeTag = TypeTag(1);
+const ROW: TypeTag = TypeTag(2);
+const LOCAL_PART: PartTag = PartTag(1);
+
+let button_part = Selector::child(
+    SelectorStep::type_tag(BUTTON),
+    SelectorStep::part_tag(LOCAL_PART),
+);
+let row_part = Selector::child(
+    SelectorStep::type_tag(ROW),
+    SelectorStep::part_tag(LOCAL_PART),
+);
+
+assert_ne!(button_part.steps()[0], row_part.steps()[0]);
+```
+
+Use [`SelectorInputsOwned`] when classes or pseudoclasses come from unsorted
+application data. It sorts and deduplicates before exposing borrowed
+[`SelectorInputs`].
+
+For integration debugging, use [`StyleCascade::matching_rules`],
+[`StyleCascade::winning_source`], and [`Selector::diagnose_path`]. These are
+deliberately small diagnostics for the current child / descendant grammar,
+not a browser-CSS explanation engine.
+
+## Reference Concepts
+
+### Styles
 
 [`Style`] is a shared collection of property setters. Unlike per-element
 storage, styles are immutable after creation and can be shared across
@@ -54,7 +182,7 @@ let button_style = StyleBuilder::new()
 assert_eq!(button_style.get(width), Some(&100.0));
 ```
 
-#### Themes
+### Themes
 
 [`Theme`] provides resource lookup by key. Themes map resource keys to
 typed values, enabling theming (light/dark modes, brand colors, etc.).
@@ -79,7 +207,7 @@ let dark_theme = ThemeBuilder::new()
 assert_eq!(light_theme.get::<u32>(ACCENT_COLOR), Some(&0x0078D4));
 ```
 
-#### Resolution Context
+### Resolution Context
 
 [`ResolveCx`] bundles everything needed to resolve property values
 through the full precedence chain. This avoids passing many parameters
@@ -160,18 +288,18 @@ assert_eq!(icon_inputs.part_tag, Some(ICON));
 part selectors under an owner [`TypeTag`] (for example, `Button > icon`) so
 unrelated widgets can reuse local part IDs without colliding.
 
-#### Path Matching And Style Changes
+### Path Matching And Style Changes
 
 [`StyleCascade`] is path-aware. Embedders walk their own style subject tree
 and carry a compact [`MatchState`] from parent to child. A `MatchState` is
-valid only with the cascade that produced it:
+valid only with the cascade that produced it.
 
 ```rust
 use invalidation::Channel;
 use understory_property::{PropertyMetadataBuilder, PropertyRegistry};
 use understory_style::{
-    PseudoClassId, Selector, SelectorInputs, SelectorStep, StyleBuilder, StyleCascadeBuilder,
-    StyleOrigin, PartTag, TypeTag,
+    PseudoClassId, Selector, SelectorInputs, SelectorStep, StyleBuilder,
+    StyleCascadeBuilder, StyleOrigin, PartTag, TypeTag,
 };
 
 const PAINT: Channel = Channel::new(1);
@@ -231,8 +359,8 @@ assert!(descendant.matches_path(&[
 ]));
 ```
 
-Plain selector arrays are exact child paths. For fallback relationships where a
-step may appear deeper in the subject tree, use [`SelectorCombinator::Descendant`].
+Plain selector arrays are exact child paths. For fallback relationships where
+a step may appear deeper in the subject tree, use [`SelectorCombinator::Descendant`].
 The current grammar is intentionally limited to child and descendant
 relationships. It does not include sibling selectors, `nth-*` selectors,
 parent queries, or structural `odd`/`even` selectors. Embedders that need
@@ -254,15 +382,15 @@ assert_eq!(odd_row_text.len(), 2);
 ```
 
 [`StyleCascade::changed_properties`] is conservative and reports properties
-whose winning style source changes; it does not compare concrete typed values
-for equality.
+whose winning style source changes; it does not compare concrete typed
+values for equality.
 
 For inspection and update loops, [`StyleCascade`] also exposes
 [`StyleCascade::matching_rules`], [`StyleCascade::winning_source`], and
 [`StyleCascade::restyle_subject`]. For selector authoring diagnostics, use
 [`Selector::diagnose_path`] to get the first path mismatch.
 
-### `no_std` Support
+## `no_std` Support
 
 This crate is `no_std` and uses `alloc`. It does not depend on `std`.
 
