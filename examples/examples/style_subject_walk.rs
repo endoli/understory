@@ -62,13 +62,13 @@ fn main() {
         &cascade,
         cascade.root_state(),
         "Toggle",
-        &SelectorInputs::new(Some(TOGGLE), &[], &[]),
+        &SelectorInputs::typed(TOGGLE),
     );
     let unchecked_track = enter(
         &cascade,
         unchecked_owner,
         "Toggle > track",
-        &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+        &SelectorInputs::part(TRACK),
     );
 
     let checked = [CHECKED];
@@ -76,14 +76,14 @@ fn main() {
         &cascade,
         cascade.root_state(),
         "Toggle:checked",
-        &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+        &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
     );
 
     let restyle = cascade.restyle_subject(
         &registry,
         unchecked_track,
         checked_owner,
-        &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+        &SelectorInputs::part(TRACK),
     );
     println!(
         "restyled track: changed_properties={:?} paint_changed={}",
@@ -108,8 +108,8 @@ fn main() {
 
     let hover = [HOVER];
     let wrong_path = [
-        SelectorInputs::new(Some(TOGGLE), &[], &checked),
-        SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+        SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
+        SelectorInputs::part(TRACK),
         SelectorInputs::with_part(None, Some(THUMB), &[], &hover),
     ];
     let wrong_selector = Selector::child(

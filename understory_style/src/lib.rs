@@ -78,23 +78,23 @@
 //!
 //! let unchecked_owner = cascade.enter_subject(
 //!     cascade.root_state(),
-//!     &SelectorInputs::new(Some(TOGGLE), &[], &[]),
+//!     &SelectorInputs::typed(TOGGLE),
 //! );
 //! let unchecked_track = cascade.enter_subject(
 //!     unchecked_owner,
-//!     &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+//!     &SelectorInputs::part(TRACK),
 //! );
 //!
 //! let checked = [CHECKED];
 //! let checked_owner = cascade.enter_subject(
 //!     cascade.root_state(),
-//!     &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+//!     &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
 //! );
 //! let restyle = cascade.restyle_subject(
 //!     &registry,
 //!     unchecked_track,
 //!     checked_owner,
-//!     &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+//!     &SelectorInputs::part(TRACK),
 //! );
 //!
 //! assert_eq!(cascade.get_value_ref(restyle.state(), background), Some(&0x00ff00));
@@ -309,19 +309,19 @@
 //! let checked = [CHECKED];
 //! let unchecked_root = cascade.enter_subject(
 //!     cascade.root_state(),
-//!     &SelectorInputs::new(Some(TOGGLE), &[], &[]),
+//!     &SelectorInputs::typed(TOGGLE),
 //! );
 //! let checked_root = cascade.enter_subject(
 //!     cascade.root_state(),
-//!     &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+//!     &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
 //! );
 //! let unchecked_track = cascade.enter_subject(
 //!     unchecked_root,
-//!     &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+//!     &SelectorInputs::part(TRACK),
 //! );
 //! let checked_track = cascade.enter_subject(
 //!     checked_root,
-//!     &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+//!     &SelectorInputs::part(TRACK),
 //! );
 //!
 //! let changed = cascade.changed_properties(unchecked_track, checked_track);
@@ -333,9 +333,9 @@
 //!     SelectorStep::part_tag(TRACK),
 //! );
 //! assert!(descendant.matches_path(&[
-//!     SelectorInputs::new(Some(TOGGLE), &[], &checked),
+//!     SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
 //!     SelectorInputs::with_part(None, Some(PartTag(99)), &[], &[]),
-//!     SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+//!     SelectorInputs::part(TRACK),
 //! ]));
 //! ```
 //!

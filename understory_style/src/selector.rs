@@ -140,6 +140,39 @@ impl SelectorInputs<'static> {
         classes: &[],
         pseudos: &[],
     };
+
+    /// Constructs selector inputs with only a type tag.
+    #[must_use]
+    pub const fn typed(type_tag: TypeTag) -> Self {
+        Self {
+            type_tag: Some(type_tag),
+            part_tag: None,
+            classes: &[],
+            pseudos: &[],
+        }
+    }
+
+    /// Constructs selector inputs with only an owner-local part tag.
+    #[must_use]
+    pub const fn part(part_tag: PartTag) -> Self {
+        Self {
+            type_tag: None,
+            part_tag: Some(part_tag),
+            classes: &[],
+            pseudos: &[],
+        }
+    }
+
+    /// Constructs selector inputs with a type tag and owner-local part tag.
+    #[must_use]
+    pub const fn typed_part(type_tag: TypeTag, part_tag: PartTag) -> Self {
+        Self {
+            type_tag: Some(type_tag),
+            part_tag: Some(part_tag),
+            classes: &[],
+            pseudos: &[],
+        }
+    }
 }
 
 impl<'a> SelectorInputs<'a> {
@@ -155,6 +188,18 @@ impl<'a> SelectorInputs<'a> {
         pseudos: &'a [PseudoClassId],
     ) -> Self {
         Self::with_part(type_tag, None, classes, pseudos)
+    }
+
+    /// Constructs selector inputs with a type tag and pseudoclasses.
+    ///
+    /// This is the common shape for owner state such as `Toggle:checked`.
+    ///
+    /// # Panics (debug only)
+    ///
+    /// Panics in debug builds if `pseudos` is not sorted and deduplicated.
+    #[must_use]
+    pub fn typed_with_pseudos(type_tag: TypeTag, pseudos: &'a [PseudoClassId]) -> Self {
+        Self::with_part(Some(type_tag), None, &[], pseudos)
     }
 
     /// Constructs selector inputs with an owner-local part tag.
@@ -896,6 +941,28 @@ mod tests {
     }
 
     #[test]
+    fn selector_input_conveniences_match_explicit_inputs() {
+        let pseudos = [PseudoClassId(4)];
+
+        assert_eq!(
+            SelectorInputs::typed(TypeTag(1)),
+            SelectorInputs::new(Some(TypeTag(1)), &[], &[])
+        );
+        assert_eq!(
+            SelectorInputs::part(PartTag(2)),
+            SelectorInputs::with_part(None, Some(PartTag(2)), &[], &[])
+        );
+        assert_eq!(
+            SelectorInputs::typed_part(TypeTag(1), PartTag(2)),
+            SelectorInputs::with_part(Some(TypeTag(1)), Some(PartTag(2)), &[], &[])
+        );
+        assert_eq!(
+            SelectorInputs::typed_with_pseudos(TypeTag(1), &pseudos),
+            SelectorInputs::new(Some(TypeTag(1)), &[], &pseudos)
+        );
+    }
+
+    #[test]
     fn selector_matches_subsets() {
         let selector = SelectorStep {
             type_tag: Some(TypeTag(1)),
@@ -1065,10 +1132,10 @@ mod tests {
             SelectorStep::part_tag(THUMB),
         ]);
 
-        let root = SelectorInputs::new(Some(TOGGLE), &[], &[]);
-        let track = SelectorInputs::with_part(None, Some(TRACK), &[], &[]);
-        let thumb = SelectorInputs::with_part(None, Some(THUMB), &[], &[]);
-        let direct_thumb = SelectorInputs::with_part(None, Some(THUMB), &[], &[]);
+        let root = SelectorInputs::typed(TOGGLE);
+        let track = SelectorInputs::part(TRACK);
+        let thumb = SelectorInputs::part(THUMB);
+        let direct_thumb = SelectorInputs::part(THUMB);
 
         assert!(selector.matches_path(&[root, track, thumb]));
         assert!(!selector.matches_path(&[root, direct_thumb]));
@@ -1097,9 +1164,9 @@ mod tests {
             )],
         );
 
-        let root = SelectorInputs::new(Some(TOGGLE), &[], &[]);
-        let track = SelectorInputs::with_part(None, Some(TRACK), &[], &[]);
-        let thumb = SelectorInputs::with_part(None, Some(THUMB), &[], &[]);
+        let root = SelectorInputs::typed(TOGGLE);
+        let track = SelectorInputs::part(TRACK);
+        let thumb = SelectorInputs::part(THUMB);
 
         assert!(selector.matches_path(&[root, track, thumb]));
         assert!(selector.matches_path(&[root, thumb]));
@@ -1116,9 +1183,9 @@ mod tests {
         let selector =
             Selector::descendant(SelectorStep::type_tag(ROW), SelectorStep::part_tag(TEXT));
 
-        let root = SelectorInputs::new(Some(ROW), &[], &[]);
-        let badge = SelectorInputs::with_part(None, Some(BADGE), &[], &[]);
-        let text = SelectorInputs::with_part(None, Some(TEXT), &[], &[]);
+        let root = SelectorInputs::typed(ROW);
+        let badge = SelectorInputs::part(BADGE);
+        let text = SelectorInputs::part(TEXT);
 
         assert_eq!(selector.combinators(), &[SelectorCombinator::Descendant]);
         assert!(selector.matches_path(&[root, badge, text]));
@@ -1140,10 +1207,10 @@ mod tests {
             &[SelectorCombinator::Descendant, SelectorCombinator::Child]
         );
 
-        let root = SelectorInputs::new(Some(ROW), &[], &[]);
+        let root = SelectorInputs::typed(ROW);
         let wrapper = SelectorInputs::with_part(None, Some(PartTag(99)), &[], &[]);
-        let content = SelectorInputs::with_part(None, Some(CONTENT), &[], &[]);
-        let text = SelectorInputs::with_part(None, Some(TEXT), &[], &[]);
+        let content = SelectorInputs::part(CONTENT);
+        let text = SelectorInputs::part(TEXT);
 
         assert!(selector.matches_path(&[root, wrapper, content, text]));
     }
@@ -1155,8 +1222,8 @@ mod tests {
         const TEXT: PartTag = PartTag(11);
 
         let selector = Selector::child(SelectorStep::type_tag(ROW), SelectorStep::part_tag(TEXT));
-        let root = SelectorInputs::new(Some(ROW), &[], &[]);
-        let content = SelectorInputs::with_part(None, Some(CONTENT), &[], &[]);
+        let root = SelectorInputs::typed(ROW);
+        let content = SelectorInputs::part(CONTENT);
 
         assert_eq!(
             selector.diagnose_path(&[root, content]),
@@ -1191,9 +1258,9 @@ mod tests {
             [SelectorCombinator::Child],
         );
 
-        let root = SelectorInputs::new(Some(TOGGLE), &[], &[]);
-        let track = SelectorInputs::with_part(None, Some(TRACK), &[], &[]);
-        let thumb = SelectorInputs::with_part(None, Some(THUMB), &[], &[]);
+        let root = SelectorInputs::typed(TOGGLE);
+        let track = SelectorInputs::part(TRACK);
+        let thumb = SelectorInputs::part(THUMB);
 
         assert!(selector.matches_path(&[root, thumb]));
         assert!(!selector.matches_path(&[root, track, thumb]));
@@ -1215,8 +1282,8 @@ mod tests {
         ]);
 
         let pseudos = [CHECKED];
-        let root = SelectorInputs::new(Some(TOGGLE), &[], &pseudos);
-        let track = SelectorInputs::with_part(None, Some(TRACK), &[], &[]);
+        let root = SelectorInputs::typed_with_pseudos(TOGGLE, &pseudos);
+        let track = SelectorInputs::part(TRACK);
 
         assert!(owner_checked_track.matches_path(&[root, track]));
         assert!(!track_checked.matches_path(&[root, track]));

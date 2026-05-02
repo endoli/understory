@@ -49,6 +49,14 @@ struct Cursor {
     step_index: u16,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct CascadeEntryKey {
+    origin: StyleOrigin,
+    specificity: Specificity,
+    source_index: usize,
+    order: u32,
+}
+
 /// A path selector and style payload stored in a [`Matcher`].
 #[derive(Clone, Debug)]
 pub struct MatchRule {
@@ -88,6 +96,15 @@ impl MatchRule {
     #[must_use]
     pub fn order(&self) -> u32 {
         self.order
+    }
+
+    fn cascade_key(&self) -> CascadeEntryKey {
+        CascadeEntryKey {
+            origin: self.origin,
+            specificity: self.selector.specificity(),
+            source_index: self.source_index,
+            order: self.order,
+        }
     }
 }
 
@@ -237,23 +254,17 @@ impl Matcher {
         state: MatchState,
         property: Property<T>,
     ) -> Option<StyleValueRef<'_, T>> {
-        type Key = (StyleOrigin, Specificity, usize, u32);
-        let mut best: Option<(Key, StyleValueRef<'_, T>)> = None;
+        let mut best = None;
 
         for rule in self.matching_rules(state) {
             let Some(value) = rule.style.value_ref(property) else {
                 continue;
             };
-            let key: Key = (
-                rule.origin,
-                rule.selector.specificity(),
-                rule.source_index,
-                rule.order,
-            );
-            match best {
-                None => best = Some((key, value)),
-                Some((best_key, _)) if key > best_key => best = Some((key, value)),
-                Some(_) => {}
+            let key = rule.cascade_key();
+            if best.as_ref().is_none_or(
+                |(best_key, _): &(CascadeEntryKey, StyleValueRef<'_, T>)| key > *best_key,
+            ) {
+                best = Some((key, value));
             }
         }
 
@@ -473,14 +484,6 @@ struct DirectStyleSource {
     source_index: usize,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct CascadeEntryKey {
-    origin: StyleOrigin,
-    specificity: Specificity,
-    source_index: usize,
-    order: u32,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ResolvedEntryCache {
     property_id: PropertyId,
@@ -616,6 +619,35 @@ impl WinningStyleSource<'_> {
     }
 }
 
+impl<'a> WinningStyleSource<'a> {
+    fn cascade_key(&self) -> CascadeEntryKey {
+        match self {
+            Self::Direct {
+                origin,
+                source_index,
+                ..
+            } => CascadeEntryKey {
+                origin: *origin,
+                specificity: Specificity::default(),
+                source_index: *source_index,
+                order: 0,
+            },
+            Self::Rule(rule) => rule.cascade_key(),
+        }
+    }
+
+    fn value_ref<T: Clone + 'static>(&self, property: Property<T>) -> Option<StyleValueRef<'a, T>> {
+        match self {
+            Self::Direct { style, .. } => style.value_ref(property),
+            Self::Rule(rule) => rule.style.value_ref(property),
+        }
+    }
+
+    fn contains_id(&self, property_id: PropertyId) -> bool {
+        self.style().contains_id(property_id)
+    }
+}
+
 /// A path-aware style cascade.
 ///
 /// The cascade preserves origin, specificity, source order, and rule order.
@@ -696,44 +728,8 @@ impl StyleCascade {
         state: MatchState,
         property: Property<T>,
     ) -> Option<StyleValueRef<'_, T>> {
-        type Key = (StyleOrigin, Specificity, usize, u32);
-        let mut best: Option<(Key, StyleValueRef<'_, T>)> = None;
-
-        for source in &self.inner.direct_styles {
-            let Some(value) = source.style.value_ref(property) else {
-                continue;
-            };
-            let key: Key = (
-                source.origin,
-                Specificity::default(),
-                source.source_index,
-                0,
-            );
-            match best {
-                None => best = Some((key, value)),
-                Some((best_key, _)) if key > best_key => best = Some((key, value)),
-                Some(_) => {}
-            }
-        }
-
-        for rule in self.inner.matcher.matching_rules(state) {
-            let Some(value) = rule.style.value_ref(property) else {
-                continue;
-            };
-            let key: Key = (
-                rule.origin,
-                rule.selector.specificity(),
-                rule.source_index,
-                rule.order,
-            );
-            match best {
-                None => best = Some((key, value)),
-                Some((best_key, _)) if key > best_key => best = Some((key, value)),
-                Some(_) => {}
-            }
-        }
-
-        best.map(|(_, value)| value)
+        self.compute_winning_source(state, property.id())?
+            .value_ref(property)
     }
 
     /// Returns the best concrete Style-layer value for a property at this state.
@@ -808,19 +804,18 @@ impl StyleCascade {
     fn candidate_property_ids(&self, old: MatchState, new: MatchState) -> Vec<PropertyId> {
         let mut property_ids = Vec::new();
 
-        for source in &self.inner.direct_styles {
-            property_ids.extend(source.style.property_ids());
-        }
-        for rule in self.inner.matcher.matching_rules(old) {
-            property_ids.extend(rule.style.property_ids());
-        }
-        for rule in self.inner.matcher.matching_rules(new) {
-            property_ids.extend(rule.style.property_ids());
-        }
+        self.extend_candidate_property_ids(old, &mut property_ids);
+        self.extend_candidate_property_ids(new, &mut property_ids);
 
         property_ids.sort_unstable();
         property_ids.dedup();
         property_ids
+    }
+
+    fn extend_candidate_property_ids(&self, state: MatchState, property_ids: &mut Vec<PropertyId>) {
+        for source in self.style_sources(state) {
+            property_ids.extend(source.style().property_ids());
+        }
     }
 
     fn winning_entry_key(
@@ -870,39 +865,8 @@ impl StyleCascade {
         state: MatchState,
         property_id: PropertyId,
     ) -> Option<CascadeEntryKey> {
-        let mut best = None;
-
-        for source in &self.inner.direct_styles {
-            if !source.style.contains_id(property_id) {
-                continue;
-            }
-            let key = CascadeEntryKey {
-                origin: source.origin,
-                specificity: Specificity::default(),
-                source_index: source.source_index,
-                order: 0,
-            };
-            if best.is_none_or(|best_key| key > best_key) {
-                best = Some(key);
-            }
-        }
-
-        for rule in self.inner.matcher.matching_rules(state) {
-            if !rule.style.contains_id(property_id) {
-                continue;
-            }
-            let key = CascadeEntryKey {
-                origin: rule.origin,
-                specificity: rule.selector.specificity(),
-                source_index: rule.source_index,
-                order: rule.order,
-            };
-            if best.is_none_or(|best_key| key > best_key) {
-                best = Some(key);
-            }
-        }
-
-        best
+        self.compute_winning_source(state, property_id)
+            .map(|source| source.cascade_key())
     }
 
     fn compute_winning_source(
@@ -912,48 +876,37 @@ impl StyleCascade {
     ) -> Option<WinningStyleSource<'_>> {
         let mut best = None;
 
-        for source in &self.inner.direct_styles {
-            if !source.style.contains_id(property_id) {
+        for source in self.style_sources(state) {
+            if !source.contains_id(property_id) {
                 continue;
             }
-            let key = CascadeEntryKey {
-                origin: source.origin,
-                specificity: Specificity::default(),
-                source_index: source.source_index,
-                order: 0,
-            };
+            let key = source.cascade_key();
             if best.as_ref().is_none_or(
                 |(best_key, _): &(CascadeEntryKey, WinningStyleSource<'_>)| key > *best_key,
             ) {
-                best = Some((
-                    key,
-                    WinningStyleSource::Direct {
-                        origin: source.origin,
-                        source_index: source.source_index,
-                        style: &source.style,
-                    },
-                ));
-            }
-        }
-
-        for rule in self.inner.matcher.matching_rules(state) {
-            if !rule.style.contains_id(property_id) {
-                continue;
-            }
-            let key = CascadeEntryKey {
-                origin: rule.origin,
-                specificity: rule.selector.specificity(),
-                source_index: rule.source_index,
-                order: rule.order,
-            };
-            if best.as_ref().is_none_or(
-                |(best_key, _): &(CascadeEntryKey, WinningStyleSource<'_>)| key > *best_key,
-            ) {
-                best = Some((key, WinningStyleSource::Rule(rule)));
+                best = Some((key, source));
             }
         }
 
         best.map(|(_, source)| source)
+    }
+
+    fn style_sources(&self, state: MatchState) -> impl Iterator<Item = WinningStyleSource<'_>> {
+        let direct_styles =
+            self.inner
+                .direct_styles
+                .iter()
+                .map(|source| WinningStyleSource::Direct {
+                    origin: source.origin,
+                    source_index: source.source_index,
+                    style: &source.style,
+                });
+        let rules = self
+            .inner
+            .matcher
+            .matching_rules(state)
+            .map(WinningStyleSource::Rule);
+        direct_styles.chain(rules)
     }
 }
 
@@ -1169,18 +1122,9 @@ mod tests {
             )
             .build();
 
-        let root = matcher.enter_subject(
-            matcher.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
-        let track = matcher.enter_subject(
-            root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
-        let thumb = matcher.enter_subject(
-            track,
-            &SelectorInputs::with_part(None, Some(THUMB), &[], &[]),
-        );
+        let root = matcher.enter_subject(matcher.root_state(), &SelectorInputs::typed(TOGGLE));
+        let track = matcher.enter_subject(root, &SelectorInputs::part(TRACK));
+        let thumb = matcher.enter_subject(track, &SelectorInputs::part(THUMB));
 
         assert_eq!(matcher.get_value_ref(root, width), Some(&10));
         assert_eq!(matcher.get_value_ref(track, width), Some(&20));
@@ -1218,26 +1162,14 @@ mod tests {
             )
             .build();
 
-        let root = matcher.enter_subject(
-            matcher.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
-        let track = matcher.enter_subject(
-            root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
-        let content = matcher.enter_subject(
-            root,
-            &SelectorInputs::with_part(None, Some(CONTENT), &[], &[]),
-        );
+        let root = matcher.enter_subject(matcher.root_state(), &SelectorInputs::typed(TOGGLE));
+        let track = matcher.enter_subject(root, &SelectorInputs::part(TRACK));
+        let content = matcher.enter_subject(root, &SelectorInputs::part(CONTENT));
 
         assert_eq!(matcher.matching_rules(track).count(), 1);
         assert_eq!(matcher.matching_rules(content).count(), 1);
 
-        let leaked = matcher.enter_subject(
-            track,
-            &SelectorInputs::with_part(None, Some(CONTENT), &[], &[]),
-        );
+        let leaked = matcher.enter_subject(track, &SelectorInputs::part(CONTENT));
         assert_eq!(matcher.matching_rules(leaked).count(), 0);
     }
 
@@ -1251,10 +1183,7 @@ mod tests {
                 matcher.enter_subject(root, &SelectorInputs::with_part(None, Some(part), &[], &[]));
         }
 
-        let _ = matcher.enter_subject(
-            root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
+        let _ = matcher.enter_subject(root, &SelectorInputs::part(TRACK));
         assert_eq!(
             matcher.inner.transitions_by_parent.borrow()[state_index(root)].len(),
             3
@@ -1327,20 +1256,12 @@ mod tests {
         let checked = [CHECKED];
         let checked_root = matcher.enter_subject(
             matcher.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+            &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
         );
-        let unchecked_root = matcher.enter_subject(
-            matcher.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
-        let checked_track = matcher.enter_subject(
-            checked_root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
-        let unchecked_track = matcher.enter_subject(
-            unchecked_root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
+        let unchecked_root =
+            matcher.enter_subject(matcher.root_state(), &SelectorInputs::typed(TOGGLE));
+        let checked_track = matcher.enter_subject(checked_root, &SelectorInputs::part(TRACK));
+        let unchecked_track = matcher.enter_subject(unchecked_root, &SelectorInputs::part(TRACK));
 
         assert_eq!(matcher.matching_rules(checked_track).count(), 1);
         assert_eq!(matcher.matching_rules(unchecked_track).count(), 0);
@@ -1367,20 +1288,11 @@ mod tests {
         let checked = [CHECKED];
         let root = matcher.enter_subject(
             matcher.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+            &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
         );
-        let track = matcher.enter_subject(
-            root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
-        let thumb = matcher.enter_subject(
-            track,
-            &SelectorInputs::with_part(None, Some(THUMB), &[], &[]),
-        );
-        let content = matcher.enter_subject(
-            root,
-            &SelectorInputs::with_part(None, Some(CONTENT), &[], &[]),
-        );
+        let track = matcher.enter_subject(root, &SelectorInputs::part(TRACK));
+        let thumb = matcher.enter_subject(track, &SelectorInputs::part(THUMB));
+        let content = matcher.enter_subject(root, &SelectorInputs::part(CONTENT));
 
         assert_eq!(matcher.get_value_ref(thumb, width), Some(&30));
         assert_eq!(matcher.matching_rules(track).count(), 0);
@@ -1402,18 +1314,9 @@ mod tests {
             )
             .build();
 
-        let root = matcher.enter_subject(
-            matcher.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
-        let first_thumb = matcher.enter_subject(
-            root,
-            &SelectorInputs::with_part(None, Some(THUMB), &[], &[]),
-        );
-        let nested_thumb = matcher.enter_subject(
-            first_thumb,
-            &SelectorInputs::with_part(None, Some(THUMB), &[], &[]),
-        );
+        let root = matcher.enter_subject(matcher.root_state(), &SelectorInputs::typed(TOGGLE));
+        let first_thumb = matcher.enter_subject(root, &SelectorInputs::part(THUMB));
+        let nested_thumb = matcher.enter_subject(first_thumb, &SelectorInputs::part(THUMB));
 
         assert_eq!(matcher.matching_rules(first_thumb).count(), 1);
         assert_eq!(matcher.matching_rules(nested_thumb).count(), 1);
@@ -1447,10 +1350,7 @@ mod tests {
             .build();
 
         let checked = [CHECKED];
-        let root = cascade.enter_subject(
-            cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
+        let root = cascade.enter_subject(cascade.root_state(), &SelectorInputs::typed(TOGGLE));
         let track = cascade.enter_subject(
             root,
             &SelectorInputs::with_part(None, Some(TRACK), &[], &checked),
@@ -1497,7 +1397,7 @@ mod tests {
         let checked = [CHECKED];
         let root = cascade.enter_subject(
             cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+            &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
         );
 
         assert_eq!(cascade.get_value_ref(root, width), Some(&20));
@@ -1525,10 +1425,7 @@ mod tests {
             )
             .build();
 
-        let root = cascade.enter_subject(
-            cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
+        let root = cascade.enter_subject(cascade.root_state(), &SelectorInputs::typed(TOGGLE));
 
         assert_eq!(cascade.get_value_ref(root, width), Some(&20));
     }
@@ -1554,14 +1451,8 @@ mod tests {
             )
             .build();
 
-        let root = cascade.enter_subject(
-            cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
-        let track = cascade.enter_subject(
-            root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
+        let root = cascade.enter_subject(cascade.root_state(), &SelectorInputs::typed(TOGGLE));
+        let track = cascade.enter_subject(root, &SelectorInputs::part(TRACK));
 
         assert_eq!(cascade.get_value_ref(root, width), Some(&10));
         assert_eq!(cascade.get_value_ref(track, width), Some(&20));
@@ -1597,7 +1488,7 @@ mod tests {
         let checked = [CHECKED];
         let root = cascade.enter_subject(
             cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+            &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
         );
 
         assert_eq!(cascade.matching_rules(root).count(), 2);
@@ -1633,16 +1524,13 @@ mod tests {
             )
             .build();
 
-        let unchecked = cascade.enter_subject(
-            cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
+        let unchecked = cascade.enter_subject(cascade.root_state(), &SelectorInputs::typed(TOGGLE));
         let checked = [CHECKED];
         let restyle = cascade.restyle_subject(
             &registry,
             unchecked,
             cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+            &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
         );
 
         assert_eq!(cascade.get_value_ref(restyle.state(), width), Some(&20));
@@ -1691,22 +1579,14 @@ mod tests {
             .build();
 
         let checked = [CHECKED];
-        let unchecked_root = cascade.enter_subject(
-            cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
+        let unchecked_root =
+            cascade.enter_subject(cascade.root_state(), &SelectorInputs::typed(TOGGLE));
         let checked_root = cascade.enter_subject(
             cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+            &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
         );
-        let unchecked_track = cascade.enter_subject(
-            unchecked_root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
-        let checked_track = cascade.enter_subject(
-            checked_root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
+        let unchecked_track = cascade.enter_subject(unchecked_root, &SelectorInputs::part(TRACK));
+        let checked_track = cascade.enter_subject(checked_root, &SelectorInputs::part(TRACK));
 
         let changes = cascade.changed_properties(unchecked_track, checked_track);
         assert_eq!(changes.property_ids(), &[width.id(), background.id()]);
@@ -1754,22 +1634,14 @@ mod tests {
             .build();
 
         let checked = [CHECKED];
-        let unchecked_root = cascade.enter_subject(
-            cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
-        );
+        let unchecked_root =
+            cascade.enter_subject(cascade.root_state(), &SelectorInputs::typed(TOGGLE));
         let checked_root = cascade.enter_subject(
             cascade.root_state(),
-            &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+            &SelectorInputs::typed_with_pseudos(TOGGLE, &checked),
         );
-        let unchecked_track = cascade.enter_subject(
-            unchecked_root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
-        let checked_track = cascade.enter_subject(
-            checked_root,
-            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
-        );
+        let unchecked_track = cascade.enter_subject(unchecked_root, &SelectorInputs::part(TRACK));
+        let checked_track = cascade.enter_subject(checked_root, &SelectorInputs::part(TRACK));
 
         let changes = cascade.changed_properties(unchecked_track, checked_track);
         assert!(changes.is_empty());
