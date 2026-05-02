@@ -6,19 +6,22 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use understory_property::{Property, PropertyMetadataBuilder, PropertyRegistry};
 use understory_style::{
-    ClassId, MatchState, PseudoClassId, Selector, SelectorInputs, SelectorStep, StyleBuilder,
-    StyleCascade, StyleCascadeBuilder, StyleOrigin, TargetTag, TypeTag,
+    ClassId, MatchState, PartTag, PseudoClassId, Selector, SelectorCombinator, SelectorInputs,
+    SelectorStep, StyleBuilder, StyleCascade, StyleCascadeBuilder, StyleOrigin, TypeTag,
 };
 
 const BUTTON: TypeTag = TypeTag(1);
 const TOGGLE: TypeTag = TypeTag(2);
 const ROW: TypeTag = TypeTag(3);
 
-const CHROME: TargetTag = TargetTag(10);
-const CONTENT: TargetTag = TargetTag(11);
-const TRACK: TargetTag = TargetTag(12);
-const THUMB: TargetTag = TargetTag(13);
-const TEXT: TargetTag = TargetTag(14);
+const CHROME: PartTag = PartTag(10);
+const CONTENT: PartTag = PartTag(11);
+const TRACK: PartTag = PartTag(12);
+const THUMB: PartTag = PartTag(13);
+const TEXT: PartTag = PartTag(14);
+const BADGE: PartTag = PartTag(15);
+const DETAIL: PartTag = PartTag(16);
+const META: PartTag = PartTag(17);
 
 const PRIMARY: ClassId = ClassId(20);
 const ODD: ClassId = ClassId(21);
@@ -31,7 +34,7 @@ const CHECKED: PseudoClassId = PseudoClassId(31);
 struct Subject {
     parent: Option<usize>,
     type_tag: Option<TypeTag>,
-    target_tag: Option<TargetTag>,
+    part_tag: Option<PartTag>,
     classes: Vec<ClassId>,
     pseudos: Vec<PseudoClassId>,
 }
@@ -41,24 +44,24 @@ impl Subject {
         Self {
             parent: None,
             type_tag: Some(type_tag),
-            target_tag: None,
+            part_tag: None,
             classes: Vec::new(),
             pseudos: Vec::new(),
         }
     }
 
-    fn part(parent: usize, target_tag: TargetTag) -> Self {
+    fn part(parent: usize, part_tag: PartTag) -> Self {
         Self {
             parent: Some(parent),
             type_tag: None,
-            target_tag: Some(target_tag),
+            part_tag: Some(part_tag),
             classes: Vec::new(),
             pseudos: Vec::new(),
         }
     }
 
     fn inputs(&self) -> SelectorInputs<'_> {
-        SelectorInputs::with_target(self.type_tag, self.target_tag, &self.classes, &self.pseudos)
+        SelectorInputs::with_part(self.type_tag, self.part_tag, &self.classes, &self.pseudos)
     }
 }
 
@@ -66,8 +69,8 @@ fn type_selector(type_tag: TypeTag) -> SelectorStep {
     SelectorStep::type_tag(type_tag)
 }
 
-fn target_selector(target_tag: TargetTag) -> SelectorStep {
-    SelectorStep::target_tag(target_tag)
+fn part_selector(part_tag: PartTag) -> SelectorStep {
+    SelectorStep::part_tag(part_tag)
 }
 
 fn path(steps: impl IntoIterator<Item = SelectorStep>) -> Selector {
@@ -84,14 +87,14 @@ fn make_cascade(color: Property<u32>) -> StyleCascade {
                     StyleBuilder::new().set(color, 10_u32).build(),
                 ),
                 (
-                    path([type_selector(BUTTON), target_selector(CHROME)]),
+                    path([type_selector(BUTTON), part_selector(CHROME)]),
                     StyleBuilder::new().set(color, 11_u32).build(),
                 ),
                 (
                     path([
                         type_selector(BUTTON),
-                        target_selector(CHROME),
-                        target_selector(CONTENT),
+                        part_selector(CHROME),
+                        part_selector(CONTENT),
                     ]),
                     StyleBuilder::new().set(color, 12_u32).build(),
                 ),
@@ -108,21 +111,21 @@ fn make_cascade(color: Property<u32>) -> StyleCascade {
                     StyleBuilder::new().set(color, 20_u32).build(),
                 ),
                 (
-                    path([type_selector(TOGGLE), target_selector(TRACK)]),
+                    path([type_selector(TOGGLE), part_selector(TRACK)]),
                     StyleBuilder::new().set(color, 21_u32).build(),
                 ),
                 (
                     path([
                         type_selector(TOGGLE),
-                        target_selector(TRACK),
-                        target_selector(THUMB),
+                        part_selector(TRACK),
+                        part_selector(THUMB),
                     ]),
                     StyleBuilder::new().set(color, 22_u32).build(),
                 ),
                 (
                     path([
                         SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
-                        target_selector(TRACK),
+                        part_selector(TRACK),
                     ]),
                     StyleBuilder::new().set(color, 23_u32).build(),
                 ),
@@ -137,10 +140,117 @@ fn make_cascade(color: Property<u32>) -> StyleCascade {
                 (
                     path([
                         type_selector(ROW),
-                        target_selector(CONTENT),
-                        target_selector(TEXT),
+                        part_selector(CONTENT),
+                        part_selector(TEXT),
                     ]),
                     StyleBuilder::new().set(color, 32_u32).build(),
+                ),
+            ],
+        )
+        .build()
+}
+
+fn make_descendant_cascade(color: Property<u32>) -> StyleCascade {
+    StyleCascadeBuilder::new()
+        .push_rules(
+            StyleOrigin::Sheet,
+            [
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(ROW),
+                        [(SelectorCombinator::Descendant, SelectorStep::part_tag(TEXT))],
+                    ),
+                    StyleBuilder::new().set(color, 40_u32).build(),
+                ),
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
+                        [(
+                            SelectorCombinator::Descendant,
+                            SelectorStep::part_tag(THUMB),
+                        )],
+                    ),
+                    StyleBuilder::new().set(color, 41_u32).build(),
+                ),
+            ],
+        )
+        .build()
+}
+
+fn make_heavy_descendant_cascade(color: Property<u32>) -> StyleCascade {
+    StyleCascadeBuilder::new()
+        .push_rules(
+            StyleOrigin::Sheet,
+            [
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(ROW),
+                        [(
+                            SelectorCombinator::Descendant,
+                            SelectorStep::part_tag(CONTENT),
+                        )],
+                    ),
+                    StyleBuilder::new().set(color, 50_u32).build(),
+                ),
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(ROW),
+                        [(SelectorCombinator::Descendant, SelectorStep::part_tag(TEXT))],
+                    ),
+                    StyleBuilder::new().set(color, 51_u32).build(),
+                ),
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(ROW),
+                        [(
+                            SelectorCombinator::Descendant,
+                            SelectorStep::part_tag(BADGE),
+                        )],
+                    ),
+                    StyleBuilder::new().set(color, 52_u32).build(),
+                ),
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(ROW),
+                        [(
+                            SelectorCombinator::Descendant,
+                            SelectorStep::part_tag(DETAIL),
+                        )],
+                    ),
+                    StyleBuilder::new().set(color, 53_u32).build(),
+                ),
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(ROW),
+                        [(SelectorCombinator::Descendant, SelectorStep::part_tag(META))],
+                    ),
+                    StyleBuilder::new().set(color, 54_u32).build(),
+                ),
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(ROW).with_class(EVEN),
+                        [
+                            (
+                                SelectorCombinator::Descendant,
+                                SelectorStep::part_tag(CONTENT),
+                            ),
+                            (SelectorCombinator::Child, SelectorStep::part_tag(TEXT)),
+                        ],
+                    ),
+                    StyleBuilder::new().set(color, 55_u32).build(),
+                ),
+                (
+                    Selector::from_segments(
+                        SelectorStep::type_tag(ROW).with_class(ODD),
+                        [
+                            (
+                                SelectorCombinator::Descendant,
+                                SelectorStep::part_tag(DETAIL),
+                            ),
+                            (SelectorCombinator::Descendant, SelectorStep::part_tag(META)),
+                        ],
+                    ),
+                    StyleBuilder::new().set(color, 56_u32).build(),
                 ),
             ],
         )
@@ -204,6 +314,31 @@ fn make_rows(count: usize) -> Vec<Subject> {
     subjects
 }
 
+fn make_deep_rows(count: usize) -> Vec<Subject> {
+    let mut subjects = Vec::with_capacity(count * 6);
+    for i in 0..count {
+        let root = subjects.len();
+        let mut row = Subject::root(ROW);
+        if i % 2 == 0 {
+            row.classes.push(EVEN);
+        } else {
+            row.classes.push(ODD);
+        }
+        subjects.push(row);
+
+        let content = subjects.len();
+        subjects.push(Subject::part(root, CONTENT));
+        let text = subjects.len();
+        subjects.push(Subject::part(content, TEXT));
+        let badge = subjects.len();
+        subjects.push(Subject::part(text, BADGE));
+        let detail = subjects.len();
+        subjects.push(Subject::part(badge, DETAIL));
+        subjects.push(Subject::part(detail, META));
+    }
+    subjects
+}
+
 fn restyle(cascade: &StyleCascade, subjects: &[Subject], color: Property<u32>) -> u64 {
     let mut states = vec![MatchState::default(); subjects.len()];
     let mut sum = 0_u64;
@@ -257,6 +392,40 @@ fn bench_style_matching(c: &mut Criterion) {
             &subjects,
             |b, subjects| {
                 b.iter(|| black_box(restyle(&cascade, subjects, color)));
+            },
+        );
+    }
+    group.finish();
+
+    let descendant_cascade = make_descendant_cascade(color);
+    let mut group = c.benchmark_group("style_matching/descendant_restyle");
+    for (name, subjects) in [
+        ("toggles_1000", make_toggles(1_000, Some(125))),
+        ("rows_10000", make_rows(10_000)),
+    ] {
+        group.throughput(Throughput::Elements(subjects.len() as u64));
+        group.bench_with_input(
+            BenchmarkId::from_parameter(name),
+            &subjects,
+            |b, subjects| {
+                b.iter(|| black_box(restyle(&descendant_cascade, subjects, color)));
+            },
+        );
+    }
+    group.finish();
+
+    let heavy_descendant_cascade = make_heavy_descendant_cascade(color);
+    let mut group = c.benchmark_group("style_matching/heavy_descendant_restyle");
+    for (name, subjects) in [
+        ("deep_rows_5000", make_deep_rows(5_000)),
+        ("deep_rows_10000", make_deep_rows(10_000)),
+    ] {
+        group.throughput(Throughput::Elements(subjects.len() as u64));
+        group.bench_with_input(
+            BenchmarkId::from_parameter(name),
+            &subjects,
+            |b, subjects| {
+                b.iter(|| black_box(restyle(&heavy_descendant_cascade, subjects, color)));
             },
         );
     }

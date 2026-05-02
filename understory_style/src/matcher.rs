@@ -5,13 +5,11 @@
 //!
 //! The matcher exposes a compact [`MatchState`] so embedders can walk their own
 //! tree of style subjects without giving `understory_style` access to widget or
-//! template nodes. The first implementation supports exact root-to-subject
-//! paths; cached transitions and broader NFA internals can be added behind this
-//! API later.
+//! template nodes. The matcher compiles child and descendant selector paths into
+//! interned NFA states.
 
 use alloc::boxed::Box;
 use alloc::rc::Rc;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::{Ref, RefCell};
 
@@ -19,12 +17,11 @@ use invalidation::ChannelSet;
 use understory_property::{Property, PropertyId, PropertyRegistry};
 
 use crate::selector::{
-    ClassId, PseudoClassId, Selector, SelectorInputs, Specificity, TargetTag, TypeTag,
+    ClassId, PartTag, PseudoClassId, Selector, SelectorCombinator, SelectorInputs, Specificity,
+    TypeTag,
 };
 use crate::style::{Style, StyleValueRef};
 use crate::stylesheet::StyleOrigin;
-
-const DEAD_PROGRESS: u16 = u16::MAX;
 
 /// Compact handle to a matcher state during a root-to-leaf subject walk.
 ///
@@ -42,6 +39,12 @@ pub struct MatchState {
     index: u32,
     #[cfg(debug_assertions)]
     matcher_id: usize,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Cursor {
+    rule_index: u32,
+    step_index: u16,
 }
 
 /// A path selector and style payload stored in a [`Matcher`].
@@ -88,13 +91,14 @@ impl MatchRule {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct StateData {
-    progress: Box<[u16]>,
+    active: Box<[Cursor]>,
+    matched_rules: Box<[u32]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SubjectKey {
     type_tag: Option<TypeTag>,
-    target_tag: Option<TargetTag>,
+    part_tag: Option<PartTag>,
     classes: Box<[ClassId]>,
     pseudos: Box<[PseudoClassId]>,
 }
@@ -103,7 +107,7 @@ impl SubjectKey {
     fn from_inputs(inputs: &SelectorInputs<'_>) -> Self {
         Self {
             type_tag: inputs.type_tag,
-            target_tag: inputs.target_tag,
+            part_tag: inputs.part_tag,
             classes: inputs.classes.into(),
             pseudos: inputs.pseudos.into(),
         }
@@ -111,7 +115,7 @@ impl SubjectKey {
 
     fn matches(&self, inputs: &SelectorInputs<'_>) -> bool {
         self.type_tag == inputs.type_tag
-            && self.target_tag == inputs.target_tag
+            && self.part_tag == inputs.part_tag
             && self.classes.as_ref() == inputs.classes
             && self.pseudos.as_ref() == inputs.pseudos
     }
@@ -178,13 +182,11 @@ impl Matcher {
             return child;
         }
 
-        let parent_index = state_index(parent);
-        let progress = {
+        let state = {
             let states = self.inner.states.borrow();
-            let parent_progress = &states[parent_index].progress;
-            self.advance_progress(parent_progress, inputs)
+            self.advance_state(&states[state_index(parent)], inputs)
         };
-        let child = self.intern_state(progress);
+        let child = self.intern_state(state);
         self.cache_transition(parent, inputs, child);
         child
     }
@@ -251,25 +253,50 @@ impl Matcher {
         }
     }
 
-    fn advance_progress(&self, parent_progress: &[u16], inputs: &SelectorInputs<'_>) -> Box<[u16]> {
-        let progress = self
-            .inner
-            .rules
-            .iter()
-            .zip(parent_progress.iter().copied())
-            .map(|(rule, progress)| advance_rule(rule, progress, inputs))
-            .collect::<Vec<_>>();
-        progress.into_boxed_slice()
+    fn advance_state(&self, parent: &StateData, inputs: &SelectorInputs<'_>) -> StateData {
+        let mut active = Vec::new();
+        let mut matched_rules = Vec::new();
+
+        for cursor in parent.active.iter().copied() {
+            let rule_index = cursor_rule_index(cursor);
+            let step_index = usize::from(cursor.step_index);
+            let rule = &self.inner.rules[rule_index];
+            let steps = rule.selector.steps();
+            let retain_for_descendants =
+                rule.selector.combinator_before(step_index) == Some(SelectorCombinator::Descendant);
+
+            if steps[step_index].matches(inputs) {
+                let next_step = step_index + 1;
+                if next_step == steps.len() {
+                    matched_rules.push(cursor.rule_index);
+                } else {
+                    active.push(make_cursor(rule_index, next_step));
+                }
+            }
+            if retain_for_descendants {
+                active.push(cursor);
+            }
+        }
+
+        active.sort_unstable();
+        active.dedup();
+        matched_rules.sort_unstable();
+        matched_rules.dedup();
+
+        StateData {
+            active: active.into_boxed_slice(),
+            matched_rules: matched_rules.into_boxed_slice(),
+        }
     }
 
-    fn intern_state(&self, progress: Box<[u16]>) -> MatchState {
+    fn intern_state(&self, state: StateData) -> MatchState {
         let mut states = self.inner.states.borrow_mut();
-        if let Some(index) = states.iter().position(|state| state.progress == progress) {
+        if let Some(index) = states.iter().position(|existing| existing == &state) {
             return self.make_state(index);
         }
 
         let index = states.len();
-        states.push(StateData { progress });
+        states.push(state);
         self.inner
             .transitions_by_parent
             .borrow_mut()
@@ -383,10 +410,17 @@ struct CascadeEntryKey {
     order: u32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ResolvedEntryCache {
+    property_id: PropertyId,
+    key: Option<CascadeEntryKey>,
+}
+
 #[derive(Debug, Default)]
 struct StyleCascadeData {
     direct_styles: Vec<DirectStyleSource>,
     matcher: Matcher,
+    resolved_entry_cache: RefCell<Vec<Vec<ResolvedEntryCache>>>,
 }
 
 /// Properties whose winning style source changed between two matcher states.
@@ -596,6 +630,48 @@ impl StyleCascade {
         state: MatchState,
         property_id: PropertyId,
     ) -> Option<CascadeEntryKey> {
+        let state_index = state_index(state);
+        if let Some(key) = self.cached_winning_entry_key(state_index, property_id) {
+            return key;
+        }
+
+        let key = self.compute_winning_entry_key(state, property_id);
+        self.cache_winning_entry_key(state_index, property_id, key);
+        key
+    }
+
+    fn cached_winning_entry_key(
+        &self,
+        state_index: usize,
+        property_id: PropertyId,
+    ) -> Option<Option<CascadeEntryKey>> {
+        self.inner
+            .resolved_entry_cache
+            .borrow()
+            .get(state_index)?
+            .iter()
+            .find(|entry| entry.property_id == property_id)
+            .map(|entry| entry.key)
+    }
+
+    fn cache_winning_entry_key(
+        &self,
+        state_index: usize,
+        property_id: PropertyId,
+        key: Option<CascadeEntryKey>,
+    ) {
+        let mut cache = self.inner.resolved_entry_cache.borrow_mut();
+        if cache.len() <= state_index {
+            cache.resize_with(state_index + 1, Vec::new);
+        }
+        cache[state_index].push(ResolvedEntryCache { property_id, key });
+    }
+
+    fn compute_winning_entry_key(
+        &self,
+        state: MatchState,
+        property_id: PropertyId,
+    ) -> Option<CascadeEntryKey> {
         let mut best = None;
 
         for source in &self.inner.direct_styles {
@@ -700,6 +776,7 @@ impl StyleCascadeBuilder {
             inner: Rc::new(StyleCascadeData {
                 direct_styles: self.direct_styles,
                 matcher: build_matcher(self.rules),
+                resolved_entry_cache: RefCell::new(Vec::from([Vec::new()])),
             }),
         }
     }
@@ -724,33 +801,15 @@ impl<'a> Iterator for RuleCursor<'a> {
     type Item = &'a MatchRule;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let progress = &self.states[self.state_index].progress;
-        while self.rule_index < self.rules.len() {
-            let index = self.rule_index;
-            self.rule_index += 1;
-            if usize::from(progress[index]) == self.rules[index].selector.len() {
-                return Some(&self.rules[index]);
-            }
+        let matched_rules = &self.states[self.state_index].matched_rules;
+        if self.rule_index == matched_rules.len() {
+            return None;
         }
-        None
-    }
-}
 
-fn advance_rule(rule: &MatchRule, progress: u16, inputs: &SelectorInputs<'_>) -> u16 {
-    if progress == DEAD_PROGRESS {
-        return DEAD_PROGRESS;
-    }
-
-    let progress = usize::from(progress);
-    let steps = rule.selector.steps();
-    if progress >= steps.len() {
-        return DEAD_PROGRESS;
-    }
-
-    if steps[progress].matches(inputs) {
-        u16::try_from(progress + 1).unwrap_or(DEAD_PROGRESS)
-    } else {
-        DEAD_PROGRESS
+        let index =
+            usize::try_from(matched_rules[self.rule_index]).expect("rule index must fit in usize");
+        self.rule_index += 1;
+        Some(&self.rules[index])
     }
 }
 
@@ -758,7 +817,19 @@ fn state_index(state: MatchState) -> usize {
     usize::try_from(state.index).expect("match state index must fit in usize")
 }
 
+fn cursor_rule_index(cursor: Cursor) -> usize {
+    usize::try_from(cursor.rule_index).expect("rule index must fit in usize")
+}
+
+fn make_cursor(rule_index: usize, step_index: usize) -> Cursor {
+    Cursor {
+        rule_index: u32::try_from(rule_index).expect("too many matcher rules"),
+        step_index: u16::try_from(step_index).expect("selector path is too deep"),
+    }
+}
+
 fn make_state(index: usize, matcher_id: usize) -> MatchState {
+    let _ = matcher_id;
     MatchState {
         index: u32::try_from(index).expect("too many matcher states"),
         #[cfg(debug_assertions)]
@@ -767,14 +838,21 @@ fn make_state(index: usize, matcher_id: usize) -> MatchState {
 }
 
 fn build_matcher(rules: Vec<MatchRule>) -> Matcher {
-    let root_progress = vec![0; rules.len()].into_boxed_slice();
+    let root_active = rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| !rule.selector.is_empty())
+        .map(|(rule_index, _)| make_cursor(rule_index, 0))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
     Matcher {
         inner: Rc::new(MatcherData {
             rules,
-            states: RefCell::new(vec![StateData {
-                progress: root_progress,
-            }]),
-            transitions_by_parent: RefCell::new(vec![Vec::new()]),
+            states: RefCell::new(Vec::from([StateData {
+                active: root_active,
+                matched_rules: Box::default(),
+            }])),
+            transitions_by_parent: RefCell::new(Vec::from([Vec::new()])),
         }),
     }
 }
@@ -782,14 +860,16 @@ fn build_matcher(rules: Vec<MatchRule>) -> Matcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{IdSet, PseudoClassId, SelectorStep, StyleBuilder, TargetTag, TypeTag};
+    use crate::{
+        IdSet, PartTag, PseudoClassId, SelectorCombinator, SelectorStep, StyleBuilder, TypeTag,
+    };
     use invalidation::Channel;
     use understory_property::{PropertyMetadataBuilder, PropertyRegistry};
 
     const TOGGLE: TypeTag = TypeTag(1);
-    const TRACK: TargetTag = TargetTag(10);
-    const THUMB: TargetTag = TargetTag(11);
-    const CONTENT: TargetTag = TargetTag(12);
+    const TRACK: PartTag = PartTag(10);
+    const THUMB: PartTag = PartTag(11);
+    const CONTENT: PartTag = PartTag(12);
     const CHECKED: PseudoClassId = PseudoClassId(20);
     const LAYOUT: Channel = Channel::new(0);
     const PAINT: Channel = Channel::new(1);
@@ -814,7 +894,7 @@ mod tests {
                         ..SelectorStep::default()
                     },
                     SelectorStep {
-                        target_tag: Some(TRACK),
+                        part_tag: Some(TRACK),
                         ..SelectorStep::default()
                     },
                 ]),
@@ -827,11 +907,11 @@ mod tests {
                         ..SelectorStep::default()
                     },
                     SelectorStep {
-                        target_tag: Some(TRACK),
+                        part_tag: Some(TRACK),
                         ..SelectorStep::default()
                     },
                     SelectorStep {
-                        target_tag: Some(THUMB),
+                        part_tag: Some(THUMB),
                         ..SelectorStep::default()
                     },
                 ]),
@@ -845,11 +925,11 @@ mod tests {
         );
         let track = matcher.enter_subject(
             root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
         let thumb = matcher.enter_subject(
             track,
-            &SelectorInputs::with_target(None, Some(THUMB), &[], &[]),
+            &SelectorInputs::with_part(None, Some(THUMB), &[], &[]),
         );
 
         assert_eq!(matcher.get_value_ref(root, width), Some(&10));
@@ -867,7 +947,7 @@ mod tests {
                         ..SelectorStep::default()
                     },
                     SelectorStep {
-                        target_tag: Some(TRACK),
+                        part_tag: Some(TRACK),
                         ..SelectorStep::default()
                     },
                 ]),
@@ -880,7 +960,7 @@ mod tests {
                         ..SelectorStep::default()
                     },
                     SelectorStep {
-                        target_tag: Some(CONTENT),
+                        part_tag: Some(CONTENT),
                         ..SelectorStep::default()
                     },
                 ]),
@@ -894,11 +974,11 @@ mod tests {
         );
         let track = matcher.enter_subject(
             root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
         let content = matcher.enter_subject(
             root,
-            &SelectorInputs::with_target(None, Some(CONTENT), &[], &[]),
+            &SelectorInputs::with_part(None, Some(CONTENT), &[], &[]),
         );
 
         assert_eq!(matcher.matching_rules(track).count(), 1);
@@ -906,7 +986,7 @@ mod tests {
 
         let leaked = matcher.enter_subject(
             track,
-            &SelectorInputs::with_target(None, Some(CONTENT), &[], &[]),
+            &SelectorInputs::with_part(None, Some(CONTENT), &[], &[]),
         );
         assert_eq!(matcher.matching_rules(leaked).count(), 0);
     }
@@ -932,7 +1012,7 @@ mod tests {
                         ..SelectorStep::default()
                     },
                     SelectorStep {
-                        target_tag: Some(TRACK),
+                        part_tag: Some(TRACK),
                         ..SelectorStep::default()
                     },
                 ]),
@@ -951,15 +1031,88 @@ mod tests {
         );
         let checked_track = matcher.enter_subject(
             checked_root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
         let unchecked_track = matcher.enter_subject(
             unchecked_root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
 
         assert_eq!(matcher.matching_rules(checked_track).count(), 1);
         assert_eq!(matcher.matching_rules(unchecked_track).count(), 0);
+    }
+
+    #[test]
+    fn descendant_combinator_skips_intermediate_subjects() {
+        let mut registry = PropertyRegistry::new();
+        let width = registry.register("Width", PropertyMetadataBuilder::new(0_u32).build());
+
+        let matcher = MatcherBuilder::new()
+            .rule(
+                Selector::from_segments(
+                    SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
+                    [(
+                        SelectorCombinator::Descendant,
+                        SelectorStep::part_tag(THUMB),
+                    )],
+                ),
+                StyleBuilder::new().set(width, 30_u32).build(),
+            )
+            .build();
+
+        let checked = [CHECKED];
+        let root = matcher.enter_subject(
+            matcher.root_state(),
+            &SelectorInputs::new(Some(TOGGLE), &[], &checked),
+        );
+        let track = matcher.enter_subject(
+            root,
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+        );
+        let thumb = matcher.enter_subject(
+            track,
+            &SelectorInputs::with_part(None, Some(THUMB), &[], &[]),
+        );
+        let content = matcher.enter_subject(
+            root,
+            &SelectorInputs::with_part(None, Some(CONTENT), &[], &[]),
+        );
+
+        assert_eq!(matcher.get_value_ref(thumb, width), Some(&30));
+        assert_eq!(matcher.matching_rules(track).count(), 0);
+        assert_eq!(matcher.matching_rules(content).count(), 0);
+    }
+
+    #[test]
+    fn descendant_combinator_retains_pending_cursor_after_match() {
+        let matcher = MatcherBuilder::new()
+            .rule(
+                Selector::from_segments(
+                    SelectorStep::type_tag(TOGGLE),
+                    [(
+                        SelectorCombinator::Descendant,
+                        SelectorStep::part_tag(THUMB),
+                    )],
+                ),
+                StyleBuilder::new().build(),
+            )
+            .build();
+
+        let root = matcher.enter_subject(
+            matcher.root_state(),
+            &SelectorInputs::new(Some(TOGGLE), &[], &[]),
+        );
+        let first_thumb = matcher.enter_subject(
+            root,
+            &SelectorInputs::with_part(None, Some(THUMB), &[], &[]),
+        );
+        let nested_thumb = matcher.enter_subject(
+            first_thumb,
+            &SelectorInputs::with_part(None, Some(THUMB), &[], &[]),
+        );
+
+        assert_eq!(matcher.matching_rules(first_thumb).count(), 1);
+        assert_eq!(matcher.matching_rules(nested_thumb).count(), 1);
     }
 
     #[test]
@@ -976,7 +1129,7 @@ mod tests {
                         ..SelectorStep::default()
                     },
                     SelectorStep {
-                        target_tag: Some(TRACK),
+                        part_tag: Some(TRACK),
                         required_pseudos: IdSet::from_ids([CHECKED]),
                         ..SelectorStep::default()
                     },
@@ -996,7 +1149,7 @@ mod tests {
         );
         let track = cascade.enter_subject(
             root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &checked),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &checked),
         );
 
         assert_eq!(cascade.get_value_ref(track, width), Some(&50));
@@ -1091,7 +1244,7 @@ mod tests {
                 StyleOrigin::Sheet,
                 [
                     SelectorStep::type_tag(TOGGLE),
-                    SelectorStep::target_tag(TRACK),
+                    SelectorStep::part_tag(TRACK),
                 ],
                 StyleBuilder::new().set(width, 20_u32).build(),
             )
@@ -1103,7 +1256,7 @@ mod tests {
         );
         let track = cascade.enter_subject(
             root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
 
         assert_eq!(cascade.get_value_ref(root, width), Some(&10));
@@ -1133,7 +1286,7 @@ mod tests {
                 ..SelectorStep::default()
             },
             SelectorStep {
-                target_tag: Some(TRACK),
+                part_tag: Some(TRACK),
                 ..SelectorStep::default()
             },
         ]);
@@ -1161,11 +1314,11 @@ mod tests {
         );
         let unchecked_track = cascade.enter_subject(
             unchecked_root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
         let checked_track = cascade.enter_subject(
             checked_root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
 
         let changes = cascade.changed_properties(unchecked_track, checked_track);
@@ -1197,7 +1350,7 @@ mod tests {
                 ..SelectorStep::default()
             },
             SelectorStep {
-                target_tag: Some(TRACK),
+                part_tag: Some(TRACK),
                 ..SelectorStep::default()
             },
         ]);
@@ -1224,11 +1377,11 @@ mod tests {
         );
         let unchecked_track = cascade.enter_subject(
             unchecked_root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
         let checked_track = cascade.enter_subject(
             checked_root,
-            &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+            &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
         );
 
         let changes = cascade.changed_properties(unchecked_track, checked_track);

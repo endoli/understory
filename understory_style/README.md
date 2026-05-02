@@ -88,7 +88,7 @@ to resolution functions.
 ```rust
 use understory_style::{
     ClassId, SelectorStep, PseudoClassId, ResolveCx, SelectorInputs, StyleCascade,
-    StyleCascadeBuilder, StyleBuilder, StyleOrigin, TargetTag, ThemeBuilder,
+    StyleCascadeBuilder, StyleBuilder, StyleOrigin, PartTag, ThemeBuilder,
 };
 use understory_property::{
     DependencyObject, PropertyMetadataBuilder, PropertyRegistry, PropertyStore,
@@ -101,7 +101,7 @@ let theme = ThemeBuilder::new().build();
 
 const PRIMARY: ClassId = ClassId(1);
 const HOVER: PseudoClassId = PseudoClassId(1);
-const ICON: TargetTag = TargetTag(1);
+const ICON: PartTag = PartTag(1);
 
 // Base style for a "button"
 let base = StyleBuilder::new().set(width, 100.0).build();
@@ -151,9 +151,9 @@ let hovered_state = style.enter_subject(style.root_state(), &hovered);
 let value = cx.get_value(&element, width, Some((&style, hovered_state)));
 assert_eq!(value, 120.0);
 
-// Targets are owner-local style addresses supplied by the embedder.
-let icon_inputs = SelectorInputs::with_target(None, Some(ICON), &[PRIMARY], &[]);
-assert_eq!(icon_inputs.target_tag, Some(ICON));
+// Parts are owner-local style addresses supplied by the embedder.
+let icon_inputs = SelectorInputs::with_part(None, Some(ICON), &[PRIMARY], &[]);
+assert_eq!(icon_inputs.part_tag, Some(ICON));
 ```
 
 #### Path Matching And Style Changes
@@ -166,13 +166,13 @@ valid only with the cascade that produced it:
 use invalidation::Channel;
 use understory_property::{PropertyMetadataBuilder, PropertyRegistry};
 use understory_style::{
-    PseudoClassId, SelectorInputs, SelectorStep, StyleBuilder, StyleCascadeBuilder, StyleOrigin,
-    TargetTag, TypeTag,
+    PseudoClassId, Selector, SelectorInputs, SelectorStep, StyleBuilder, StyleCascadeBuilder,
+    StyleOrigin, PartTag, TypeTag,
 };
 
 const PAINT: Channel = Channel::new(1);
 const TOGGLE: TypeTag = TypeTag(1);
-const TRACK: TargetTag = TargetTag(2);
+const TRACK: PartTag = PartTag(2);
 const CHECKED: PseudoClassId = PseudoClassId(3);
 
 let mut registry = PropertyRegistry::new();
@@ -188,7 +188,7 @@ let cascade = StyleCascadeBuilder::new()
         StyleOrigin::Sheet,
         [
             SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
-            SelectorStep::target_tag(TRACK),
+            SelectorStep::part_tag(TRACK),
         ],
         StyleBuilder::new().set(background, 0x00ff00_u32).build(),
     )
@@ -205,23 +205,53 @@ let checked_root = cascade.enter_subject(
 );
 let unchecked_track = cascade.enter_subject(
     unchecked_root,
-    &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+    &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
 );
 let checked_track = cascade.enter_subject(
     checked_root,
-    &SelectorInputs::with_target(None, Some(TRACK), &[], &[]),
+    &SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
 );
 
 let changed = cascade.changed_properties(unchecked_track, checked_track);
 assert_eq!(changed.property_ids(), &[background.id()]);
 assert!(changed.affected_channels(&registry).contains(PAINT));
+
+let descendant = Selector::descendant(
+    SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
+    SelectorStep::part_tag(TRACK),
+);
+assert!(descendant.matches_path(&[
+    SelectorInputs::new(Some(TOGGLE), &[], &checked),
+    SelectorInputs::with_part(None, Some(PartTag(99)), &[], &[]),
+    SelectorInputs::with_part(None, Some(TRACK), &[], &[]),
+]));
 ```
 
-Selectors are exact paths in this first grammar. Each [`SelectorStep`]
-corresponds to one call to [`StyleCascade::enter_subject`], so selectors do
-not skip intermediate structural subjects. [`StyleCascade::changed_properties`]
-is conservative and reports properties whose winning style source changes;
-it does not compare concrete typed values for equality.
+Plain selector arrays are exact child paths. For fallback relationships where a
+step may appear deeper in the subject tree, use [`SelectorCombinator::Descendant`].
+The current grammar is intentionally limited to child and descendant
+relationships. It does not include sibling selectors, `nth-*` selectors,
+parent queries, or structural `odd`/`even` selectors. Embedders that need
+structural state today should compute that state themselves and expose it as
+classes or pseudoclasses:
+
+```rust
+use understory_style::{ClassId, PartTag, Selector, SelectorStep, TypeTag};
+
+const ROW: TypeTag = TypeTag(1);
+const TEXT: PartTag = PartTag(2);
+const ODD: ClassId = ClassId(3);
+
+let odd_row_text = Selector::from([
+    SelectorStep::type_tag(ROW).with_class(ODD),
+    SelectorStep::part_tag(TEXT),
+]);
+assert_eq!(odd_row_text.len(), 2);
+```
+
+[`StyleCascade::changed_properties`] is conservative and reports properties
+whose winning style source changes; it does not compare concrete typed values
+for equality.
 
 ### `no_std` Support
 

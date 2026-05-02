@@ -4,17 +4,18 @@
 //! Selector inputs and selector predicates for style matching.
 //!
 //! Selectors match an ordered root-to-subject path of steps. Each
-//! [`SelectorStep`] is matched against one [`SelectorInputs`] snapshot.
+//! [`SelectorStep`] is matched against one [`SelectorInputs`] snapshot, with
+//! [`SelectorCombinator`] values describing how adjacent steps relate.
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::iter::FromIterator;
 
-/// Bucketed selector specificity: `(pseudos, classes, target_tag, type_tag)`.
+/// Bucketed selector specificity: `(pseudos, classes, part_tag, type_tag)`.
 ///
 /// The fields are ordered highest-weight-first so that derived `Ord`
 /// gives correct CSS-like lexicographic ordering: pseudoclass count
-/// outranks class count, which outranks target tag presence, which outranks
+/// outranks class count, which outranks part tag presence, which outranks
 /// type tag presence.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Specificity(pub u32, pub u32, pub u32, pub u32);
@@ -32,7 +33,7 @@ pub struct TypeTag(pub u32);
 /// use it for any addressable subject they want to style. The name is
 /// intentionally not tied to any particular widget, slot, or template system.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TargetTag(pub u32);
+pub struct PartTag(pub u32);
 
 /// A stable identifier for a user-defined class (e.g. `.primary`).
 ///
@@ -119,8 +120,8 @@ where
 pub struct SelectorInputs<'a> {
     /// Optional type tag for the element.
     pub type_tag: Option<TypeTag>,
-    /// Optional target tag within the element.
-    pub target_tag: Option<TargetTag>,
+    /// Optional part tag within the element.
+    pub part_tag: Option<PartTag>,
     /// Sorted, unique class IDs.
     pub classes: &'a [ClassId],
     /// Sorted, unique pseudoclass IDs.
@@ -131,7 +132,7 @@ impl SelectorInputs<'static> {
     /// Empty selector inputs (no type, classes, or pseudos).
     pub const EMPTY: Self = Self {
         type_tag: None,
-        target_tag: None,
+        part_tag: None,
         classes: &[],
         pseudos: &[],
     };
@@ -149,18 +150,18 @@ impl<'a> SelectorInputs<'a> {
         classes: &'a [ClassId],
         pseudos: &'a [PseudoClassId],
     ) -> Self {
-        Self::with_target(type_tag, None, classes, pseudos)
+        Self::with_part(type_tag, None, classes, pseudos)
     }
 
-    /// Constructs selector inputs with an owner-local target tag.
+    /// Constructs selector inputs with an owner-local part tag.
     ///
     /// # Panics (debug only)
     ///
     /// Panics in debug builds if the slices are not sorted and deduplicated.
     #[must_use]
-    pub fn with_target(
+    pub fn with_part(
         type_tag: Option<TypeTag>,
-        target_tag: Option<TargetTag>,
+        part_tag: Option<PartTag>,
         classes: &'a [ClassId],
         pseudos: &'a [PseudoClassId],
     ) -> Self {
@@ -174,7 +175,7 @@ impl<'a> SelectorInputs<'a> {
         );
         Self {
             type_tag,
-            target_tag,
+            part_tag,
             classes,
             pseudos,
         }
@@ -189,16 +190,16 @@ impl<'a> SelectorInputs<'a> {
 ///
 /// ```rust
 /// use understory_style::{
-///     PseudoClassId, Selector, SelectorStep, TargetTag, TypeTag,
+///     PseudoClassId, Selector, SelectorStep, PartTag, TypeTag,
 /// };
 ///
 /// const TOGGLE: TypeTag = TypeTag(1);
-/// const TRACK: TargetTag = TargetTag(2);
+/// const TRACK: PartTag = PartTag(2);
 /// const CHECKED: PseudoClassId = PseudoClassId(3);
 ///
 /// let selector = Selector::from([
 ///     SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
-///     SelectorStep::target_tag(TRACK),
+///     SelectorStep::part_tag(TRACK),
 /// ]);
 /// assert_eq!(selector.len(), 2);
 /// ```
@@ -206,8 +207,8 @@ impl<'a> SelectorInputs<'a> {
 pub struct SelectorStep {
     /// Optional type tag predicate.
     pub type_tag: Option<TypeTag>,
-    /// Optional target tag predicate.
-    pub target_tag: Option<TargetTag>,
+    /// Optional part tag predicate.
+    pub part_tag: Option<PartTag>,
     /// Required class IDs.
     pub required_classes: IdSet<ClassId>,
     /// Required pseudoclass IDs.
@@ -224,11 +225,11 @@ impl SelectorStep {
         }
     }
 
-    /// Constructs a step that requires the given target tag.
+    /// Constructs a step that requires the given part tag.
     #[must_use]
-    pub fn target_tag(target_tag: TargetTag) -> Self {
+    pub fn part_tag(part_tag: PartTag) -> Self {
         Self {
-            target_tag: Some(target_tag),
+            part_tag: Some(part_tag),
             ..Self::default()
         }
     }
@@ -258,10 +259,10 @@ impl SelectorStep {
         self
     }
 
-    /// Adds or replaces the target tag requirement for this step.
+    /// Adds or replaces the part tag requirement for this step.
     #[must_use]
-    pub fn with_target_tag(mut self, target_tag: TargetTag) -> Self {
-        self.target_tag = Some(target_tag);
+    pub fn with_part_tag(mut self, part_tag: PartTag) -> Self {
+        self.part_tag = Some(part_tag);
         self
     }
 
@@ -303,8 +304,8 @@ impl SelectorStep {
         {
             return false;
         }
-        if let Some(required) = self.target_tag
-            && inputs.target_tag != Some(required)
+        if let Some(required) = self.part_tag
+            && inputs.part_tag != Some(required)
         {
             return false;
         }
@@ -314,30 +315,39 @@ impl SelectorStep {
 
     /// Returns a bucketed specificity score.
     ///
-    /// The returned [`Specificity`] orders `(pseudos, classes, target_tag, type_tag)`,
-    /// so pseudoclass count outranks class count, which outranks target tag
+    /// The returned [`Specificity`] orders `(pseudos, classes, part_tag, type_tag)`,
+    /// so pseudoclass count outranks class count, which outranks part tag
     /// presence, which outranks type tag presence.
     #[must_use]
     pub fn specificity(&self) -> Specificity {
         let type_score = u32::from(self.type_tag.is_some());
-        let target_score = u32::from(self.target_tag.is_some());
+        let part_score = u32::from(self.part_tag.is_some());
         let classes = u32::try_from(self.required_classes.len()).unwrap_or(u32::MAX);
         let pseudos = u32::try_from(self.required_pseudos.len()).unwrap_or(u32::MAX);
-        Specificity(pseudos, classes, target_score, type_score)
+        Specificity(pseudos, classes, part_score, type_score)
     }
 }
 
-/// A declarative selector over an exact root-to-subject path.
+/// Relationship between adjacent selector steps.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SelectorCombinator {
+    /// The next step must match the immediate child subject.
+    #[default]
+    Child,
+    /// The next step may match any later descendant subject below the previous step.
+    Descendant,
+}
+
+/// A declarative selector over a root-to-subject path.
 ///
-/// The first implementation deliberately supports exact child paths only:
-/// every step corresponds to one entered subject. Descendant, sibling, and
-/// child-index selectors are intentionally out of scope for this type. Embedders
-/// that want fallback behavior across both logical and structural relationships
-/// should enter the corresponding subjects explicitly; this selector does not
-/// skip intermediate subjects.
+/// Plain step paths use [`SelectorCombinator::Child`] between every step, so
+/// existing `Selector::from([step_a, step_b])` calls remain exact child paths.
+/// Use [`Selector::from_segments`] or [`Selector::from_steps_with_combinators`]
+/// when a later step should match through a descendant relationship.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selector {
     steps: Box<[SelectorStep]>,
+    combinators: Box<[SelectorCombinator]>,
 }
 
 impl Selector {
@@ -348,8 +358,10 @@ impl Selector {
     #[must_use]
     pub fn from_steps(steps: impl IntoIterator<Item = SelectorStep>) -> Self {
         let steps: Vec<SelectorStep> = steps.into_iter().collect();
+        let combinators = child_combinators(steps.len());
         Self {
             steps: steps.into_boxed_slice(),
+            combinators,
         }
     }
 
@@ -358,13 +370,118 @@ impl Selector {
     pub fn single(step: SelectorStep) -> Self {
         Self {
             steps: Box::new([step]),
+            combinators: Box::default(),
         }
+    }
+
+    /// Constructs a selector from steps and explicit adjacent combinators.
+    ///
+    /// `combinators.len()` must be one less than `steps.len()`, except that an
+    /// empty selector must have no combinators.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of combinators does not match the number of
+    /// adjacent step pairs.
+    #[must_use]
+    pub fn from_steps_with_combinators(
+        steps: impl IntoIterator<Item = SelectorStep>,
+        combinators: impl IntoIterator<Item = SelectorCombinator>,
+    ) -> Self {
+        let steps: Vec<SelectorStep> = steps.into_iter().collect();
+        let combinators: Vec<SelectorCombinator> = combinators.into_iter().collect();
+        assert_eq!(
+            combinators.len(),
+            steps.len().saturating_sub(1),
+            "selector combinator count must be one less than step count"
+        );
+        Self {
+            steps: steps.into_boxed_slice(),
+            combinators: combinators.into_boxed_slice(),
+        }
+    }
+
+    /// Constructs a selector from a first step and combinator-prefixed tail.
+    ///
+    /// This is the most readable constructor for mixed child and descendant
+    /// paths:
+    ///
+    /// ```rust
+    /// use understory_style::{
+    ///     Selector, SelectorCombinator, SelectorStep, PartTag, TypeTag,
+    /// };
+    ///
+    /// const TOGGLE: TypeTag = TypeTag(1);
+    /// const THUMB: PartTag = PartTag(2);
+    ///
+    /// let selector = Selector::from_segments(
+    ///     SelectorStep::type_tag(TOGGLE),
+    ///     [(SelectorCombinator::Descendant, SelectorStep::part_tag(THUMB))],
+    /// );
+    /// assert_eq!(selector.combinators(), &[SelectorCombinator::Descendant]);
+    /// ```
+    #[must_use]
+    pub fn from_segments(
+        first: SelectorStep,
+        tail: impl IntoIterator<Item = (SelectorCombinator, SelectorStep)>,
+    ) -> Self {
+        let mut steps = Vec::from([first]);
+        let mut combinators = Vec::new();
+        for (combinator, step) in tail {
+            combinators.push(combinator);
+            steps.push(step);
+        }
+        Self {
+            steps: steps.into_boxed_slice(),
+            combinators: combinators.into_boxed_slice(),
+        }
+    }
+
+    /// Constructs a two-step descendant selector.
+    ///
+    /// This is a convenience for the common "owner styles any matching nested
+    /// part" case. Use [`Selector::from_segments`] when the selector needs
+    /// more than two steps or a mix of child and descendant combinators.
+    ///
+    /// ```rust
+    /// use understory_style::{PartTag, Selector, SelectorCombinator, SelectorStep, TypeTag};
+    ///
+    /// const ROW: TypeTag = TypeTag(1);
+    /// const TEXT: PartTag = PartTag(2);
+    ///
+    /// let selector = Selector::descendant(
+    ///     SelectorStep::type_tag(ROW),
+    ///     SelectorStep::part_tag(TEXT),
+    /// );
+    /// assert_eq!(selector.combinators(), &[SelectorCombinator::Descendant]);
+    /// ```
+    #[must_use]
+    pub fn descendant(ancestor: SelectorStep, descendant: SelectorStep) -> Self {
+        Self::from_segments(ancestor, [(SelectorCombinator::Descendant, descendant)])
     }
 
     /// Returns the ordered steps in this path selector.
     #[must_use]
     pub fn steps(&self) -> &[SelectorStep] {
         &self.steps
+    }
+
+    /// Returns the combinators between adjacent selector steps.
+    ///
+    /// The combinator at index `i` relates `steps()[i]` to `steps()[i + 1]`.
+    #[must_use]
+    pub fn combinators(&self) -> &[SelectorCombinator] {
+        &self.combinators
+    }
+
+    /// Returns the combinator that relates the previous step to `step_index`.
+    ///
+    /// Returns `None` for the first step because it has no predecessor.
+    #[must_use]
+    pub fn combinator_before(&self, step_index: usize) -> Option<SelectorCombinator> {
+        step_index
+            .checked_sub(1)
+            .and_then(|index| self.combinators.get(index).copied())
     }
 
     /// Returns the number of steps in this path selector.
@@ -379,15 +496,16 @@ impl Selector {
         self.steps.is_empty()
     }
 
-    /// Returns `true` if this selector exactly matches the subject path.
+    /// Returns `true` if this selector matches the subject path.
+    ///
+    /// Child combinators require adjacent path entries. Descendant combinators
+    /// may match any later path entry below the previous step.
     #[must_use]
     pub fn matches_path(&self, path: &[SelectorInputs<'_>]) -> bool {
-        self.steps.len() == path.len()
-            && self
-                .steps
-                .iter()
-                .zip(path.iter())
-                .all(|(step, inputs)| step.matches(inputs))
+        if self.steps.is_empty() {
+            return path.is_empty();
+        }
+        self.matches_path_from(0, 0, path)
     }
 
     /// Returns the aggregate specificity for this selector path.
@@ -401,6 +519,34 @@ impl Selector {
             .iter()
             .map(SelectorStep::specificity)
             .fold(Specificity::default(), add_specificity)
+    }
+
+    fn matches_path_from(
+        &self,
+        step_index: usize,
+        path_index: usize,
+        path: &[SelectorInputs<'_>],
+    ) -> bool {
+        let Some(step) = self.steps.get(step_index) else {
+            return true;
+        };
+        let Some(inputs) = path.get(path_index) else {
+            return false;
+        };
+        if !step.matches(inputs) {
+            return false;
+        }
+
+        let next_step = step_index + 1;
+        if next_step == self.steps.len() {
+            return path_index + 1 == path.len();
+        }
+
+        match self.combinators[step_index] {
+            SelectorCombinator::Child => self.matches_path_from(next_step, path_index + 1, path),
+            SelectorCombinator::Descendant => (path_index + 1..path.len())
+                .any(|index| self.matches_path_from(next_step, index, path)),
+        }
     }
 }
 
@@ -429,6 +575,13 @@ fn add_specificity(left: Specificity, right: Specificity) -> Specificity {
         left.2.saturating_add(right.2),
         left.3.saturating_add(right.3),
     )
+}
+
+fn child_combinators(step_count: usize) -> Box<[SelectorCombinator]> {
+    let len = step_count.saturating_sub(1);
+    let mut combinators = Vec::with_capacity(len);
+    combinators.resize(len, SelectorCombinator::Child);
+    combinators.into_boxed_slice()
 }
 
 fn is_sorted_unique<T: Ord>(slice: &[T]) -> bool {
@@ -476,7 +629,7 @@ mod tests {
     fn selector_matches_subsets() {
         let selector = SelectorStep {
             type_tag: Some(TypeTag(1)),
-            target_tag: None,
+            part_tag: None,
             required_classes: IdSet::from_ids([ClassId(2), ClassId(3)]),
             required_pseudos: IdSet::from_ids([PseudoClassId(10)]),
         };
@@ -495,7 +648,7 @@ mod tests {
     fn selector_specificity_is_stable() {
         let selector = SelectorStep {
             type_tag: Some(TypeTag(1)),
-            target_tag: Some(TargetTag(7)),
+            part_tag: Some(PartTag(7)),
             required_classes: IdSet::from_ids([ClassId(2), ClassId(3)]),
             required_pseudos: IdSet::from_ids([PseudoClassId(10)]),
         };
@@ -505,14 +658,14 @@ mod tests {
     #[test]
     fn selector_step_builders_compose_predicates() {
         let selector = SelectorStep::type_tag(TypeTag(1))
-            .with_target_tag(TargetTag(2))
+            .with_part_tag(PartTag(2))
             .with_classes([ClassId(3), ClassId(4), ClassId(3)])
             .with_pseudo(PseudoClassId(5));
 
         let classes = [ClassId(3), ClassId(4)];
         let pseudos = [PseudoClassId(5)];
         let inputs =
-            SelectorInputs::with_target(Some(TypeTag(1)), Some(TargetTag(2)), &classes, &pseudos);
+            SelectorInputs::with_part(Some(TypeTag(1)), Some(PartTag(2)), &classes, &pseudos);
 
         assert!(selector.matches(&inputs));
         assert_eq!(
@@ -526,13 +679,13 @@ mod tests {
     fn specificity_class_beats_type() {
         let type_only = SelectorStep {
             type_tag: Some(TypeTag(1)),
-            target_tag: None,
+            part_tag: None,
             required_classes: IdSet::default(),
             required_pseudos: IdSet::default(),
         };
         let class_only = SelectorStep {
             type_tag: None,
-            target_tag: None,
+            part_tag: None,
             required_classes: IdSet::from_ids([ClassId(1)]),
             required_pseudos: IdSet::default(),
         };
@@ -540,54 +693,53 @@ mod tests {
     }
 
     #[test]
-    fn selector_matches_optional_target() {
+    fn selector_matches_optional_part() {
         let selector = SelectorStep {
             type_tag: Some(TypeTag(1)),
-            target_tag: Some(TargetTag(2)),
+            part_tag: Some(PartTag(2)),
             required_classes: IdSet::default(),
             required_pseudos: IdSet::default(),
         };
 
-        let matched = SelectorInputs::with_target(Some(TypeTag(1)), Some(TargetTag(2)), &[], &[]);
-        let wrong_target =
-            SelectorInputs::with_target(Some(TypeTag(1)), Some(TargetTag(3)), &[], &[]);
-        let no_target = SelectorInputs::new(Some(TypeTag(1)), &[], &[]);
+        let matched = SelectorInputs::with_part(Some(TypeTag(1)), Some(PartTag(2)), &[], &[]);
+        let wrong_part = SelectorInputs::with_part(Some(TypeTag(1)), Some(PartTag(3)), &[], &[]);
+        let no_part = SelectorInputs::new(Some(TypeTag(1)), &[], &[]);
 
         assert!(selector.matches(&matched));
-        assert!(!selector.matches(&wrong_target));
-        assert!(!selector.matches(&no_target));
+        assert!(!selector.matches(&wrong_part));
+        assert!(!selector.matches(&no_part));
     }
 
     #[test]
-    fn specificity_target_beats_type_but_not_class() {
+    fn specificity_part_beats_type_but_not_class() {
         let type_only = SelectorStep {
             type_tag: Some(TypeTag(1)),
-            target_tag: None,
+            part_tag: None,
             required_classes: IdSet::default(),
             required_pseudos: IdSet::default(),
         };
-        let target_only = SelectorStep {
+        let part_only = SelectorStep {
             type_tag: None,
-            target_tag: Some(TargetTag(1)),
+            part_tag: Some(PartTag(1)),
             required_classes: IdSet::default(),
             required_pseudos: IdSet::default(),
         };
         let class_only = SelectorStep {
             type_tag: None,
-            target_tag: None,
+            part_tag: None,
             required_classes: IdSet::from_ids([ClassId(1)]),
             required_pseudos: IdSet::default(),
         };
 
-        assert!(target_only.specificity() > type_only.specificity());
-        assert!(class_only.specificity() > target_only.specificity());
+        assert!(part_only.specificity() > type_only.specificity());
+        assert!(class_only.specificity() > part_only.specificity());
     }
 
     #[test]
     fn step_selector_builds_single_step_path() {
         let step = SelectorStep {
             type_tag: Some(TypeTag(1)),
-            target_tag: Some(TargetTag(2)),
+            part_tag: Some(PartTag(2)),
             required_classes: IdSet::from_ids([ClassId(3)]),
             required_pseudos: IdSet::from_ids([PseudoClassId(4)]),
         };
@@ -595,7 +747,7 @@ mod tests {
         let classes = [ClassId(3)];
         let pseudos = [PseudoClassId(4)];
         let inputs =
-            SelectorInputs::with_target(Some(TypeTag(1)), Some(TargetTag(2)), &classes, &pseudos);
+            SelectorInputs::with_part(Some(TypeTag(1)), Some(PartTag(2)), &classes, &pseudos);
         let path = Selector::from(step.clone());
 
         assert_eq!(path.len(), 1);
@@ -607,7 +759,7 @@ mod tests {
     fn selector_converts_from_step_array_and_slice() {
         let steps = [
             SelectorStep::type_tag(TypeTag(1)),
-            SelectorStep::target_tag(TargetTag(2)),
+            SelectorStep::part_tag(PartTag(2)),
         ];
 
         let from_array = Selector::from(steps.clone());
@@ -618,44 +770,116 @@ mod tests {
     }
 
     #[test]
-    fn path_selector_matches_nested_target_path() {
+    fn path_selector_matches_nested_part_path() {
         const TOGGLE: TypeTag = TypeTag(1);
-        const TRACK: TargetTag = TargetTag(10);
-        const THUMB: TargetTag = TargetTag(11);
+        const TRACK: PartTag = PartTag(10);
+        const THUMB: PartTag = PartTag(11);
 
         let selector = Selector::from([
             SelectorStep::type_tag(TOGGLE),
-            SelectorStep::target_tag(TRACK),
-            SelectorStep::target_tag(THUMB),
+            SelectorStep::part_tag(TRACK),
+            SelectorStep::part_tag(THUMB),
         ]);
 
         let root = SelectorInputs::new(Some(TOGGLE), &[], &[]);
-        let track = SelectorInputs::with_target(None, Some(TRACK), &[], &[]);
-        let thumb = SelectorInputs::with_target(None, Some(THUMB), &[], &[]);
-        let direct_thumb = SelectorInputs::with_target(None, Some(THUMB), &[], &[]);
+        let track = SelectorInputs::with_part(None, Some(TRACK), &[], &[]);
+        let thumb = SelectorInputs::with_part(None, Some(THUMB), &[], &[]);
+        let direct_thumb = SelectorInputs::with_part(None, Some(THUMB), &[], &[]);
 
         assert!(selector.matches_path(&[root, track, thumb]));
         assert!(!selector.matches_path(&[root, direct_thumb]));
     }
 
     #[test]
+    fn empty_selector_only_matches_empty_path() {
+        let selector = Selector::from_steps([]);
+        let root = SelectorInputs::new(Some(TypeTag(1)), &[], &[]);
+
+        assert!(selector.matches_path(&[]));
+        assert!(!selector.matches_path(&[root]));
+    }
+
+    #[test]
+    fn descendant_selector_skips_intermediate_subjects() {
+        const TOGGLE: TypeTag = TypeTag(1);
+        const TRACK: PartTag = PartTag(10);
+        const THUMB: PartTag = PartTag(11);
+
+        let selector = Selector::from_segments(
+            SelectorStep::type_tag(TOGGLE),
+            [(
+                SelectorCombinator::Descendant,
+                SelectorStep::part_tag(THUMB),
+            )],
+        );
+
+        let root = SelectorInputs::new(Some(TOGGLE), &[], &[]);
+        let track = SelectorInputs::with_part(None, Some(TRACK), &[], &[]);
+        let thumb = SelectorInputs::with_part(None, Some(THUMB), &[], &[]);
+
+        assert!(selector.matches_path(&[root, track, thumb]));
+        assert!(selector.matches_path(&[root, thumb]));
+        assert!(!selector.matches_path(&[root, track]));
+        assert_eq!(selector.combinators(), &[SelectorCombinator::Descendant]);
+    }
+
+    #[test]
+    fn descendant_constructor_builds_two_step_selector() {
+        const ROW: TypeTag = TypeTag(1);
+        const TEXT: PartTag = PartTag(10);
+        const BADGE: PartTag = PartTag(11);
+
+        let selector =
+            Selector::descendant(SelectorStep::type_tag(ROW), SelectorStep::part_tag(TEXT));
+
+        let root = SelectorInputs::new(Some(ROW), &[], &[]);
+        let badge = SelectorInputs::with_part(None, Some(BADGE), &[], &[]);
+        let text = SelectorInputs::with_part(None, Some(TEXT), &[], &[]);
+
+        assert_eq!(selector.combinators(), &[SelectorCombinator::Descendant]);
+        assert!(selector.matches_path(&[root, badge, text]));
+    }
+
+    #[test]
+    fn explicit_child_combinator_requires_adjacency() {
+        const TOGGLE: TypeTag = TypeTag(1);
+        const TRACK: PartTag = PartTag(10);
+        const THUMB: PartTag = PartTag(11);
+
+        let selector = Selector::from_steps_with_combinators(
+            [
+                SelectorStep::type_tag(TOGGLE),
+                SelectorStep::part_tag(THUMB),
+            ],
+            [SelectorCombinator::Child],
+        );
+
+        let root = SelectorInputs::new(Some(TOGGLE), &[], &[]);
+        let track = SelectorInputs::with_part(None, Some(TRACK), &[], &[]);
+        let thumb = SelectorInputs::with_part(None, Some(THUMB), &[], &[]);
+
+        assert!(selector.matches_path(&[root, thumb]));
+        assert!(!selector.matches_path(&[root, track, thumb]));
+    }
+
+    #[test]
     fn owner_pseudos_match_through_ancestor_step() {
         const TOGGLE: TypeTag = TypeTag(1);
-        const TRACK: TargetTag = TargetTag(10);
+        const TRACK: PartTag = PartTag(10);
         const CHECKED: PseudoClassId = PseudoClassId(20);
 
         let owner_checked_track = Selector::from([
             SelectorStep::type_tag(TOGGLE).with_pseudo(CHECKED),
-            SelectorStep::target_tag(TRACK),
+            SelectorStep::part_tag(TRACK),
         ]);
         let track_checked = Selector::from([
             SelectorStep::type_tag(TOGGLE),
-            SelectorStep::target_tag(TRACK).with_pseudo(CHECKED),
+            SelectorStep::part_tag(TRACK).with_pseudo(CHECKED),
         ]);
 
         let pseudos = [CHECKED];
         let root = SelectorInputs::new(Some(TOGGLE), &[], &pseudos);
-        let track = SelectorInputs::with_target(None, Some(TRACK), &[], &[]);
+        let track = SelectorInputs::with_part(None, Some(TRACK), &[], &[]);
 
         assert!(owner_checked_track.matches_path(&[root, track]));
         assert!(!track_checked.matches_path(&[root, track]));
@@ -665,7 +889,7 @@ mod tests {
     fn path_specificity_sums_steps_deterministically() {
         let selector = Selector::from([
             SelectorStep::type_tag(TypeTag(1)).with_pseudo(PseudoClassId(1)),
-            SelectorStep::target_tag(TargetTag(2)).with_classes([ClassId(1), ClassId(2)]),
+            SelectorStep::part_tag(PartTag(2)).with_classes([ClassId(1), ClassId(2)]),
         ]);
 
         assert_eq!(selector.specificity(), Specificity(1, 2, 1, 1));
