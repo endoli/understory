@@ -193,7 +193,7 @@ impl<M: ResizableExtentModel> ExtentModel for GridTrackModel<M> {
 #[cfg(test)]
 mod tests {
     use super::GridTrackModel;
-    use crate::{ExtentModel, FixedExtentModel};
+    use crate::{ExtentModel, FixedExtentModel, SparsePrefixSumExtentModel};
     use core::num::NonZeroUsize;
 
     #[test]
@@ -230,6 +230,19 @@ mod tests {
         // Cells in track 2: offset 20 (partial track).
         assert_eq!(grid.offset_of(8), 20.0);
         assert_eq!(grid.offset_of(9), 20.0);
+    }
+
+    #[test]
+    fn sparse_track_model_resizes_for_grid_cells() {
+        let track_model = SparsePrefixSumExtentModel::new(12.0_f32, 0);
+        let mut grid = GridTrackModel::new(track_model, NonZeroUsize::new(4).unwrap(), 10);
+
+        assert_eq!(grid.track_model().len(), 3);
+        assert_eq!(grid.total_extent(), 36.0);
+
+        grid.set_len(4);
+        assert_eq!(grid.track_model().len(), 1);
+        assert_eq!(grid.total_extent(), 12.0);
     }
 
     #[test]

@@ -6,7 +6,7 @@
 
 use alloc::collections::BTreeMap;
 
-use crate::{ExtentModel, Scalar};
+use crate::{ExtentModel, ResizableExtentModel, Scalar};
 
 /// An [`ExtentModel`] backed by per-item extents and a lazily-maintained prefix-sum cache with
 /// fixed-sized placeholders for un-materialized items.
@@ -271,6 +271,12 @@ impl<S: Scalar> ExtentModel for SparsePrefixSumExtentModel<S> {
 
     fn index_at_offset(&mut self, offset: S) -> usize {
         self.index_at_offset_for_len(offset, self.len)
+    }
+}
+
+impl<S: Scalar> ResizableExtentModel for SparsePrefixSumExtentModel<S> {
+    fn set_len(&mut self, len: usize) {
+        Self::set_len(self, len);
     }
 }
 

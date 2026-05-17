@@ -115,13 +115,15 @@ pub trait ExtentModel {
 
 /// An [`ExtentModel`] whose logical length can be resized.
 ///
-/// Implementations are expected to ensure storage for `len` items and treat
-/// any newly added items as having extent `0.0` until explicitly updated.
+/// Implementations define their own policy for the extent of newly added
+/// items. Variable-size models commonly initialize new items to `0.0` until
+/// callers provide measurements, while fixed-size models keep using their
+/// uniform extent.
 pub trait ResizableExtentModel: ExtentModel {
     /// Ensures that the model can represent `len` items.
     ///
-    /// Implementations typically grow internal storage and treat new items as
-    /// zero-sized until their extents are set by the caller.
+    /// Implementations may grow internal storage, truncate stale state, or
+    /// update a logical length depending on how they represent extents.
     fn set_len(&mut self, len: usize);
 }
 
