@@ -9,9 +9,9 @@ keywords = ["ui", "inspector", "outline", "no_std", "understory"]
 categories = ["gui", "data-structures", "no-std"]
 
 [dependencies]
-understory_outline = { path = "../understory_outline", default-features = false }
-understory_selection = { path = "../understory_selection", default-features = false }
-understory_virtual_list = { path = "../understory_virtual_list", default-features = false }
+understory_outline.workspace = true
+understory_selection.workspace = true
+understory_virtual_list.workspace = true
 
 [lints]
 workspace = true

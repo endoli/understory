@@ -42,6 +42,26 @@ hashbrown = { version = "0.17.0", default-features = false, features = [
 invalidation = "0.2.0"
 smallvec = { version = "1.13.2", default-features = false }
 
+# Internal crate dependencies are centralized here so path dependencies carry
+# the version requirements needed for packaging.
+understory_axis = { version = "0.1.0", path = "understory_axis", default-features = false }
+understory_box_tree = { version = "0.0.1", path = "understory_box_tree", default-features = false }
+understory_event_state = { version = "0.1.0", path = "understory_event_state", default-features = false }
+understory_focus = { version = "0.1.0", path = "understory_focus", default-features = false }
+understory_guide = { version = "0.1.0", path = "understory_guide", default-features = false }
+understory_index = { version = "0.0.1", path = "understory_index", default-features = false }
+understory_inspector = { version = "0.1.0", path = "understory_inspector", default-features = false }
+understory_outline = { version = "0.1.0", path = "understory_outline", default-features = false }
+understory_precise_hit = { version = "0.1.0", path = "understory_precise_hit", default-features = false }
+understory_property = { version = "0.1.0", path = "understory_property", default-features = false }
+understory_responder = { version = "0.1.0", path = "understory_responder", default-features = false }
+understory_selection = { version = "0.1.0", path = "understory_selection", default-features = false }
+understory_style = { version = "0.1.0", path = "understory_style", default-features = false }
+understory_timing = { version = "0.1.2", path = "understory_timing", default-features = false }
+understory_transcript = { version = "0.1.0", path = "understory_transcript", default-features = false }
+understory_view2d = { version = "0.1.0", path = "understory_view2d", default-features = false }
+understory_virtual_list = { version = "0.1.1", path = "understory_virtual_list", default-features = false }
+
 [workspace.lints]
 # LINEBENDER LINT SET - Cargo.toml - v7
 rust.unsafe_code = "deny"

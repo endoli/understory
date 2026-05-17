@@ -11,7 +11,7 @@ categories = ["gui", "graphics", "no-std"]
 
 [dependencies]
 kurbo.workspace = true
-understory_axis = { path = "../understory_axis", default-features = false }
+understory_axis.workspace = true
 
 [lints]
 workspace = true
