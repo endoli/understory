@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "understory_timing"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "understory_transcript"
