@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "Generic 2D AABB index with point/rect queries, batched damage, and pluggable backends."
-repository = "https://github.com/endoli/understory"
+repository = "https://github.com/forest-rs/understory"
 keywords = ["spatial", "aabb", "index", "rtree", "bvh"]
 categories = ["data-structures", "graphics", "no-std"]
 

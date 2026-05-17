@@ -29,7 +29,7 @@ edition = "2024"
 # and with the MSRV in the `Unreleased` section of CHANGELOG.md.
 rust-version = "1.88"
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/endoli/understory"
+repository = "https://github.com/forest-rs/understory"
 
 [workspace.dependencies]
 # Kurbo supports no_std via its `libm` feature. Disable default features here and

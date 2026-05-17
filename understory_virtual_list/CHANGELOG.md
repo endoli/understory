@@ -19,7 +19,7 @@ This release has an [MSRV][] of 1.88.
 
 This is the initial release.
 
-[Unreleased]: https://github.com/endoli/understory/compare/understory_virtual_list-v0.1.0...HEAD
-[0.1.0]: https://github.com/endoli/understory/releases/tag/understory_virtual_list-v0.1.0
+[Unreleased]: https://github.com/forest-rs/understory/compare/understory_virtual_list-v0.1.0...HEAD
+[0.1.0]: https://github.com/forest-rs/understory/releases/tag/understory_virtual_list-v0.1.0
 
 [MSRV]: README.md#minimum-supported-rust-version-msrv

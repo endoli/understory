@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "Kurbo-native spatially indexed box tree with transforms, clips, z-order, and damage accounting."
-repository = "https://github.com/endoli/understory"
+repository = "https://github.com/forest-rs/understory"
 keywords = ["spatial", "scene", "aabb", "ui", "graphics"]
 categories = ["data-structures", "graphics", "no-std"]
 
