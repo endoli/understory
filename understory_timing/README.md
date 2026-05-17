@@ -41,3 +41,7 @@ assert!(timers.is_empty());
 ```
 
 The crate is always `#![no_std]` and uses `alloc`.
+
+## Minimum supported Rust Version (MSRV)
+
+This crate has been verified to compile with **Rust 1.88** and later.
