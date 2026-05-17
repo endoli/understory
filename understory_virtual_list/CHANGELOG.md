@@ -17,6 +17,7 @@ You can find its changes [documented below](#010-2026-05-14).
 
 - Added `VirtualList::restore_tail_anchor`, a convenience helper for applying a
   tail-anchor state captured before mutating the model. ([#165][] by [@waywardmonkeys][])
+- Implemented `ResizableExtentModel` for `SparsePrefixSumExtentModel`. ([#166][] by [@waywardmonkeys][])
 
 ### Deprecated
 
@@ -38,6 +39,7 @@ This is the initial release.
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 
 [#165]: https://github.com/forest-rs/understory/pull/165
+[#166]: https://github.com/forest-rs/understory/pull/166
 
 [Unreleased]: https://github.com/forest-rs/understory/compare/understory_virtual_list-v0.1.0...HEAD
 [0.1.0]: https://github.com/forest-rs/understory/releases/tag/understory_virtual_list-v0.1.0
