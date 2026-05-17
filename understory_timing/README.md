@@ -45,8 +45,9 @@ wakeup registration, async tasks, widgets, rendering, or redraw policy. Host
 runtimes are responsible for:
 
 - converting their clock into [`TimerInstant`] and [`TimerDuration`] values,
-- calling [`TimerQueue::schedule`] or [`TimerQueue::schedule_at`] when an
-  owner asks for a delayed wakeup,
+- calling [`TimerQueue::schedule`] / [`TimerQueue::schedule_once`] for
+  relative delays, and [`TimerQueue::schedule_at`] /
+  [`TimerQueue::schedule_once_at`] for host-computed absolute deadlines,
 - using [`TimerQueue::next_deadline`] to arm the host wakeup mechanism,
 - storing callback or action state in or alongside the timer target payload,
 - calling [`TimerQueue::pop_expired`] with the current monotonic time when
@@ -170,7 +171,9 @@ assert_eq!(target.window, 1);
 [`TimerRepeat`]: https://docs.rs/understory_timing/latest/understory_timing/enum.TimerRepeat.html
 [`ExpiredTimer`]: https://docs.rs/understory_timing/latest/understory_timing/struct.ExpiredTimer.html
 [`TimerQueue::schedule`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.schedule
+[`TimerQueue::schedule_once`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.schedule_once
 [`TimerQueue::schedule_at`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.schedule_at
+[`TimerQueue::schedule_once_at`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.schedule_once_at
 [`TimerQueue::next_deadline`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.next_deadline
 [`TimerQueue::pop_expired`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.pop_expired
 [`ExpiredTimer::target`]: https://docs.rs/understory_timing/latest/understory_timing/struct.ExpiredTimer.html#method.target

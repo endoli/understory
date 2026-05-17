@@ -30,8 +30,9 @@
 //! runtimes are responsible for:
 //!
 //! - converting their clock into [`TimerInstant`] and [`TimerDuration`] values,
-//! - calling [`TimerQueue::schedule`] or [`TimerQueue::schedule_at`] when an
-//!   owner asks for a delayed wakeup,
+//! - calling [`TimerQueue::schedule`] / [`TimerQueue::schedule_once`] for
+//!   relative delays, and [`TimerQueue::schedule_at`] /
+//!   [`TimerQueue::schedule_once_at`] for host-computed absolute deadlines,
 //! - using [`TimerQueue::next_deadline`] to arm the host wakeup mechanism,
 //! - storing callback or action state in or alongside the timer target payload,
 //! - calling [`TimerQueue::pop_expired`] with the current monotonic time when
@@ -467,6 +468,16 @@ impl<Target> TimerQueue<Target> {
         self.schedule(target, now, delay, TimerRepeat::None)
     }
 
+    /// Schedules a one-shot timer at an absolute deadline.
+    ///
+    /// `deadline` is in the same host-provided monotonic tick space as the
+    /// `now` value passed to [`TimerQueue::pop_expired`]. If the host later
+    /// pops expired timers at a time greater than or equal to `deadline`, this
+    /// timer is due.
+    pub fn schedule_once_at(&mut self, target: Target, deadline: TimerInstant) -> TimerId {
+        self.schedule_at(target, deadline, TimerRepeat::None)
+    }
+
     /// Schedules a repeating timer that coalesces missed intervals.
     pub fn schedule_repeating(
         &mut self,
@@ -611,6 +622,22 @@ mod tests {
         assert_eq!(timers.pop_expired(10).map(|timer| timer.id()), Some(same));
         assert_eq!(timers.pop_expired(10), None);
         assert_eq!(timers.pop_expired(30).map(|timer| timer.id()), Some(late));
+        assert!(timers.is_empty());
+    }
+
+    #[test]
+    fn schedule_once_at_uses_absolute_deadline_without_repeat() {
+        let mut timers = TimerQueue::new();
+        let id = timers.schedule_once_at("once", 42);
+
+        assert_eq!(timers.next_deadline(), Some(42));
+        assert_eq!(timers.pop_expired(41), None);
+
+        let timer = timers.pop_expired(42).expect("timer is due");
+
+        assert_eq!(timer.id(), id);
+        assert_eq!(timer.repeat(), TimerRepeat::None);
+        assert!(!timers.rearm(timer));
         assert!(timers.is_empty());
     }
 
