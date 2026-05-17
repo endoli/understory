@@ -3,7 +3,11 @@
 
 use kurbo::{Affine, Point, Rect, Vec2};
 
-use crate::modes::{ClampMode, FitMode, normalize_zoom_limits, sanitize_zoom_value};
+use crate::modes::{ClampMode, FitMode};
+use crate::validation::{
+    nice_grid_spacing, normalize_zoom_limits, point_is_finite, sanitize_zoom_value, vec2_is_finite,
+    view_rect_is_valid, world_rect_is_valid,
+};
 
 /// 2D viewport over a world-space plane.
 ///
@@ -33,8 +37,15 @@ impl Viewport2D {
     /// - Initial zoom is `1.0`.
     /// - Initial pan is zero (world origin maps to the view rect origin).
     /// - Zoom is clamped to the range `[1e-3, 1e3]` by default.
+    /// - Non-finite or negative-size view rects are treated as an empty rect at
+    ///   the origin.
     #[must_use]
     pub fn new(view_rect: Rect) -> Self {
+        let view_rect = if view_rect_is_valid(view_rect) {
+            view_rect
+        } else {
+            Rect::new(0.0, 0.0, 0.0, 0.0)
+        };
         let mut vp = Self {
             view_rect,
             world_bounds: None,
@@ -60,8 +71,12 @@ impl Viewport2D {
     /// Sets the view rectangle in device coordinates.
     ///
     /// This does not change zoom or pan, but it may affect the visible world
-    /// region. Transforms are rebuilt to account for the new rect.
+    /// region. Transforms are rebuilt to account for the new rect. Non-finite
+    /// or negative-size rects are ignored.
     pub fn set_view_rect(&mut self, rect: Rect) {
+        if !view_rect_is_valid(rect) {
+            return;
+        }
         if self.view_rect == rect {
             return;
         }
@@ -71,7 +86,15 @@ impl Viewport2D {
     }
 
     /// Sets optional world bounds used for clamping and view fitting.
+    ///
+    /// Non-finite or empty bounds are ignored. Pass `None` to clear existing
+    /// bounds.
     pub fn set_world_bounds(&mut self, bounds: Option<Rect>) {
+        if let Some(bounds) = bounds
+            && !world_rect_is_valid(bounds)
+        {
+            return;
+        }
         if self.world_bounds == bounds {
             return;
         }
@@ -112,8 +135,8 @@ impl Viewport2D {
     /// Sets the minimum and maximum zoom factors.
     ///
     /// The provided range is normalized so that `min_zoom <= max_zoom`. The
-    /// current zoom is clamped into the new range. Non-finite or non-positive
-    /// limits are ignored.
+    /// current zoom is clamped into the new range. Non-finite, zero, negative,
+    /// or subnormal limits are ignored.
     pub fn set_zoom_limits(&mut self, min_zoom: f64, max_zoom: f64) {
         let (min_zoom, max_zoom) =
             normalize_zoom_limits(min_zoom, max_zoom, self.min_zoom, self.max_zoom);
@@ -149,7 +172,7 @@ impl Viewport2D {
 
     /// Sets the zoom factor, clamping it into the configured zoom range.
     ///
-    /// Non-finite or non-positive zoom values are ignored.
+    /// Non-finite, zero, negative, or subnormal zoom values are ignored.
     pub fn set_zoom(&mut self, zoom: f64) {
         let Some(zoom) = sanitize_zoom_value(zoom) else {
             return;
@@ -166,12 +189,16 @@ impl Viewport2D {
     /// Pans the view by a delta in view/device space.
     ///
     /// This adjusts the pan offset and then applies clamping relative to world
-    /// bounds if configured.
+    /// bounds if configured. Non-finite deltas are ignored.
     pub fn pan_by_view(&mut self, delta: Vec2) {
-        if delta == Vec2::ZERO {
+        if delta == Vec2::ZERO || !vec2_is_finite(delta) {
             return;
         }
-        self.pan += delta;
+        let pan = self.pan + delta;
+        if !vec2_is_finite(pan) {
+            return;
+        }
+        self.pan = pan;
         self.rebuild_transforms();
         self.clamp_to_bounds();
     }
@@ -179,9 +206,9 @@ impl Viewport2D {
     /// Zooms around a given anchor point in view/device coordinates.
     ///
     /// The anchor point remains fixed in view space as much as possible under
-    /// the new zoom level.
+    /// the new zoom level. Non-finite anchors or factors are ignored.
     pub fn zoom_about_view_point(&mut self, anchor_view: Point, factor: f64) {
-        if !factor.is_finite() || factor <= 0.0 {
+        if !point_is_finite(anchor_view) || !factor.is_finite() || factor <= 0.0 {
             return;
         }
         let old_zoom = self.zoom;
@@ -191,11 +218,26 @@ impl Viewport2D {
         }
 
         let old_world = self.view_to_world_point(anchor_view);
-        self.zoom = new_zoom;
-        self.rebuild_transforms();
-        let new_anchor_view = self.world_to_view_point(old_world);
+        if !point_is_finite(old_world) {
+            return;
+        }
+        let view_origin = self.view_rect.origin().to_vec2();
+        let new_anchor_view = Point::new(
+            view_origin.x + self.pan.x + new_zoom * old_world.x,
+            view_origin.y + self.pan.y + new_zoom * old_world.y,
+        );
+        if !point_is_finite(new_anchor_view) {
+            return;
+        }
         let delta_view = anchor_view - new_anchor_view;
-        self.pan_by_view(delta_view);
+        let pan = self.pan + delta_view;
+        if !vec2_is_finite(delta_view) || !vec2_is_finite(pan) {
+            return;
+        }
+        self.zoom = new_zoom;
+        self.pan = pan;
+        self.rebuild_transforms();
+        self.clamp_to_bounds();
     }
 
     /// Fits the entire world bounds into the view, preserving aspect ratio.
@@ -208,8 +250,10 @@ impl Viewport2D {
     }
 
     /// Fits the given world-space rectangle into the view, preserving aspect ratio.
+    ///
+    /// Non-finite or empty rectangles are ignored.
     pub fn fit_rect(&mut self, rect: Rect) {
-        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+        if !world_rect_is_valid(rect) {
             return;
         }
         let view_size = self.view_rect.size();
@@ -221,13 +265,11 @@ impl Viewport2D {
         let sy = view_size.height / rect.height().max(f64::MIN_POSITIVE);
         let target_zoom = sx.min(sy);
 
-        let zoom = target_zoom.clamp(self.min_zoom, self.max_zoom);
-        self.zoom = zoom;
-
         // Choose pan based on fit mode so that either the content is centered
         // or its minimum corner aligns with the view origin.
+        let zoom = target_zoom.clamp(self.min_zoom, self.max_zoom);
         let view_origin = self.view_rect.origin().to_vec2();
-        self.pan = match self.fit_mode {
+        let pan = match self.fit_mode {
             FitMode::Center => {
                 let view_center = self.view_rect.center().to_vec2();
                 let world_center = rect.center().to_vec2();
@@ -238,13 +280,23 @@ impl Viewport2D {
                 -world_min * zoom
             }
         };
+        if !vec2_is_finite(pan) {
+            return;
+        }
 
+        self.zoom = zoom;
+        self.pan = pan;
         self.rebuild_transforms();
         self.clamp_to_bounds();
     }
 
     /// Centers the view on the given world-space point.
+    ///
+    /// Non-finite points are ignored.
     pub fn center_on(&mut self, world_pt: Point) {
+        if !point_is_finite(world_pt) {
+            return;
+        }
         let view_center = self.view_rect.center();
         let world_in_view = self.world_to_view_point(world_pt);
         let delta = view_center - world_in_view;
@@ -338,32 +390,11 @@ impl Viewport2D {
     /// Suggests a "nice" grid spacing in world units for the current zoom.
     ///
     /// The returned value is chosen so that grid lines appear roughly tens of
-    /// pixels apart (using a 1-2-5 ladder), with `base` treated as a lower
-    /// bound on the spacing in world units.
+    /// pixels apart (using a 1-2-5 ladder), with finite `base` values treated
+    /// as a lower bound on the spacing in world units.
     #[must_use]
     pub fn suggest_grid_spacing(&self, base: f64) -> f64 {
-        let base = base.abs().max(f64::MIN_POSITIVE);
-        let target_px = 64.0_f64;
-        let wu_per_px = self.world_units_per_pixel_x().abs();
-        let mut desired = wu_per_px * target_px;
-        if desired < base {
-            desired = base;
-        }
-
-        let mut unit = 1.0_f64;
-        while unit * 10.0 <= desired {
-            unit *= 10.0;
-        }
-
-        loop {
-            for m in [1.0_f64, 2.0, 5.0, 10.0] {
-                let step = m * unit;
-                if step >= desired {
-                    return step;
-                }
-            }
-            unit *= 10.0;
-        }
+        nice_grid_spacing(self.world_units_per_pixel_x(), base)
     }
 
     /// Snapshot of the current viewport state for debugging and inspection.
@@ -402,7 +433,7 @@ impl Viewport2D {
         // Current visible world rect; we will adjust pan to keep at least some
         // overlap with `bounds`.
         let visible = self.visible_world_rect();
-        if visible.width() <= 0.0 || visible.height() <= 0.0 {
+        if !world_rect_is_valid(visible) {
             return;
         }
 
@@ -429,8 +460,11 @@ impl Viewport2D {
             // direction, so we need to negate.
             let scale = self.zoom;
             let delta_view = Vec2::new(-dx * scale, -dy * scale);
-            self.pan += delta_view;
-            self.rebuild_transforms();
+            let pan = self.pan + delta_view;
+            if vec2_is_finite(delta_view) && vec2_is_finite(pan) {
+                self.pan = pan;
+                self.rebuild_transforms();
+            }
         }
     }
 }
@@ -589,12 +623,86 @@ mod tests {
         vp.set_zoom(f64::NAN);
         vp.set_zoom(0.0);
         vp.set_zoom(-2.0);
+        vp.set_zoom(f64::MIN_POSITIVE / 2.0);
         assert_eq!(vp.zoom(), 1.0);
 
         vp.zoom_about_view_point(view_rect.center(), f64::NAN);
         vp.zoom_about_view_point(view_rect.center(), f64::INFINITY);
+        vp.zoom_about_view_point(Point::new(f64::NAN, 50.0), 2.0);
         assert_eq!(vp.zoom(), 1.0);
         assert_eq!(vp.visible_world_rect(), original_visible);
+    }
+
+    #[test]
+    fn invalid_view_inputs_are_ignored_in_2d() {
+        let view_rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let mut vp = Viewport2D::new(view_rect);
+        let original_visible = vp.visible_world_rect();
+
+        vp.pan_by_view((f64::NAN, 0.0).into());
+        vp.pan_by_view((0.0, f64::INFINITY).into());
+        assert_eq!(vp.visible_world_rect(), original_visible);
+
+        vp.set_view_rect(Rect::new(0.0, 0.0, f64::NAN, 100.0));
+        vp.set_view_rect(Rect::new(100.0, 0.0, 0.0, 100.0));
+        assert_eq!(vp.view_rect(), view_rect);
+
+        let bounds = Rect::new(0.0, 0.0, 50.0, 50.0);
+        vp.set_world_bounds(Some(bounds));
+        vp.set_world_bounds(Some(Rect::new(50.0, 0.0, 0.0, 50.0)));
+        vp.set_world_bounds(Some(Rect::new(0.0, 0.0, f64::INFINITY, 50.0)));
+        assert_eq!(vp.world_bounds(), Some(bounds));
+
+        vp.fit_rect(Rect::new(0.0, 0.0, f64::NAN, 10.0));
+        vp.center_on(Point::new(f64::NAN, 0.0));
+        assert_eq!(vp.visible_world_rect(), original_visible);
+    }
+
+    #[test]
+    fn invalid_constructor_inputs_fall_back_to_empty_rect() {
+        let vp = Viewport2D::new(Rect::new(0.0, 0.0, f64::NAN, 100.0));
+        assert_eq!(vp.view_rect(), Rect::new(0.0, 0.0, 0.0, 0.0));
+
+        let vp = Viewport2D::new(Rect::new(100.0, 0.0, 0.0, 100.0));
+        assert_eq!(vp.view_rect(), Rect::new(0.0, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn grid_spacing_handles_non_finite_base_2d() {
+        let vp = Viewport2D::new(Rect::new(0.0, 0.0, 100.0, 100.0));
+
+        let spacing = vp.suggest_grid_spacing(f64::INFINITY);
+        assert!(spacing.is_finite());
+        assert!(spacing > 0.0);
+
+        let spacing = vp.suggest_grid_spacing(f64::NAN);
+        assert!(spacing.is_finite());
+        assert!(spacing > 0.0);
+    }
+
+    #[test]
+    fn extreme_fit_inputs_do_not_poison_state_2d() {
+        let mut vp = Viewport2D::new(Rect::new(0.0, 0.0, 100.0, 100.0));
+        vp.set_zoom_limits(1e6, 1e6);
+        let before = vp.debug_info();
+
+        vp.fit_rect(Rect::new(
+            f64::MAX / 2.0,
+            f64::MAX / 2.0,
+            f64::MAX,
+            f64::MAX,
+        ));
+
+        let after = vp.debug_info();
+        assert_eq!(after.view_rect, before.view_rect);
+        assert_eq!(after.world_bounds, before.world_bounds);
+        assert_eq!(after.visible_world_rect, before.visible_world_rect);
+        assert_eq!(after.zoom, before.zoom);
+        assert_eq!(after.pan, before.pan);
+        assert_eq!(after.min_zoom, before.min_zoom);
+        assert_eq!(after.max_zoom, before.max_zoom);
+        assert_eq!(after.clamp_mode, before.clamp_mode);
+        assert_eq!(after.fit_mode, before.fit_mode);
     }
 
     #[test]

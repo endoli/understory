@@ -5,7 +5,11 @@ use core::ops::Range;
 
 use kurbo::Point;
 
-use crate::modes::{ClampMode, FitMode, normalize_zoom_limits, sanitize_zoom_value};
+use crate::modes::{ClampMode, FitMode};
+use crate::validation::{
+    nice_grid_spacing, normalize_zoom_limits, sanitize_zoom_value, view_span_is_valid,
+    world_range_is_valid,
+};
 
 /// 1D viewport over a world-space axis.
 ///
@@ -32,8 +36,14 @@ impl Viewport1D {
     /// - Initial zoom is `1.0`.
     /// - Initial pan is zero (world origin maps to `view_span.start`).
     /// - Zoom is clamped to the range `[1e-6, 1e6]` by default.
+    /// - Non-finite or reversed spans are treated as an empty `0.0..0.0` span.
     #[must_use]
     pub fn new(view_span: Range<f64>) -> Self {
+        let view_span = if view_span_is_valid(&view_span) {
+            view_span
+        } else {
+            0.0..0.0
+        };
         Self {
             view_span,
             world_bounds: None,
@@ -56,7 +66,11 @@ impl Viewport1D {
     ///
     /// This does not change zoom or pan, but it may affect the visible world
     /// region. Clamping is applied afterwards if world bounds are set.
+    /// Non-finite or reversed spans are ignored.
     pub fn set_view_span(&mut self, span: Range<f64>) {
+        if !view_span_is_valid(&span) {
+            return;
+        }
         if self.view_span.start == span.start && self.view_span.end == span.end {
             return;
         }
@@ -65,7 +79,15 @@ impl Viewport1D {
     }
 
     /// Sets optional world bounds used for clamping and view fitting.
+    ///
+    /// Non-finite or empty bounds are ignored. Pass `None` to clear existing
+    /// bounds.
     pub fn set_world_bounds(&mut self, bounds: Option<Range<f64>>) {
+        if let Some(bounds) = &bounds
+            && !world_range_is_valid(bounds)
+        {
+            return;
+        }
         if self.world_bounds_is_eq(&bounds) {
             return;
         }
@@ -106,8 +128,8 @@ impl Viewport1D {
     /// Sets the minimum and maximum zoom factors.
     ///
     /// The provided range is normalized so that `min_zoom <= max_zoom`. The
-    /// current zoom is clamped into the new range. Non-finite or non-positive
-    /// limits are ignored.
+    /// current zoom is clamped into the new range. Non-finite, zero, negative,
+    /// or subnormal limits are ignored.
     pub fn set_zoom_limits(&mut self, min_zoom: f64, max_zoom: f64) {
         let (min_zoom, max_zoom) =
             normalize_zoom_limits(min_zoom, max_zoom, self.min_zoom, self.max_zoom);
@@ -118,7 +140,7 @@ impl Viewport1D {
 
     /// Sets the zoom factor, clamping it into the configured zoom range.
     ///
-    /// Non-finite or non-positive zoom values are ignored.
+    /// Non-finite, zero, negative, or subnormal zoom values are ignored.
     pub fn set_zoom(&mut self, zoom: f64) {
         let Some(zoom) = sanitize_zoom_value(zoom) else {
             return;
@@ -159,21 +181,25 @@ impl Viewport1D {
     /// Pans the view by a delta in view/device space.
     ///
     /// This adjusts the pan offset and then applies clamping relative to world
-    /// bounds if configured.
+    /// bounds if configured. Non-finite deltas are ignored.
     pub fn pan_by_view(&mut self, delta: f64) {
-        if delta == 0.0 {
+        if delta == 0.0 || !delta.is_finite() {
             return;
         }
-        self.pan += delta;
+        let pan = self.pan + delta;
+        if !pan.is_finite() {
+            return;
+        }
+        self.pan = pan;
         self.clamp_to_bounds();
     }
 
     /// Zooms around a given anchor point in view/device coordinates.
     ///
     /// The anchor point remains fixed in view space as much as possible under
-    /// the new zoom level.
+    /// the new zoom level. Non-finite anchors or factors are ignored.
     pub fn zoom_about_view_point(&mut self, anchor_view_x: f64, factor: f64) {
-        if !factor.is_finite() || factor <= 0.0 {
+        if !anchor_view_x.is_finite() || !factor.is_finite() || factor <= 0.0 {
             return;
         }
         let old_zoom = self.zoom;
@@ -183,13 +209,24 @@ impl Viewport1D {
         }
 
         let old_world = self.view_to_world_x(anchor_view_x);
-        self.zoom = new_zoom;
-        let new_anchor_view = self.world_to_view_x(old_world);
+        if !old_world.is_finite() {
+            return;
+        }
+        let new_anchor_view = self.view_span.start + self.pan + new_zoom * old_world;
+        if !new_anchor_view.is_finite() {
+            return;
+        }
         let delta_view = anchor_view_x - new_anchor_view;
-        self.pan_by_view(delta_view);
+        let pan = self.pan + delta_view;
+        if !delta_view.is_finite() || !pan.is_finite() {
+            return;
+        }
+        self.zoom = new_zoom;
+        self.pan = pan;
+        self.clamp_to_bounds();
     }
 
-    /// Fits the entire world bounds into the view span, preserving aspect ratio.
+    /// Fits the entire world bounds into the view span.
     ///
     /// If no world bounds are set, this is a no-op.
     pub fn fit_world(&mut self) {
@@ -198,25 +235,36 @@ impl Viewport1D {
         }
     }
 
-    /// Fits the given world-space range into the view span, preserving aspect ratio.
+    /// Fits the given world-space range exactly into the view span.
+    ///
+    /// Non-finite or empty ranges are ignored.
     pub fn fit_range(&mut self, world_range: Range<f64>) {
         self.set_visible_world_range(world_range);
     }
 
     /// Fits the given world-space range plus symmetric world-space padding into the view span.
     ///
-    /// `padding` is interpreted in world units on each side of the range. Negative
-    /// padding is treated as zero.
+    /// `padding` is interpreted in world units on each side of the range.
+    /// Negative or non-finite padding is treated as zero. Non-finite or empty
+    /// ranges are ignored.
     pub fn fit_range_with_padding(&mut self, world_range: Range<f64>, padding: f64) {
-        let padding = padding.max(0.0);
+        let padding = if padding.is_finite() {
+            padding.max(0.0)
+        } else {
+            0.0
+        };
         self.set_visible_world_range((world_range.start - padding)..(world_range.end + padding));
     }
 
     /// Sets the exact world-space range that should be visible through the current view span.
     ///
     /// This updates zoom and pan so that [`Self::visible_world_range`] matches
-    /// `world_range`, subject to zoom limits and optional clamping.
+    /// `world_range`, subject to zoom limits and optional clamping. Non-finite
+    /// or empty ranges are ignored.
     pub fn set_visible_world_range(&mut self, world_range: Range<f64>) {
+        if !world_range_is_valid(&world_range) {
+            return;
+        }
         let w_len = world_range.end - world_range.start;
         if w_len <= 0.0 {
             return;
@@ -228,9 +276,7 @@ impl Viewport1D {
 
         let target_zoom = v_len / w_len.max(f64::MIN_POSITIVE);
         let zoom = target_zoom.clamp(self.min_zoom, self.max_zoom);
-        self.zoom = zoom;
-
-        self.pan = match self.fit_mode {
+        let pan = match self.fit_mode {
             FitMode::Center => {
                 let view_center = (self.view_span.start + self.view_span.end) * 0.5;
                 let world_center = (world_range.start + world_range.end) * 0.5;
@@ -241,12 +287,22 @@ impl Viewport1D {
                 self.view_span.start - world_range.start * zoom
             }
         };
+        if !pan.is_finite() {
+            return;
+        }
 
+        self.zoom = zoom;
+        self.pan = pan;
         self.clamp_to_bounds();
     }
 
     /// Centers the view on the given world-space coordinate.
+    ///
+    /// Non-finite coordinates are ignored.
     pub fn center_on(&mut self, world_x: f64) {
+        if !world_x.is_finite() {
+            return;
+        }
         let view_center = (self.view_span.start + self.view_span.end) * 0.5;
         let world_in_view = self.world_to_view_x(world_x);
         let delta = view_center - world_in_view;
@@ -292,32 +348,11 @@ impl Viewport1D {
     /// Suggests a "nice" grid spacing in world units for the current zoom.
     ///
     /// The returned value is chosen so that grid lines appear roughly tens of
-    /// pixels apart (using a 1-2-5 ladder), with `base` treated as a lower
-    /// bound on the spacing in world units.
+    /// pixels apart (using a 1-2-5 ladder), with finite `base` values treated
+    /// as a lower bound on the spacing in world units.
     #[must_use]
     pub fn suggest_grid_spacing(&self, base: f64) -> f64 {
-        let base = base.abs().max(f64::MIN_POSITIVE);
-        let target_px = 64.0_f64;
-        let wu_per_px = self.world_units_per_pixel_x().abs();
-        let mut desired = wu_per_px * target_px;
-        if desired < base {
-            desired = base;
-        }
-
-        let mut unit = 1.0_f64;
-        while unit * 10.0 <= desired {
-            unit *= 10.0;
-        }
-
-        loop {
-            for m in [1.0_f64, 2.0, 5.0, 10.0] {
-                let step = m * unit;
-                if step >= desired {
-                    return step;
-                }
-            }
-            unit *= 10.0;
-        }
+        nice_grid_spacing(self.world_units_per_pixel_x(), base)
     }
 
     /// Snapshot of the current 1D viewport state for debugging and inspection.
@@ -354,7 +389,7 @@ impl Viewport1D {
         };
 
         let visible = self.visible_world_range();
-        if visible.end <= visible.start {
+        if !world_range_is_valid(&visible) {
             return;
         }
 
@@ -368,7 +403,10 @@ impl Viewport1D {
 
         if dx != 0.0 {
             let delta_view = -dx * self.zoom;
-            self.pan += delta_view;
+            let pan = self.pan + delta_view;
+            if delta_view.is_finite() && pan.is_finite() {
+                self.pan = pan;
+            }
         }
     }
 }
@@ -517,12 +555,79 @@ mod tests {
         vp.set_zoom(f64::NAN);
         vp.set_zoom(0.0);
         vp.set_zoom(-5.0);
+        vp.set_zoom(f64::MIN_POSITIVE / 2.0);
         assert_eq!(vp.zoom(), 1.0);
 
         vp.zoom_about_view_point(50.0, f64::NAN);
         vp.zoom_about_view_point(50.0, f64::INFINITY);
+        vp.zoom_about_view_point(f64::NAN, 2.0);
         assert_eq!(vp.zoom(), 1.0);
         assert_eq!(vp.visible_world_range(), original_visible);
+    }
+
+    #[test]
+    fn invalid_view_inputs_are_ignored_in_1d() {
+        let mut vp = Viewport1D::new(0.0..100.0);
+        let original_visible = vp.visible_world_range();
+
+        vp.pan_by_view(f64::NAN);
+        vp.pan_by_view(f64::INFINITY);
+        assert_eq!(vp.visible_world_range(), original_visible);
+
+        vp.set_view_span(f64::NAN..100.0);
+        vp.set_view_span(100.0..0.0);
+        assert_eq!(vp.view_span(), 0.0..100.0);
+
+        vp.set_world_bounds(Some(0.0..50.0));
+        vp.set_world_bounds(Some(50.0..0.0));
+        vp.set_world_bounds(Some(0.0..f64::INFINITY));
+        assert_eq!(vp.world_bounds(), Some(0.0..50.0));
+
+        vp.set_visible_world_range(f64::NAN..10.0);
+        vp.center_on(f64::NAN);
+        assert_eq!(vp.visible_world_range(), original_visible);
+    }
+
+    #[test]
+    fn invalid_constructor_inputs_fall_back_to_empty_span() {
+        let vp = Viewport1D::new(f64::NAN..100.0);
+        assert_eq!(vp.view_span(), 0.0..0.0);
+
+        let vp = Viewport1D::new(100.0..0.0);
+        assert_eq!(vp.view_span(), 0.0..0.0);
+    }
+
+    #[test]
+    fn grid_spacing_handles_non_finite_base_1d() {
+        let vp = Viewport1D::new(0.0..100.0);
+
+        let spacing = vp.suggest_grid_spacing(f64::INFINITY);
+        assert!(spacing.is_finite());
+        assert!(spacing > 0.0);
+
+        let spacing = vp.suggest_grid_spacing(f64::NAN);
+        assert!(spacing.is_finite());
+        assert!(spacing > 0.0);
+    }
+
+    #[test]
+    fn extreme_fit_inputs_do_not_poison_state_1d() {
+        let mut vp = Viewport1D::new(0.0..100.0);
+        vp.set_zoom_limits(1e6, 1e6);
+        let before = vp.debug_info();
+
+        vp.set_visible_world_range((f64::MAX / 2.0)..f64::MAX);
+
+        let after = vp.debug_info();
+        assert_eq!(after.view_span, before.view_span);
+        assert_eq!(after.world_bounds, before.world_bounds);
+        assert_eq!(after.visible_world_range, before.visible_world_range);
+        assert_eq!(after.zoom, before.zoom);
+        assert_eq!(after.pan, before.pan);
+        assert_eq!(after.min_zoom, before.min_zoom);
+        assert_eq!(after.max_zoom, before.max_zoom);
+        assert_eq!(after.clamp_mode, before.clamp_mode);
+        assert_eq!(after.fit_mode, before.fit_mode);
     }
 
     #[test]

@@ -103,6 +103,7 @@
 #![no_std]
 
 mod modes;
+mod validation;
 mod viewport1d;
 mod viewport2d;
 
