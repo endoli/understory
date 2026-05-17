@@ -1,6 +1,9 @@
 // Copyright 2026 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// After you edit the crate's doc comment, run this command, then check README.md for any missing links
+// cargo rdme --workspace-project=understory_guide --heading-base-level=0
+
 //! Understory Guide: headless 2D guide geometry primitives.
 //!
 //! This crate owns small 2D geometric adapters above lower-level numeric axis

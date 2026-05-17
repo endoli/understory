@@ -14,7 +14,7 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_box_tree
+cargo rdme --workspace-project=understory_box_tree --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
@@ -77,21 +77,21 @@ for details.
   See [`NodeFlags::VISIBLE`], [`NodeFlags::PICKABLE`], and [`NodeFlags::FOCUSABLE`].
 
 Key operations:
-- [`Tree::insert`](Tree::insert) → [`NodeId`]
-- [`Tree::set_local_transform`](Tree::set_local_transform) / [`Tree::set_local_clip`](Tree::set_local_clip) /
-  [`Tree::set_local_bounds`](Tree::set_local_bounds) / [`Tree::set_flags`](Tree::set_flags)
-- [`Tree::commit`](Tree::commit) → damage summary; updates world data and the spatial index.
-- [`Tree::hit_test_point`](Tree::hit_test_point) and [`Tree::intersect_rect`](Tree::intersect_rect).
-- [`Tree::z_index`](Tree::z_index) exposes the stacking order of a live [`NodeId`].
-- [`Tree::parent_of`](Tree::parent_of) returns the parent of a live [`NodeId`].
-- [`Tree::flags`](Tree::flags) returns the [`NodeFlags`] of a live [`NodeId`].
-- [`Tree::world_transform`](Tree::world_transform) / [`Tree::world_bounds`](Tree::world_bounds)
+- [`Tree::insert`] → [`NodeId`]
+- [`Tree::set_local_transform`] / [`Tree::set_local_clip`] /
+  [`Tree::set_local_bounds`] / [`Tree::set_flags`]
+- [`Tree::commit`] → damage summary; updates world data and the spatial index.
+- [`Tree::hit_test_point`] and [`Tree::intersect_rect`].
+- [`Tree::z_index`] exposes the stacking order of a live [`NodeId`].
+- [`Tree::parent_of`] returns the parent of a live [`NodeId`].
+- [`Tree::flags`] returns the [`NodeFlags`] of a live [`NodeId`].
+- [`Tree::world_transform`] / [`Tree::world_bounds`]
   expose the local→world transform and world-space AABB for a live [`NodeId`].
-- [`Tree::local_transform`](Tree::local_transform) / [`Tree::local_bounds`](Tree::local_bounds) /
-  [`Tree::local_clip`](Tree::local_clip) expose the node's current local geometry state for a
+- [`Tree::local_transform`] / [`Tree::local_bounds`] /
+  [`Tree::local_clip`] expose the node's current local geometry state for a
   live [`NodeId`].
-- [`Tree::children_of`](Tree::children_of) returns the children of a live [`NodeId`].
-- [`Tree::next_depth_first`](Tree::next_depth_first) and [`Tree::prev_depth_first`](Tree::prev_depth_first) provide depth-first tree traversal.
+- [`Tree::children_of`] returns the children of a live [`NodeId`].
+- [`Tree::next_depth_first`] and [`Tree::prev_depth_first`] provide depth-first tree traversal.
 
 ## Damage and debugging notes
 
@@ -111,13 +111,62 @@ This crate is `no_std` and uses `alloc`.
 
 <!-- cargo-rdme end -->
 
+[`LocalNode`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.LocalNode.html
+[`LocalNode::flags`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.LocalNode.html#structfield.flags
+[`NodeFlags`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.NodeFlags.html
+[`NodeFlags::FOCUSABLE`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.NodeFlags.html#associatedconstant.FOCUSABLE
+[`NodeFlags::PICKABLE`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.NodeFlags.html#associatedconstant.PICKABLE
+[`NodeFlags::VISIBLE`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.NodeFlags.html#associatedconstant.VISIBLE
+[`NodeId`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.NodeId.html
+[`QueryFilter`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.QueryFilter.html
+[`Tree`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html
+[`Tree::children_of`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.children_of
+[`Tree::commit`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.commit
+[`Tree::flags`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.flags
+[`Tree::hit_test_point`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.hit_test_point
+[`Tree::insert`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.insert
+[`Tree::intersect_rect`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.intersect_rect
+[`Tree::local_bounds`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.local_bounds
+[`Tree::local_clip`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.local_clip
+[`Tree::local_transform`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.local_transform
+[`Tree::next_depth_first`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.next_depth_first
+[`Tree::parent_of`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.parent_of
+[`Tree::prev_depth_first`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.prev_depth_first
+[`Tree::set_flags`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.set_flags
+[`Tree::set_local_bounds`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.set_local_bounds
+[`Tree::set_local_clip`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.set_local_clip
+[`Tree::set_local_transform`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.set_local_transform
+[`Tree::world_bounds`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.world_bounds
+[`Tree::world_transform`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.world_transform
+[`Tree::z_index`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/struct.Tree.html#method.z_index
+[`understory_index`]: https://docs.rs/understory_index/latest/understory_index/
+[`understory_index::backends::BvhF32`]: https://docs.rs/understory_index/latest/understory_index/backends/type.BvhF32.html
+[`understory_index::backends::BvhF64`]: https://docs.rs/understory_index/latest/understory_index/backends/type.BvhF64.html
+[`understory_index::backends::BvhI64`]: https://docs.rs/understory_index/latest/understory_index/backends/type.BvhI64.html
+[`understory_index::backends::GridF32`]: https://docs.rs/understory_index/latest/understory_index/backends/type.GridF32.html
+[`understory_index::backends::GridF64`]: https://docs.rs/understory_index/latest/understory_index/backends/type.GridF64.html
+[`understory_index::backends::GridI64`]: https://docs.rs/understory_index/latest/understory_index/backends/type.GridI64.html
+[`understory_index::backends::RTreeF32`]: https://docs.rs/understory_index/latest/understory_index/backends/type.RTreeF32.html
+[`understory_index::backends::RTreeF64`]: https://docs.rs/understory_index/latest/understory_index/backends/type.RTreeF64.html
+[`understory_index::backends::RTreeI64`]: https://docs.rs/understory_index/latest/understory_index/backends/type.RTreeI64.html
+[`understory_index::Index`]: https://docs.rs/understory_index/latest/understory_index/type.Index.html
+
 ## Minimum supported Rust Version (MSRV)
 
 This crate has been verified to compile with **Rust 1.88** and later.
 
 ## License
 
-Licensed under the Apache License, Version 2.0 ([LICENSE] or <http://www.apache.org/licenses/LICENSE-2.0>)
+Licensed under the Apache License, Version 2.0 ([LICENSE] or <http://www.apache.org/licenses/LICENSE-2.0>).
 
-<!-- Needs to be defined here for rustdoc's benefit -->
-[LICENSE]: LICENSE
+## Contribution
+
+Contributions are welcome by pull request. The [Rust code of conduct] applies.
+Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
+
+[LICENSE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

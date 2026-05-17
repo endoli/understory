@@ -14,7 +14,7 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_outline
+cargo rdme --workspace-project=understory_outline --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
@@ -40,7 +40,7 @@ The core concepts are:
 
 - [`OutlineModel`]: a trait describing hierarchical traversal by stable keys
   from your model.
-- [`ExpansionState`]: a small container tracking which keys are currently expanded.
+- [`ExpansionState`]: a small set-backed container tracking which keys are currently expanded.
 - [`Outline`]: a controller that owns a model, caches visible rows, and
   rebuilds that projection when model or expansion state changes.
 - [`VisibleRow`]: metadata about one currently visible row.
@@ -82,8 +82,8 @@ virtualization.
 
 Callers and implementations should rely on the following:
 
-- Keys come from the host model, remain meaningful outside the outline, and
-  may be stored in external state.
+- Keys come from the host model, remain meaningful outside the outline, may
+  be stored in external state, and must implement `Eq + Hash`.
 - Root order and sibling order come from the [`OutlineModel`] implementation.
 - Collapsing a parent hides descendants but does not discard their stored
   expansion state.
@@ -113,7 +113,7 @@ The intended integration point is your own domain model implementing
 ```rust
 use understory_outline::{Outline, OutlineModel};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum RowKey {
     Group(usize),
     Property(usize),
@@ -229,7 +229,7 @@ explicit expand/collapse state derived from their existing data model:
 ```rust
 use understory_outline::{Outline, OutlineModel};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum RowKey {
     Group(usize),
     Property(usize),
@@ -361,6 +361,14 @@ This crate is `no_std` and uses `alloc`.
 
 <!-- cargo-rdme end -->
 
+[`ExpansionState`]: https://docs.rs/understory_outline/latest/understory_outline/struct.ExpansionState.html
+[`Outline`]: https://docs.rs/understory_outline/latest/understory_outline/struct.Outline.html
+[`Outline::mark_dirty`]: https://docs.rs/understory_outline/latest/understory_outline/struct.Outline.html#method.mark_dirty
+[`Outline::visible_rows`]: https://docs.rs/understory_outline/latest/understory_outline/struct.Outline.html#method.visible_rows
+[`OutlineModel`]: https://docs.rs/understory_outline/latest/understory_outline/trait.OutlineModel.html
+[`SliceOutline`]: https://docs.rs/understory_outline/latest/understory_outline/struct.SliceOutline.html
+[`VisibleRow`]: https://docs.rs/understory_outline/latest/understory_outline/struct.VisibleRow.html
+
 ## Minimum supported Rust Version (MSRV)
 
 This crate has been verified to compile with **Rust 1.88** and later.
@@ -385,7 +393,7 @@ Please feel free to add your name to the [AUTHORS] file in any substantive pull 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
 as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-[LICENSE-APACHE]: ../LICENSE-APACHE
-[LICENSE-MIT]: ../LICENSE-MIT
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[AUTHORS]: ../AUTHORS
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

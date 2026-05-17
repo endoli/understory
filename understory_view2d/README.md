@@ -138,9 +138,9 @@ assert!(!visible_items.is_empty());
 
 <!-- cargo-rdme end -->
 
+[`f64::MIN_POSITIVE`]: https://doc.rust-lang.org/core/primitive.f64.html#associatedconstant.MIN_POSITIVE
 [`Viewport1D`]: https://docs.rs/understory_view2d/latest/understory_view2d/struct.Viewport1D.html
 [`Viewport2D`]: https://docs.rs/understory_view2d/latest/understory_view2d/struct.Viewport2D.html
-[`f64::MIN_POSITIVE`]: https://doc.rust-lang.org/core/primitive.f64.html#associatedconstant.MIN_POSITIVE
 
 ## Minimum supported Rust Version (MSRV)
 
@@ -163,9 +163,10 @@ as defined in the Apache-2.0 license, shall be dual licensed as above, without a
 Contributions are welcome by pull request. The [Rust code of conduct] applies.
 Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-[Rust Code of Conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[AUTHORS]: ../AUTHORS
-[LICENSE-APACHE]: LICENSE-APACHE
-[LICENSE-MIT]: LICENSE-MIT
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

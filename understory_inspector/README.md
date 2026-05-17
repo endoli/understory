@@ -1,4 +1,23 @@
+<div align="center">
+
 # Understory Inspector
+
+**Host-side inspector controller over outline projection, selection, and virtualization**
+
+[![Latest published version.](https://img.shields.io/crates/v/understory_inspector.svg)](https://crates.io/crates/understory_inspector)
+[![Documentation build status.](https://img.shields.io/docsrs/understory_inspector.svg)](https://docs.rs/understory_inspector)
+[![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
+\
+[![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/forest-rs/understory/ci.yml?logo=github&label=CI)](https://github.com/forest-rs/understory/actions)
+
+</div>
+
+<!-- We use cargo-rdme to update the README with the contents of lib.rs.
+To edit the following section, update it in lib.rs, then run:
+cargo rdme --workspace-project=understory_inspector --heading-base-level=0
+Full documentation at https://github.com/orium/cargo-rdme -->
+
+<!-- Intra-doc links used in lib.rs may be evaluated here. -->
 
 <!-- cargo-rdme start -->
 
@@ -38,7 +57,7 @@ The controller keeps these concerns coherent:
 use understory_inspector::{Inspector, InspectorConfig, InspectorModel};
 use understory_outline::OutlineModel;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Key {
     Group,
     Alpha,
@@ -136,3 +155,45 @@ A typical host loop looks like:
 This crate is `no_std` and uses `alloc`.
 
 <!-- cargo-rdme end -->
+
+[`Inspector::extend_selection_next`]: https://docs.rs/understory_inspector/latest/understory_inspector/struct.Inspector.html#method.extend_selection_next
+[`Inspector::focus_next`]: https://docs.rs/understory_inspector/latest/understory_inspector/struct.Inspector.html#method.focus_next
+[`Inspector::realized_range`]: https://docs.rs/understory_inspector/latest/understory_inspector/struct.Inspector.html#method.realized_range
+[`Inspector::sync`]: https://docs.rs/understory_inspector/latest/understory_inspector/struct.Inspector.html#method.sync
+[`Inspector::toggle_focused`]: https://docs.rs/understory_inspector/latest/understory_inspector/struct.Inspector.html#method.toggle_focused
+[`Inspector::visible_rows`]: https://docs.rs/understory_inspector/latest/understory_inspector/struct.Inspector.html#method.visible_rows
+[`InspectorConfig`]: https://docs.rs/understory_inspector/latest/understory_inspector/struct.InspectorConfig.html
+[`InspectorModel`]: https://docs.rs/understory_inspector/latest/understory_inspector/trait.InspectorModel.html
+[`understory_outline`]: https://docs.rs/understory_outline/latest/understory_outline/
+[`understory_outline::Outline`]: https://docs.rs/understory_outline/latest/understory_outline/struct.Outline.html
+[`understory_selection::Selection`]: https://docs.rs/understory_selection/latest/understory_selection/struct.Selection.html
+[`understory_virtual_list::VirtualList`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html
+
+## Minimum supported Rust Version (MSRV)
+
+This crate has been verified to compile with **Rust 1.88** and later.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE] or <http://www.apache.org/licenses/LICENSE-2.0>), or
+- MIT license ([LICENSE-MIT] or <http://opensource.org/licenses/MIT>),
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
+## Contribution
+
+Contributions are welcome by pull request. The [Rust code of conduct] applies.
+Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

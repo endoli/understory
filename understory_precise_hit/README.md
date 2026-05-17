@@ -6,7 +6,7 @@
 
 [![Latest published version.](https://img.shields.io/crates/v/understory_precise_hit.svg)](https://crates.io/crates/understory_precise_hit)
 [![Documentation build status.](https://img.shields.io/docsrs/understory_precise_hit.svg)](https://docs.rs/understory_precise_hit)
-[![Apache 2.0 license.](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
+[![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/forest-rs/understory/ci.yml?logo=github&label=CI)](https://github.com/forest-rs/understory/actions)
 
@@ -14,7 +14,7 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_precise_hit
+cargo rdme --workspace-project=understory_precise_hit --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
@@ -70,6 +70,20 @@ richer stroke behavior on top.
 
 <!-- cargo-rdme end -->
 
+[`BezPath`]: https://docs.rs/kurbo/latest/kurbo/struct.BezPath.html
+[`Circle`]: https://docs.rs/kurbo/latest/kurbo/struct.Circle.html
+[`HitKind`]: https://docs.rs/understory_precise_hit/latest/understory_precise_hit/enum.HitKind.html
+[`HitParams`]: https://docs.rs/understory_precise_hit/latest/understory_precise_hit/struct.HitParams.html
+[`HitScore`]: https://docs.rs/understory_precise_hit/latest/understory_precise_hit/struct.HitScore.html
+[`kurbo`]: https://docs.rs/kurbo/latest/kurbo/
+[`kurbo::Shape::contains`]: https://docs.rs/kurbo/latest/kurbo/trait.Shape.html#method.contains
+[`PreciseHitTest`]: https://docs.rs/understory_precise_hit/latest/understory_precise_hit/trait.PreciseHitTest.html
+[`PreciseHitTest::hit_test_local`]: https://docs.rs/understory_precise_hit/latest/understory_precise_hit/trait.PreciseHitTest.html#tymethod.hit_test_local
+[`Rect`]: https://docs.rs/kurbo/latest/kurbo/struct.Rect.html
+[`RoundedRect`]: https://docs.rs/kurbo/latest/kurbo/struct.RoundedRect.html
+[`stroke`]: https://docs.rs/understory_precise_hit/latest/understory_precise_hit/stroke/index.html
+[`stroke::StrokedLine`]: https://docs.rs/understory_precise_hit/latest/understory_precise_hit/stroke/struct.StrokedLine.html
+
 ## Minimum supported Rust Version (MSRV)
 
 This crate has been verified to compile with **Rust 1.88** and later.
@@ -91,9 +105,10 @@ as defined in the Apache-2.0 license, shall be dual licensed as above, without a
 Contributions are welcome by pull request. The [Rust code of conduct] applies.
 Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-[Rust Code of Conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[AUTHORS]: ../AUTHORS
-[LICENSE-APACHE]: LICENSE-APACHE
-[LICENSE-MIT]: LICENSE-MIT
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

@@ -6,7 +6,7 @@
 
 [![Latest published version.](https://img.shields.io/crates/v/understory_focus.svg)](https://crates.io/crates/understory_focus)
 [![Documentation build status.](https://img.shields.io/docsrs/understory_focus.svg)](https://docs.rs/understory_focus)
-[![Apache 2.0 license.](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
+[![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/forest-rs/understory/ci.yml?logo=github&label=CI)](https://github.com/forest-rs/understory/actions)
 
@@ -14,7 +14,7 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_focus
+cargo rdme --workspace-project=understory_focus --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
@@ -128,13 +128,44 @@ This crate is `no_std` and uses `alloc`.
 
 <!-- cargo-rdme end -->
 
+[`adapters::box_tree`]: https://docs.rs/understory_focus/latest/understory_focus/adapters/box_tree/index.html
+[`FocusEntry`]: https://docs.rs/understory_focus/latest/understory_focus/struct.FocusEntry.html
+[`FocusPolicy`]: https://docs.rs/understory_focus/latest/understory_focus/trait.FocusPolicy.html
+[`FocusProps`]: https://docs.rs/understory_focus/latest/understory_focus/struct.FocusProps.html
+[`FocusProps::group`]: https://docs.rs/understory_focus/latest/understory_focus/struct.FocusProps.html#structfield.group
+[`FocusProps::policy_hint`]: https://docs.rs/understory_focus/latest/understory_focus/struct.FocusProps.html#structfield.policy_hint
+[`FocusSpace`]: https://docs.rs/understory_focus/latest/understory_focus/struct.FocusSpace.html
+[`FocusSymbol`]: https://docs.rs/understory_focus/latest/understory_focus/struct.FocusSymbol.html
+[`kurbo::Rect`]: https://docs.rs/kurbo/latest/kurbo/struct.Rect.html
+[`Navigation`]: https://docs.rs/understory_focus/latest/understory_focus/enum.Navigation.html
+[`Navigation::Next`]: https://docs.rs/understory_focus/latest/understory_focus/enum.Navigation.html#variant.Next
+[`Navigation::Prev`]: https://docs.rs/understory_focus/latest/understory_focus/enum.Navigation.html#variant.Prev
+
 ## Minimum supported Rust Version (MSRV)
 
 This crate has been verified to compile with **Rust 1.88** and later.
 
 ## License
 
-Licensed under the Apache License, Version 2.0 ([LICENSE] or <http://www.apache.org/licenses/LICENSE-2.0>)
+Licensed under either of
 
-<!-- Needs to be defined here for rustdoc's benefit -->
-[LICENSE]: LICENSE
+- Apache License, Version 2.0 ([LICENSE-APACHE] or <http://www.apache.org/licenses/LICENSE-2.0>), or
+- MIT license ([LICENSE-MIT] or <http://opensource.org/licenses/MIT>),
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
+## Contribution
+
+Contributions are welcome by pull request. The [Rust code of conduct] applies.
+Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

@@ -1,6 +1,9 @@
 // Copyright 2025 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// After you edit the crate's doc comment, run this command, then check README.md for any missing links
+// cargo rdme --workspace-project=understory_precise_hit --heading-base-level=0
+
 //! Geometry-level precise hit testing utilities.
 //!
 //! This crate provides small, reusable primitives for doing narrow-phase

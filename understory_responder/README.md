@@ -14,7 +14,7 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_responder
+cargo rdme --workspace-project=understory_responder --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
@@ -76,7 +76,7 @@ The router produces dispatch sequences that integrate with `understory_event_sta
 ## Focus Routing
 
 Focus routing is separate from pointer routing.
-Use [`Router::dispatch_for`](router::Router::dispatch_for) to emit a capture → target → bubble sequence for a focused node.
+Use the [`Router`](https://docs.rs/understory_responder/latest/understory_responder/router/struct.Router.html) `dispatch_for` method to emit a capture → target → bubble sequence for a focused node.
 The router reconstructs the root→target path via [`ParentLookup`](https://docs.rs/understory_responder/latest/understory_responder/types/trait.ParentLookup.html) or falls back to a singleton path.
 Keyboard and IME events typically route to focus and may bypass scope filters by policy at a higher layer.
 
@@ -105,20 +105,15 @@ See the `dispatcher` module docs for additional patterns and helpers.
 The [`adapters`] module provides integration with other Understory crates:
 
 - **Box Tree Adapter** (`box_tree_adapter` feature): Converts [`understory_box_tree`] spatial queries
-  into [`ResolvedHit`](types::ResolvedHit) items. Includes filtered tree traversal for keyboard navigation.
+  into [`ResolvedHit`](https://docs.rs/understory_responder/latest/understory_responder/types/struct.ResolvedHit.html) items. Includes filtered tree traversal for keyboard navigation.
 
 This crate is `no_std` and uses `alloc`.
 
 <!-- cargo-rdme end -->
 
-## Examples
-
-- Router basics.
-  - `cargo run -p understory_examples --example responder_basics`
-- Hover transitions.
-  - `cargo run -p understory_examples --example responder_hover`
-- Box tree integration.
-  - `cargo run -p understory_examples --example responder_box_tree`
+[`adapters`]: https://docs.rs/understory_responder/latest/understory_responder/adapters/index.html
+[`dispatcher::run`]: https://docs.rs/understory_responder/latest/understory_responder/dispatcher/fn.run.html
+[`understory_box_tree`]: https://docs.rs/understory_box_tree/latest/understory_box_tree/
 
 ## Minimum supported Rust Version (MSRV)
 
@@ -141,9 +136,10 @@ as defined in the Apache-2.0 license, shall be dual licensed as above, without a
 Contributions are welcome by pull request. The [Rust code of conduct] applies.
 Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-[Rust Code of Conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[AUTHORS]: ../AUTHORS
-[LICENSE-APACHE]: LICENSE-APACHE
-[LICENSE-MIT]: LICENSE-MIT
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

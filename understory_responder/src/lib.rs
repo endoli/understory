@@ -59,7 +59,7 @@
 //! ## Focus Routing
 //!
 //! Focus routing is separate from pointer routing.
-//! Use [`Router::dispatch_for`](router::Router::dispatch_for) to emit a capture → target → bubble sequence for a focused node.
+//! Use the [`Router`](crate::router::Router) `dispatch_for` method to emit a capture → target → bubble sequence for a focused node.
 //! The router reconstructs the root→target path via [`ParentLookup`](crate::types::ParentLookup) or falls back to a singleton path.
 //! Keyboard and IME events typically route to focus and may bypass scope filters by policy at a higher layer.
 //!
@@ -94,7 +94,7 @@
 //! The [`adapters`] module provides integration with other Understory crates:
 //!
 //! - **Box Tree Adapter** (`box_tree_adapter` feature): Converts [`understory_box_tree`] spatial queries
-//!   into [`ResolvedHit`](types::ResolvedHit) items. Includes filtered tree traversal for keyboard navigation.
+//!   into [`ResolvedHit`](crate::types::ResolvedHit) items. Includes filtered tree traversal for keyboard navigation.
 //!
 //! This crate is `no_std` and uses `alloc`.
 

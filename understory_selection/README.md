@@ -6,7 +6,7 @@
 
 [![Latest published version.](https://img.shields.io/crates/v/understory_selection.svg)](https://crates.io/crates/understory_selection)
 [![Documentation build status.](https://img.shields.io/docsrs/understory_selection.svg)](https://docs.rs/understory_selection)
-[![Apache 2.0 license.](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
+[![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/forest-rs/understory/ci.yml?logo=github&label=CI)](https://github.com/forest-rs/understory/actions)
 
@@ -14,7 +14,7 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_selection
+cargo rdme --workspace-project=understory_selection --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
@@ -161,6 +161,10 @@ This crate is `no_std` and uses `alloc`.
 
 <!-- cargo-rdme end -->
 
+[`Selection`]: https://docs.rs/understory_selection/latest/understory_selection/struct.Selection.html
+[`Selection::extend_with`]: https://docs.rs/understory_selection/latest/understory_selection/struct.Selection.html#method.extend_with
+[`Selection::replace_with`]: https://docs.rs/understory_selection/latest/understory_selection/struct.Selection.html#method.replace_with
+
 ## Minimum supported Rust Version (MSRV)
 
 This crate has been verified to compile with **Rust 1.88** and later.
@@ -182,9 +186,10 @@ as defined in the Apache-2.0 license, shall be dual licensed as above, without a
 Contributions are welcome by pull request. The [Rust code of conduct] applies.
 Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-[Rust Code of Conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[AUTHORS]: ../AUTHORS
-[LICENSE-APACHE]: LICENSE-APACHE
-[LICENSE-MIT]: LICENSE-MIT
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

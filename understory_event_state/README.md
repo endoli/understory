@@ -6,14 +6,15 @@
 
 [![Latest published version.](https://img.shields.io/crates/v/understory_event_state.svg)](https://crates.io/crates/understory_event_state)
 [![Documentation build status.](https://img.shields.io/docsrs/understory_event_state.svg)](https://docs.rs/understory_event_state)
-[![Apache 2.0 license.](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license) \
+[![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
+\
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/forest-rs/understory/ci.yml?logo=github&label=CI)](https://github.com/forest-rs/understory/actions)
 
 </div>
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_event_state
+cargo rdme --workspace-project=understory_event_state --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
@@ -31,7 +32,7 @@ specific interaction pattern:
 - [`click`]: Transform-aware click recognition with spatial/temporal tolerance
 - [`drag`]: Track drag operations with movement deltas and total offsets
 
-### Design Philosophy
+## Design Philosophy
 
 Each state manager is designed to be:
 
@@ -45,9 +46,9 @@ graph structure. Instead, these managers accept pre-computed information (like
 root→target paths from `understory_responder` or raw pointer positions) and
 produce transition events or state queries that applications can interpret.
 
-### Usage Patterns
+## Usage Patterns
 
-#### Hover Tracking
+### Hover Tracking
 
 Use [`hover::HoverState`] to compute enter/leave transitions when the pointer
 moves between UI elements:
@@ -73,7 +74,7 @@ assert_eq!(events, vec![
 ]);
 ```
 
-#### Focus Management
+### Focus Management
 
 Use [`focus::FocusState`] to track keyboard focus transitions:
 
@@ -97,7 +98,7 @@ assert_eq!(events, vec![
 ]);
 ```
 
-#### Transform-Aware Click Recognition
+### Transform-Aware Click Recognition
 
 Use [`click::ClickState`] to recognize clicks even when elements transform during interaction:
 
@@ -115,7 +116,7 @@ let result = clicks.on_up(None, None, &99, Point::new(13.0, 23.0), 1050);
 assert_eq!(result, ClickResult::Click(42)); // Still generates click on original target
 ```
 
-#### Drag Operations
+### Drag Operations
 
 Use [`drag::DragState`] to track pointer drag operations:
 
@@ -137,7 +138,7 @@ let total = drag.total_offset(Point::new(15.0, 12.0)).unwrap();
 // total is (5.0, 2.0)
 ```
 
-### Integration with Understory
+## Integration with Understory
 
 These state managers integrate naturally with other Understory crates:
 
@@ -150,7 +151,7 @@ Each manager is designed to be a focused building block that handles one
 interaction pattern well, allowing applications to compose them as needed
 for their specific UI requirements.
 
-### Features
+## Features
 
 - `click`: Enable transform-aware click recognition (requires `kurbo` dependency)
 - `drag`: Enable drag state tracking (requires `kurbo` dependency)
@@ -158,6 +159,15 @@ for their specific UI requirements.
 This crate is `no_std` compatible (with `alloc`) for all modules.
 
 <!-- cargo-rdme end -->
+
+[`click`]: https://docs.rs/understory_event_state/latest/understory_event_state/click/index.html
+[`click::ClickState`]: https://docs.rs/understory_event_state/latest/understory_event_state/click/struct.ClickState.html
+[`drag`]: https://docs.rs/understory_event_state/latest/understory_event_state/drag/index.html
+[`drag::DragState`]: https://docs.rs/understory_event_state/latest/understory_event_state/drag/struct.DragState.html
+[`focus`]: https://docs.rs/understory_event_state/latest/understory_event_state/focus/index.html
+[`focus::FocusState`]: https://docs.rs/understory_event_state/latest/understory_event_state/focus/struct.FocusState.html
+[`hover`]: https://docs.rs/understory_event_state/latest/understory_event_state/hover/index.html
+[`hover::HoverState`]: https://docs.rs/understory_event_state/latest/understory_event_state/hover/struct.HoverState.html
 
 ## Minimum supported Rust Version (MSRV)
 
@@ -172,20 +182,18 @@ Licensed under either of
 
 at your option.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the
-work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
-additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
 ## Contribution
 
-Contributions are welcome by pull request. The [Rust code of conduct] applies. Please feel free to
-add your name to the [AUTHORS] file in any substantive pull request.
+Contributions are welcome by pull request. The [Rust code of conduct] applies.
+Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the
-work by you, as defined in the Apache-2.0 license, shall be licensed as above, without any
-additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-[Rust Code of Conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[AUTHORS]: ../AUTHORS
-[LICENSE-APACHE]: LICENSE-APACHE
-[LICENSE-MIT]: LICENSE-MIT
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

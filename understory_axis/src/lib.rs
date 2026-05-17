@@ -1,6 +1,9 @@
 // Copyright 2026 the Understory Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// After you edit the crate's doc comment, run this command, then check README.md for any missing links
+// cargo rdme --workspace-project=understory_axis --heading-base-level=0
+
 //! Understory Axis: headless axis mapping and tick primitives.
 //!
 //! This crate focuses on one narrow concern: mapping numeric domains onto a 1D

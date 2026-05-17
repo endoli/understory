@@ -14,8 +14,10 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_index
+cargo rdme --workspace-project=understory_index --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
+
+<!-- Intra-doc links used in lib.rs may be evaluated here. -->
 
 <!-- cargo-rdme start -->
 
@@ -111,13 +113,25 @@ SAH metrics use widened accumulators to reduce precision pitfalls.
 
 <!-- cargo-rdme end -->
 
+[`backends`]: https://docs.rs/understory_index/latest/understory_index/backends/index.html
+[`Index::commit`]: https://docs.rs/understory_index/latest/understory_index/struct.IndexGeneric.html#method.commit
+
 ## Minimum supported Rust Version (MSRV)
 
-This version of Understory Index has been verified to compile with **Rust 1.88** and later.
+This crate has been verified to compile with **Rust 1.88** and later.
 
 ## License
 
-Licensed under the Apache License, Version 2.0 ([LICENSE] or <http://www.apache.org/licenses/LICENSE-2.0>)
+Licensed under the Apache License, Version 2.0 ([LICENSE] or <http://www.apache.org/licenses/LICENSE-2.0>).
 
-<!-- Needs to be defined here for rustdoc's benefit -->
-[LICENSE]: LICENSE
+## Contribution
+
+Contributions are welcome by pull request. The [Rust code of conduct] applies.
+Please feel free to add your name to the [AUTHORS] file in any substantive pull request.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
+as defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
+
+[LICENSE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

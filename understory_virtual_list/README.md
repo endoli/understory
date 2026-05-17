@@ -14,7 +14,7 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_virtual_list
+cargo rdme --workspace-project=understory_virtual_list --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
@@ -121,6 +121,26 @@ This crate is `no_std` and uses `alloc`.
 
 <!-- cargo-rdme end -->
 
+[`compute_visible_strip`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/fn.compute_visible_strip.html
+[`ExtentModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/trait.ExtentModel.html
+[`GridTrackModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.GridTrackModel.html
+[`PrefixSumExtentModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.PrefixSumExtentModel.html
+[`PrefixSumExtentModel::index_at_offset_for_len`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.PrefixSumExtentModel.html#method.index_at_offset_for_len
+[`PrefixSumExtentModel::rebuild`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.PrefixSumExtentModel.html#method.rebuild
+[`PrefixSumExtentModel::set_extent`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.PrefixSumExtentModel.html#method.set_extent
+[`PrefixSumExtentModel::total_extent_for_len`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.PrefixSumExtentModel.html#method.total_extent_for_len
+[`Scalar`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/trait.Scalar.html
+[`ScrollAlign`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/enum.ScrollAlign.html
+[`SparsePrefixSumExtentModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.SparsePrefixSumExtentModel.html
+[`SparsePrefixSumExtentModel::index_at_offset_for_len`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.SparsePrefixSumExtentModel.html#method.index_at_offset_for_len
+[`SparsePrefixSumExtentModel::rebuild`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.SparsePrefixSumExtentModel.html#method.rebuild
+[`SparsePrefixSumExtentModel::set_extent`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.SparsePrefixSumExtentModel.html#method.set_extent
+[`SparsePrefixSumExtentModel::total_extent_for_len`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.SparsePrefixSumExtentModel.html#method.total_extent_for_len
+[`TailAnchoredExtentModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.TailAnchoredExtentModel.html
+[`VirtualList`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html
+[`VirtualList::visible_strip`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html#method.visible_strip
+[`VisibleStrip`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VisibleStrip.html
+
 ## Minimum supported Rust Version (MSRV)
 
 This crate has been verified to compile with **Rust 1.88** and later.
@@ -145,7 +165,7 @@ Please feel free to add your name to the [AUTHORS] file in any substantive pull 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
 as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-[LICENSE-APACHE]: ../LICENSE-APACHE
-[LICENSE-MIT]: ../LICENSE-MIT
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[AUTHORS]: ../AUTHORS
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS

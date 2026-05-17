@@ -60,21 +60,21 @@
 //!   See [`NodeFlags::VISIBLE`], [`NodeFlags::PICKABLE`], and [`NodeFlags::FOCUSABLE`].
 //!
 //! Key operations:
-//! - [`Tree::insert`](Tree::insert) → [`NodeId`]
-//! - [`Tree::set_local_transform`](Tree::set_local_transform) / [`Tree::set_local_clip`](Tree::set_local_clip) /
-//!   [`Tree::set_local_bounds`](Tree::set_local_bounds) / [`Tree::set_flags`](Tree::set_flags)
-//! - [`Tree::commit`](Tree::commit) → damage summary; updates world data and the spatial index.
-//! - [`Tree::hit_test_point`](Tree::hit_test_point) and [`Tree::intersect_rect`](Tree::intersect_rect).
-//! - [`Tree::z_index`](Tree::z_index) exposes the stacking order of a live [`NodeId`].
-//! - [`Tree::parent_of`](Tree::parent_of) returns the parent of a live [`NodeId`].
-//! - [`Tree::flags`](Tree::flags) returns the [`NodeFlags`] of a live [`NodeId`].
-//! - [`Tree::world_transform`](Tree::world_transform) / [`Tree::world_bounds`](Tree::world_bounds)
+//! - [`Tree::insert`] → [`NodeId`]
+//! - [`Tree::set_local_transform`] / [`Tree::set_local_clip`] /
+//!   [`Tree::set_local_bounds`] / [`Tree::set_flags`]
+//! - [`Tree::commit`] → damage summary; updates world data and the spatial index.
+//! - [`Tree::hit_test_point`] and [`Tree::intersect_rect`].
+//! - [`Tree::z_index`] exposes the stacking order of a live [`NodeId`].
+//! - [`Tree::parent_of`] returns the parent of a live [`NodeId`].
+//! - [`Tree::flags`] returns the [`NodeFlags`] of a live [`NodeId`].
+//! - [`Tree::world_transform`] / [`Tree::world_bounds`]
 //!   expose the local→world transform and world-space AABB for a live [`NodeId`].
-//! - [`Tree::local_transform`](Tree::local_transform) / [`Tree::local_bounds`](Tree::local_bounds) /
-//!   [`Tree::local_clip`](Tree::local_clip) expose the node's current local geometry state for a
+//! - [`Tree::local_transform`] / [`Tree::local_bounds`] /
+//!   [`Tree::local_clip`] expose the node's current local geometry state for a
 //!   live [`NodeId`].
-//! - [`Tree::children_of`](Tree::children_of) returns the children of a live [`NodeId`].
-//! - [`Tree::next_depth_first`](Tree::next_depth_first) and [`Tree::prev_depth_first`](Tree::prev_depth_first) provide depth-first tree traversal.
+//! - [`Tree::children_of`] returns the children of a live [`NodeId`].
+//! - [`Tree::next_depth_first`] and [`Tree::prev_depth_first`] provide depth-first tree traversal.
 //!
 //! ## Damage and debugging notes
 //!
