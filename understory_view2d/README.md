@@ -14,24 +14,24 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=understory_view2d
+cargo rdme --workspace-project=understory_view2d --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs may be evaluated here. -->
 
 <!-- cargo-rdme start -->
 
-Understory View 2D: 1D and 2D view/viewport primitives.
+Understory View 2D: headless 1D and 2D viewport primitives.
 
 This crate provides small, headless models of world-space views where the
 view extents are typically expressed in device pixels. It focuses on:
 - Camera / viewport state (pan + zoom).
 - Coordinate conversion between world and view/device (pixel) space.
 - View fitting and centering/alignment helpers.
-- Simple zoom / pan constraints.
+- Simple zoom / pan constraints with finite-state input hardening.
 
-It does **not** own any scene graph or rendering backend. Callers are
-expected to:
+It does **not** own any scene graph, input event model, rendering backend,
+or physical-unit policy. Callers are expected to:
 - Maintain their own scene or display tree.
 - Use [`Viewport2D`] / [`Viewport1D`] to derive transforms and
   visible-region bounds.
@@ -40,6 +40,27 @@ expected to:
 - Optionally combine `world_units_per_pixel` helpers with display DPI and
   external unit libraries (for example `joto_constants`) to reason about
   physical sizes.
+
+## Boundary and invariants
+
+`understory_view2d` owns finite viewport state and coordinate transforms.
+It deliberately leaves input gestures, scene storage, hit testing, and
+rendering to higher-level crates.
+
+Mutating APIs keep the viewport state finite:
+- View spans and view rectangles must be finite with non-negative extent.
+  Invalid constructor inputs fall back to empty extents, while invalid
+  setter inputs are ignored.
+- World ranges and world rectangles used for bounds or fitting must be
+  finite and non-empty. Invalid bounds or fit targets are ignored.
+- Zoom values must be finite and at least [`f64::MIN_POSITIVE`]. Zoom limit
+  ranges are normalized, and invalid zoom inputs are ignored.
+- Non-finite pan deltas, zoom anchors, and center targets are ignored.
+
+The crate itself is `#![no_std]`. The default `std` feature forwards to
+Kurbo for ordinary examples, tests, and documentation builds; `no_std`
+users should disable default features and enable `libm` when they need
+Kurbo's libm-backed floating point helpers.
 
 ## Minimal 2D example
 
@@ -69,7 +90,7 @@ use understory_view2d::Viewport1D;
 let span = 0.0..800.0;
 let mut view = Viewport1D::new(span);
 
-// World bounds in \"time\" units.
+// World bounds in "time" units.
 view.set_world_bounds(Some(0.0..120.0));
 view.fit_world();
 
@@ -82,8 +103,8 @@ let world_t = view.view_to_world_x(device_x);
 
 - Cameras are axis-aligned with a **uniform** zoom factor.
 - Panning operates in view space; zooming is expressed as a scalar.
-- Rotation is intentionally left out of the initial design and can be
-  added later as a backwards-compatible extension.
+- Rotation is intentionally left out of the initial design and can be added
+  later without changing the responsibility boundary of this crate.
 - Controllers that interpret `ui-events` and more complex behaviors such
   as inertia are expected to live in higher-level crates built on top of
   this one.
@@ -115,9 +136,11 @@ let visible_items: Vec<Rect> = world_items
 assert!(!visible_items.is_empty());
 ```
 
-This crate is `no_std`.
-
 <!-- cargo-rdme end -->
+
+[`Viewport1D`]: https://docs.rs/understory_view2d/latest/understory_view2d/struct.Viewport1D.html
+[`Viewport2D`]: https://docs.rs/understory_view2d/latest/understory_view2d/struct.Viewport2D.html
+[`f64::MIN_POSITIVE`]: https://doc.rust-lang.org/core/primitive.f64.html#associatedconstant.MIN_POSITIVE
 
 ## Minimum supported Rust Version (MSRV)
 
@@ -146,4 +169,3 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 [AUTHORS]: ../AUTHORS
 [LICENSE-APACHE]: LICENSE-APACHE
 [LICENSE-MIT]: LICENSE-MIT
-
