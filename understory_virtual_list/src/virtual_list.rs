@@ -5,7 +5,10 @@
 
 use core::ops::Range;
 
-use crate::{ExtentModel, Scalar, TailAnchoredExtentModel, VisibleStrip, compute_visible_strip};
+use crate::{
+    ExtentModel, ResizableExtentModel, Scalar, TailAnchoredExtentModel, VisibleStrip,
+    compute_visible_strip,
+};
 
 /// Alignment mode when scrolling a specific index into view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +77,67 @@ impl<M: ExtentModel> VirtualList<M> {
     pub fn model_mut(&mut self) -> &mut M {
         self.dirty = true;
         &mut self.model
+    }
+
+    /// Returns the number of items in the underlying model.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.model.len()
+    }
+
+    /// Returns `true` if the underlying model contains no items.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.model.is_empty()
+    }
+
+    /// Returns the total extent of the underlying model.
+    ///
+    /// Unlike [`VirtualList::model_mut`], this may update model-internal
+    /// caches without marking the cached materialized strip dirty.
+    #[must_use]
+    pub fn total_extent(&mut self) -> M::Scalar {
+        self.model.total_extent()
+    }
+
+    /// Returns the extent of `index` in the underlying model.
+    ///
+    /// Unlike [`VirtualList::model_mut`], this may update model-internal
+    /// caches without marking the cached materialized strip dirty.
+    #[must_use]
+    pub fn extent_of(&mut self, index: usize) -> M::Scalar {
+        self.model.extent_of(index)
+    }
+
+    /// Returns the offset of `index` in the underlying model.
+    ///
+    /// Unlike [`VirtualList::model_mut`], this may update model-internal
+    /// caches without marking the cached materialized strip dirty.
+    #[must_use]
+    pub fn offset_of(&mut self, index: usize) -> M::Scalar {
+        self.model.offset_of(index)
+    }
+
+    /// Finds the greatest index whose item starts at or before `offset`.
+    ///
+    /// This mirrors [`ExtentModel::index_at_offset`], including returning `0`
+    /// as a sentinel when the model is empty. Prefer
+    /// [`VirtualList::try_index_at_offset`] when the model may be empty.
+    ///
+    /// Unlike [`VirtualList::model_mut`], this may update model-internal
+    /// caches without marking the cached materialized strip dirty.
+    #[must_use]
+    pub fn index_at_offset(&mut self, offset: M::Scalar) -> usize {
+        self.model.index_at_offset(offset)
+    }
+
+    /// Like [`VirtualList::index_at_offset`], but returns `None` when the model is empty.
+    ///
+    /// Unlike [`VirtualList::model_mut`], this may update model-internal
+    /// caches without marking the cached materialized strip dirty.
+    #[must_use]
+    pub fn try_index_at_offset(&mut self, offset: M::Scalar) -> Option<usize> {
+        self.model.try_index_at_offset(offset)
     }
 
     /// Returns the current scroll offset.
@@ -333,6 +397,18 @@ impl<M: ExtentModel> VirtualList<M> {
     }
 }
 
+impl<M: ResizableExtentModel> VirtualList<M> {
+    /// Sets the logical length of the underlying model and invalidates the cached strip.
+    ///
+    /// This is a convenience wrapper for hosts whose backing collection length
+    /// changes, avoiding a broad [`VirtualList::model_mut`] borrow when only
+    /// the model length needs to change.
+    pub fn set_len(&mut self, len: usize) {
+        self.model.set_len(len);
+        self.dirty = true;
+    }
+}
+
 impl<M: ExtentModel> VirtualList<TailAnchoredExtentModel<M>> {
     /// Returns `true` if the current scroll offset is considered anchored to the tail.
     ///
@@ -391,7 +467,71 @@ impl<M: ExtentModel> VirtualList<TailAnchoredExtentModel<M>> {
 #[cfg(test)]
 mod tests {
     use super::ScrollAlign;
-    use crate::{FixedExtentModel, GridTrackModel, TailAnchoredExtentModel, VirtualList};
+    use crate::{
+        ExtentModel, FixedExtentModel, GridTrackModel, TailAnchoredExtentModel, VirtualList,
+    };
+
+    #[derive(Debug, Clone)]
+    struct CountingModel {
+        len: usize,
+        extent: f32,
+        total_extent_calls: usize,
+        offset_of_calls: usize,
+        extent_of_calls: usize,
+        index_at_offset_calls: usize,
+    }
+
+    impl CountingModel {
+        fn new(len: usize, extent: f32) -> Self {
+            Self {
+                len,
+                extent,
+                total_extent_calls: 0,
+                offset_of_calls: 0,
+                extent_of_calls: 0,
+                index_at_offset_calls: 0,
+            }
+        }
+    }
+
+    impl ExtentModel for CountingModel {
+        type Scalar = f32;
+
+        fn len(&self) -> usize {
+            self.len
+        }
+
+        fn total_extent(&mut self) -> Self::Scalar {
+            self.total_extent_calls += 1;
+            self.len as f32 * self.extent
+        }
+
+        fn extent_of(&mut self, index: usize) -> Self::Scalar {
+            self.extent_of_calls += 1;
+            if index < self.len { self.extent } else { 0.0 }
+        }
+
+        fn offset_of(&mut self, index: usize) -> Self::Scalar {
+            self.offset_of_calls += 1;
+            index.min(self.len) as f32 * self.extent
+        }
+
+        fn index_at_offset(&mut self, offset: Self::Scalar) -> usize {
+            self.index_at_offset_calls += 1;
+            if self.len == 0 {
+                return 0;
+            }
+
+            let mut item_offset = 0.0;
+            for index in 0..self.len {
+                if item_offset + self.extent > offset {
+                    return index;
+                }
+                item_offset += self.extent;
+            }
+            self.len - 1
+        }
+    }
 
     #[test]
     fn visible_strip_tracks_scroll_and_viewport() {
@@ -516,6 +656,53 @@ mod tests {
     }
 
     #[test]
+    fn set_len_resizes_model_and_invalidates_cached_strip() {
+        let model = FixedExtentModel::new(2, 10.0_f32);
+        let mut list = VirtualList::new(model, 30.0_f32, 0.0);
+
+        assert_eq!(list.visible_range(), 0..2);
+
+        list.set_len(5);
+        assert_eq!(list.len(), 5);
+        assert!(!list.is_empty());
+        assert_eq!(list.visible_range(), 0..3);
+
+        list.set_len(0);
+        assert!(list.is_empty());
+        assert_eq!(list.visible_range(), 0..0);
+    }
+
+    #[test]
+    fn set_len_works_through_tail_anchored_models() {
+        let inner = FixedExtentModel::new(2, 10.0_f32);
+        let ta = TailAnchoredExtentModel::with_default_epsilon(inner);
+        let mut list = VirtualList::new(ta, 30.0_f32, 0.0);
+
+        list.set_len(5);
+
+        assert_eq!(list.len(), 5);
+        assert_eq!(list.visible_range(), 0..3);
+    }
+
+    #[test]
+    fn model_query_wrappers_do_not_dirty_cached_strip() {
+        let model = CountingModel::new(5, 10.0_f32);
+        let mut list = VirtualList::new(model, 30.0_f32, 0.0);
+
+        assert_eq!(list.visible_range(), 0..3);
+        let total_extent_calls = list.model().total_extent_calls;
+
+        assert_eq!(list.total_extent(), 50.0_f32);
+        assert_eq!(list.offset_of(2), 20.0_f32);
+        assert_eq!(list.extent_of(2), 10.0_f32);
+        assert_eq!(list.index_at_offset(25.0_f32), 2);
+        assert_eq!(list.try_index_at_offset(45.0_f32), Some(4));
+
+        assert_eq!(list.visible_range(), 0..3);
+        assert_eq!(list.model().total_extent_calls, total_extent_calls + 1);
+    }
+
+    #[test]
     fn grid_virtual_list_covers_all_cells_in_visible_tracks() {
         // 1000 cells, 3 cells per track, enough tracks to cover all cells.
         let total_cells: usize = 1000;
@@ -593,7 +780,7 @@ mod tests {
         assert!((list.scroll_offset() - 70.0_f32).abs() < 1e-5);
         let was_at_tail = list.is_at_tail();
 
-        list.model_mut().inner_mut().set_len(11);
+        list.set_len(11);
         list.restore_tail_anchor(was_at_tail);
 
         assert!((list.scroll_offset() - 80.0_f32).abs() < 1e-5);
@@ -609,7 +796,7 @@ mod tests {
         list.set_scroll_offset(10.0_f32);
         let was_at_tail = list.is_at_tail();
 
-        list.model_mut().inner_mut().set_len(11);
+        list.set_len(11);
         list.restore_tail_anchor(was_at_tail);
 
         assert!((list.scroll_offset() - 10.0_f32).abs() < 1e-5);

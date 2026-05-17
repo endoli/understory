@@ -54,6 +54,8 @@ particular UI framework. Host frameworks are responsible for:
   Use [`VirtualList::visible_range`] for the materialized range including
   overscan, and [`VirtualList::viewport_range`] for the range that overlaps
   the viewport itself.
+- Calling [`VirtualList::set_len`] when the backing collection length changes
+  and the model implements [`ResizableExtentModel`].
 - Feeding measured item sizes back into an [`ExtentModel`] (for example via
   [`PrefixSumExtentModel`]).
 
@@ -137,6 +139,7 @@ This crate is `no_std` and uses `alloc`.
 [`PrefixSumExtentModel::rebuild`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.PrefixSumExtentModel.html#method.rebuild
 [`PrefixSumExtentModel::set_extent`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.PrefixSumExtentModel.html#method.set_extent
 [`PrefixSumExtentModel::total_extent_for_len`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.PrefixSumExtentModel.html#method.total_extent_for_len
+[`ResizableExtentModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/trait.ResizableExtentModel.html
 [`Scalar`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/trait.Scalar.html
 [`ScrollAlign`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/enum.ScrollAlign.html
 [`SparsePrefixSumExtentModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.SparsePrefixSumExtentModel.html
@@ -146,6 +149,7 @@ This crate is `no_std` and uses `alloc`.
 [`SparsePrefixSumExtentModel::total_extent_for_len`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.SparsePrefixSumExtentModel.html#method.total_extent_for_len
 [`TailAnchoredExtentModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.TailAnchoredExtentModel.html
 [`VirtualList`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html
+[`VirtualList::set_len`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html#method.set_len
 [`VirtualList::viewport_range`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html#method.viewport_range
 [`VirtualList::visible_range`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html#method.visible_range
 [`VirtualList::visible_strip`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html#method.visible_strip

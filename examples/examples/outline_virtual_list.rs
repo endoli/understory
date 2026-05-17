@@ -144,7 +144,7 @@ fn sync_list_from_outline(
     list: &mut VirtualList<FixedExtentModel<f64>>,
 ) {
     let visible_len = outline.visible_len();
-    list.model_mut().set_len(visible_len);
+    list.set_len(visible_len);
     list.clamp_scroll_to_content();
 }
 

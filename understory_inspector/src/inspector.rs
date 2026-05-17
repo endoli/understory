@@ -179,7 +179,7 @@ where
     /// selection, and virtual-list length.
     pub fn sync(&mut self) {
         let visible_len = self.outline.visible_len();
-        self.list.model_mut().set_len(visible_len);
+        self.list.set_len(visible_len);
         self.reconcile_focus();
         self.prune_selection_to_visible();
         self.scroll_focus_into_view();

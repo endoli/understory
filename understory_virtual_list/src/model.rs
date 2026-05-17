@@ -66,6 +66,10 @@ impl<S: Scalar> VisibleStrip<S> {
 /// Methods that logically consult prefix sums take `&mut self` so implementations
 /// are free to maintain internal caches without exposing interior mutability at
 /// the call site.
+///
+/// Query methods may update derived caches, but should not change the logical
+/// item count or item extents. Use model-specific mutation APIs or
+/// [`ResizableExtentModel::set_len`] for changes that alter the strip geometry.
 pub trait ExtentModel {
     /// Scalar type used for extents and offsets.
     type Scalar: Scalar;

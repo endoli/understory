@@ -37,6 +37,8 @@
 //!   Use [`VirtualList::visible_range`] for the materialized range including
 //!   overscan, and [`VirtualList::viewport_range`] for the range that overlaps
 //!   the viewport itself.
+//! - Calling [`VirtualList::set_len`] when the backing collection length changes
+//!   and the model implements [`ResizableExtentModel`].
 //! - Feeding measured item sizes back into an [`ExtentModel`] (for example via
 //!   [`PrefixSumExtentModel`]).
 //!

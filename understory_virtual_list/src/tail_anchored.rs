@@ -45,8 +45,8 @@
 //!
 //! // Append a new item and give it an extent.
 //! {
+//!     list.set_len(4);
 //!     let inner = list.model_mut().inner_mut();
-//!     inner.set_len(4);
 //!     inner.set_extent(3, 10.0);
 //! }
 //!
@@ -55,7 +55,7 @@
 //! assert!(list.is_at_tail());
 //! ```
 
-use crate::{ExtentModel, Scalar};
+use crate::{ExtentModel, ResizableExtentModel, Scalar};
 
 /// Wraps an [`ExtentModel`] with tail-anchoring helpers.
 ///
@@ -180,6 +180,12 @@ impl<M: ExtentModel> ExtentModel for TailAnchoredExtentModel<M> {
 
     fn index_at_offset(&mut self, offset: Self::Scalar) -> usize {
         self.inner.index_at_offset(offset)
+    }
+}
+
+impl<M: ResizableExtentModel> ResizableExtentModel for TailAnchoredExtentModel<M> {
+    fn set_len(&mut self, len: usize) {
+        self.inner.set_len(len);
     }
 }
 
