@@ -34,6 +34,9 @@
 //! - Owning the actual data and view/widget instances.
 //! - Calling [`VirtualList::visible_strip`] when scroll or viewport changes.
 //! - Diffing the returned `[start, end)` index range to create/destroy children.
+//!   Use [`VirtualList::visible_range`] for the materialized range including
+//!   overscan, and [`VirtualList::viewport_range`] for the range that overlaps
+//!   the viewport itself.
 //! - Feeding measured item sizes back into an [`ExtentModel`] (for example via
 //!   [`PrefixSumExtentModel`]).
 //!
@@ -55,8 +58,13 @@
 //! assert!(strip.start < strip.end);
 //! assert!(strip.content_extent > 0.0);
 //!
-//! // Host frameworks would now instantiate views for indices `start..end`
+//! // Host frameworks would now instantiate views for indices in `strip.range()`
 //! // and position them after `before_extent` worth of spacer.
+//! assert_eq!(strip.range(), list.visible_range());
+//!
+//! // To report the non-overscanned range that overlaps the viewport:
+//! let range_in_viewport = list.viewport_range();
+//! assert!(range_in_viewport.start <= range_in_viewport.end);
 //! ```
 //!
 //! For non-uniform item sizes, use either [`PrefixSumExtentModel`] if all items are readily

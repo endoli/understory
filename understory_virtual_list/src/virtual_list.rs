@@ -3,6 +3,8 @@
 
 //! A small controller that owns an [`ExtentModel`] and scroll state.
 
+use core::ops::Range;
+
 use crate::{ExtentModel, Scalar, TailAnchoredExtentModel, VisibleStrip, compute_visible_strip};
 
 /// Alignment mode when scrolling a specific index into view.
@@ -132,7 +134,9 @@ impl<M: ExtentModel> VirtualList<M> {
         self.overscan_after
     }
 
-    /// Computes or returns the cached visible strip.
+    /// Computes or returns the cached materialized strip.
+    ///
+    /// This strip includes the configured overscan before and after the viewport.
     #[must_use]
     pub fn visible_strip(&mut self) -> VisibleStrip<M::Scalar> {
         if self.dirty {
@@ -148,12 +152,45 @@ impl<M: ExtentModel> VirtualList<M> {
         self.last_strip
     }
 
-    /// Convenience iterator over visible indices.
+    /// Returns the half-open materialized index range, including overscan.
+    ///
+    /// This is equivalent to `self.visible_strip().range()`.
+    #[must_use]
+    pub fn visible_range(&mut self) -> Range<usize> {
+        self.visible_strip().range()
+    }
+
+    /// Computes the viewport strip without overscan.
+    ///
+    /// Use this when host code needs the indices that overlap the viewport
+    /// itself, rather than the larger materialized range. The returned strip
+    /// uses the same half-open `[start, end)` convention as
+    /// [`VirtualList::visible_strip`].
+    #[must_use]
+    pub fn viewport_strip(&mut self) -> VisibleStrip<M::Scalar> {
+        compute_visible_strip(
+            &mut self.model,
+            self.scroll_offset,
+            self.viewport_extent,
+            M::Scalar::zero(),
+            M::Scalar::zero(),
+        )
+    }
+
+    /// Returns the half-open index range that overlaps the viewport.
+    ///
+    /// This excludes overscan and includes partially visible items. Empty
+    /// viewports are represented as `idx..idx`, matching Rust collection APIs.
+    #[must_use]
+    pub fn viewport_range(&mut self) -> Range<usize> {
+        self.viewport_strip().range()
+    }
+
+    /// Convenience iterator over materialized indices, including overscan.
     pub fn visible_indices(
         &mut self,
     ) -> impl DoubleEndedIterator<Item = usize> + ExactSizeIterator + use<M> {
-        let strip = self.visible_strip();
-        strip.start..strip.end
+        self.visible_range()
     }
 
     /// Returns the first visible index, if any.
@@ -373,6 +410,41 @@ mod tests {
         assert_eq!(strip.end, 6);
         assert_eq!(list.first_visible_index(), Some(1));
         assert_eq!(list.last_visible_index(), Some(5));
+    }
+
+    #[test]
+    fn range_helpers_use_half_open_ranges() {
+        let model = FixedExtentModel::new(10, 10.0_f32);
+        let mut list = VirtualList::new(model, 20.0_f32, 10.0_f32);
+        list.set_scroll_offset(10.0_f32);
+
+        assert_eq!(list.visible_range(), 0..4);
+        assert_eq!(
+            list.visible_indices().collect::<alloc::vec::Vec<_>>(),
+            alloc::vec![0, 1, 2, 3]
+        );
+        assert_eq!(list.viewport_range(), 1..3);
+
+        let viewport = list.viewport_strip();
+        assert_eq!(viewport.range(), 1..3);
+        assert_eq!(viewport.start, 1);
+        assert_eq!(viewport.end, 3);
+    }
+
+    #[test]
+    fn viewport_range_handles_empty_and_single_item_ranges() {
+        let model = FixedExtentModel::new(5, 10.0_f32);
+        let mut list = VirtualList::new(model, 10.0_f32, 0.0);
+
+        list.set_scroll_offset(10.0_f32);
+        assert_eq!(list.viewport_range(), 1..2);
+
+        list.set_viewport_extent(0.0_f32);
+        list.set_scroll_offset(15.0_f32);
+        assert_eq!(list.viewport_range(), 1..1);
+
+        list.set_scroll_offset(50.0_f32);
+        assert_eq!(list.viewport_range(), 5..5);
     }
 
     #[test]

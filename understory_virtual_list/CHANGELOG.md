@@ -13,6 +13,12 @@ You can find its changes [documented below](#011-2026-05-17).
 
 ## [Unreleased]
 
+### Added
+
+- Added half-open range helpers for materialized and viewport ranges:
+  `VisibleStrip::range`, `VirtualList::visible_range`, `VirtualList::viewport_strip`,
+  and `VirtualList::viewport_range`. ([#169][] by [@waywardmonkeys][])
+
 ## [0.1.1][] (2026-05-17)
 
 This release has an [MSRV][] of 1.88.
@@ -44,6 +50,7 @@ This is the initial release.
 
 [#165]: https://github.com/forest-rs/understory/pull/165
 [#166]: https://github.com/forest-rs/understory/pull/166
+[#169]: https://github.com/forest-rs/understory/pull/169
 
 [Unreleased]: https://github.com/forest-rs/understory/compare/understory_virtual_list-v0.1.1...HEAD
 [0.1.1]: https://github.com/forest-rs/understory/compare/understory_virtual_list-v0.1.0...understory_virtual_list-v0.1.1
