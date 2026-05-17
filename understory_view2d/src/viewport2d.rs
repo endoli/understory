@@ -5,14 +5,14 @@ use kurbo::{Affine, Point, Rect, Vec2};
 
 use crate::modes::{ClampMode, FitMode, normalize_zoom_limits, sanitize_zoom_value};
 
-/// 2D viewport over a world‑space plane.
+/// 2D viewport over a world-space plane.
 ///
 /// `Viewport2D` tracks a rectangular region in device/view space and a
 /// uniform pan+zoom transform mapping world coordinates into that region.
 /// It can be used to:
 /// - Convert points and rectangles between world and view coordinates.
 /// - Pan and zoom around a chosen anchor point.
-/// - Fit the entire world bounds (or a sub‑rect) into the view.
+/// - Fit the entire world bounds (or a sub-rect) into the view.
 #[derive(Clone, Debug)]
 pub struct Viewport2D {
     view_rect: Rect,
@@ -200,14 +200,14 @@ impl Viewport2D {
 
     /// Fits the entire world bounds into the view, preserving aspect ratio.
     ///
-    /// If no world bounds are set, this is a no‑op.
+    /// If no world bounds are set, this is a no-op.
     pub fn fit_world(&mut self) {
         if let Some(bounds) = self.world_bounds {
             self.fit_rect(bounds);
         }
     }
 
-    /// Fits the given world‑space rectangle into the view, preserving aspect ratio.
+    /// Fits the given world-space rectangle into the view, preserving aspect ratio.
     pub fn fit_rect(&mut self, rect: Rect) {
         if rect.width() <= 0.0 || rect.height() <= 0.0 {
             return;
@@ -243,7 +243,7 @@ impl Viewport2D {
         self.clamp_to_bounds();
     }
 
-    /// Centers the view on the given world‑space point.
+    /// Centers the view on the given world-space point.
     pub fn center_on(&mut self, world_pt: Point) {
         let view_center = self.view_rect.center();
         let world_in_view = self.world_to_view_point(world_pt);
@@ -251,29 +251,29 @@ impl Viewport2D {
         self.pan_by_view(delta);
     }
 
-    /// Returns the visible world‑space rectangle.
+    /// Returns the visible world-space rectangle.
     #[must_use]
     pub fn visible_world_rect(&self) -> Rect {
         self.view_to_world_rect(self.view_rect)
     }
 
-    /// Converts a world‑space point into view/device coordinates.
+    /// Converts a world-space point into view/device coordinates.
     #[must_use]
     pub fn world_to_view_point(&self, pt: Point) -> Point {
         self.world_to_view * pt
     }
 
-    /// Converts a view/device‑space point into world coordinates.
+    /// Converts a view/device-space point into world coordinates.
     #[must_use]
     pub fn view_to_world_point(&self, pt: Point) -> Point {
         self.view_to_world * pt
     }
 
-    /// Converts a world‑space rectangle into view/device coordinates.
+    /// Converts a world-space rectangle into view/device coordinates.
     #[must_use]
     pub fn world_to_view_rect(&self, rect: Rect) -> Rect {
         // Transform the four corners and take their bounding box. This is
-        // sufficient for the axis‑aligned, uniform zoom transform used here.
+        // sufficient for the axis-aligned, uniform zoom transform used here.
         let p0 = rect.origin();
         let p1 = Point::new(rect.max_x(), rect.y0);
         let p2 = Point::new(rect.x0, rect.max_y());
@@ -289,7 +289,7 @@ impl Viewport2D {
         Rect::new(min_x, min_y, max_x, max_y)
     }
 
-    /// Converts a view/device‑space rectangle into world coordinates.
+    /// Converts a view/device-space rectangle into world coordinates.
     #[must_use]
     pub fn view_to_world_rect(&self, rect: Rect) -> Rect {
         let p0 = rect.origin();
@@ -307,9 +307,9 @@ impl Viewport2D {
         Rect::new(min_x, min_y, max_x, max_y)
     }
 
-    /// Returns the current world‑units‑per‑pixel ratio at the view center.
+    /// Returns the current world-units-per-pixel ratio at the view center.
     ///
-    /// This is `1.0 / zoom` for the axis‑aligned, uniform zoom model used
+    /// This is `1.0 / zoom` for the axis-aligned, uniform zoom model used
     /// by this crate and can be used to choose grid spacing or stroke
     /// thickness in world units.
     #[must_use]
@@ -317,7 +317,7 @@ impl Viewport2D {
         1.0 / self.zoom
     }
 
-    /// Returns the current world‑units‑per‑pixel ratio along the X axis.
+    /// Returns the current world-units-per-pixel ratio along the X axis.
     ///
     /// For the uniform zoom model used by this crate, this is identical
     /// to [`Viewport2D::world_units_per_pixel`].
@@ -326,7 +326,7 @@ impl Viewport2D {
         self.world_units_per_pixel()
     }
 
-    /// Returns the current world‑units‑per‑pixel ratio along the Y axis.
+    /// Returns the current world-units-per-pixel ratio along the Y axis.
     ///
     /// For the uniform zoom model used by this crate, this is identical
     /// to [`Viewport2D::world_units_per_pixel`].
@@ -335,10 +335,10 @@ impl Viewport2D {
         self.world_units_per_pixel()
     }
 
-    /// Suggests a “nice” grid spacing in world units for the current zoom.
+    /// Suggests a "nice" grid spacing in world units for the current zoom.
     ///
     /// The returned value is chosen so that grid lines appear roughly tens of
-    /// pixels apart (using a 1‑2‑5 ladder), with `base` treated as a lower
+    /// pixels apart (using a 1-2-5 ladder), with `base` treated as a lower
     /// bound on the spacing in world units.
     #[must_use]
     pub fn suggest_grid_spacing(&self, base: f64) -> f64 {
@@ -385,7 +385,7 @@ impl Viewport2D {
     fn rebuild_transforms(&mut self) {
         let view_origin = self.view_rect.origin().to_vec2();
         let scale = self.zoom;
-        // World → view: translate by pan, then scale, then translate into view rect.
+        // World -> view: translate by pan, then scale, then translate into view rect.
         self.world_to_view = Affine::translate(view_origin + self.pan) * Affine::scale(scale);
         self.view_to_world = self.world_to_view.inverse();
     }
@@ -442,7 +442,7 @@ pub struct Viewport2DDebugInfo {
     pub view_rect: Rect,
     /// Optional world bounds for clamping and fitting.
     pub world_bounds: Option<Rect>,
-    /// World‑space rectangle currently visible through the view.
+    /// World-space rectangle currently visible through the view.
     pub visible_world_rect: Rect,
     /// Current uniform zoom factor.
     pub zoom: f64,

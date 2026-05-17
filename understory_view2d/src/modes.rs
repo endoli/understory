@@ -32,7 +32,7 @@ pub enum FitMode {
     Center,
     /// Align the minimum corner of the fitted content with the view origin.
     ///
-    /// For [`crate::Viewport2D`] this aligns the world‑space minimum corner with
+    /// For [`crate::Viewport2D`] this aligns the world-space minimum corner with
     /// the view rect origin; for [`crate::Viewport1D`] this aligns the range
     /// minimum with the start of the view span.
     AlignMin,

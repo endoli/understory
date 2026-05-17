@@ -6,7 +6,7 @@
 
 //! Understory View 2D: 1D and 2D view/viewport primitives.
 //!
-//! This crate provides small, headless models of world‑space views where the
+//! This crate provides small, headless models of world-space views where the
 //! view extents are typically expressed in device pixels. It focuses on:
 //! - Camera / viewport state (pan + zoom).
 //! - Coordinate conversion between world and view/device (pixel) space.
@@ -17,7 +17,7 @@
 //! expected to:
 //! - Maintain their own scene or display tree.
 //! - Use [`Viewport2D`] / [`Viewport1D`] to derive transforms and
-//!   visible‑region bounds.
+//!   visible-region bounds.
 //! - Wire input events (for example, from `ui-events`) into pan/zoom
 //!   operations at a higher layer.
 //! - Optionally combine `world_units_per_pixel` helpers with display DPI and
@@ -63,18 +63,18 @@
 //!
 //! ## Design notes
 //!
-//! - Cameras are axis‑aligned with a **uniform** zoom factor.
+//! - Cameras are axis-aligned with a **uniform** zoom factor.
 //! - Panning operates in view space; zooming is expressed as a scalar.
 //! - Rotation is intentionally left out of the initial design and can be
-//!   added later as a backwards‑compatible extension.
+//!   added later as a backwards-compatible extension.
 //! - Controllers that interpret `ui-events` and more complex behaviors such
-//!   as inertia are expected to live in higher‑level crates built on top of
+//!   as inertia are expected to live in higher-level crates built on top of
 //!   this one.
 //!
 //! ## Culling example
 //!
 //! `Viewport2D` can be used to compute a visible world rectangle for culling.
-//! For example, given a list of world‑space rectangles, you can retain only
+//! For example, given a list of world-space rectangles, you can retain only
 //! those that intersect the current view:
 //!
 //! ```rust

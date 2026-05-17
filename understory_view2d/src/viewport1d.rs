@@ -7,7 +7,7 @@ use kurbo::Point;
 
 use crate::modes::{ClampMode, FitMode, normalize_zoom_limits, sanitize_zoom_value};
 
-/// 1D viewport over a world‑space axis.
+/// 1D viewport over a world-space axis.
 ///
 /// `Viewport1D` tracks a span in view/device coordinates and a uniform pan+zoom
 /// transform along a single world axis. It is conventionally used for the
@@ -191,14 +191,14 @@ impl Viewport1D {
 
     /// Fits the entire world bounds into the view span, preserving aspect ratio.
     ///
-    /// If no world bounds are set, this is a no‑op.
+    /// If no world bounds are set, this is a no-op.
     pub fn fit_world(&mut self) {
         if let Some(bounds) = self.world_bounds.clone() {
             self.fit_range(bounds);
         }
     }
 
-    /// Fits the given world‑space range into the view span, preserving aspect ratio.
+    /// Fits the given world-space range into the view span, preserving aspect ratio.
     pub fn fit_range(&mut self, world_range: Range<f64>) {
         self.set_visible_world_range(world_range);
     }
@@ -253,7 +253,7 @@ impl Viewport1D {
         self.pan_by_view(delta);
     }
 
-    /// Returns the visible world‑space range.
+    /// Returns the visible world-space range.
     #[must_use]
     pub fn visible_world_range(&self) -> Range<f64> {
         let start = self.view_to_world_x(self.view_span.start);
@@ -261,13 +261,13 @@ impl Viewport1D {
         if start <= end { start..end } else { end..start }
     }
 
-    /// Converts a world‑space X coordinate into view/device coordinates.
+    /// Converts a world-space X coordinate into view/device coordinates.
     #[must_use]
     pub fn world_to_view_x(&self, x: f64) -> f64 {
         self.view_span.start + self.pan + self.zoom * x
     }
 
-    /// Converts a view/device‑space X coordinate into world coordinates.
+    /// Converts a view/device-space X coordinate into world coordinates.
     #[must_use]
     pub fn view_to_world_x(&self, x: f64) -> f64 {
         (x - self.view_span.start - self.pan) / self.zoom
@@ -283,16 +283,16 @@ impl Viewport1D {
         self.view_to_world_x(pt.x)
     }
 
-    /// Returns the current world‑units‑per‑pixel ratio along the X axis.
+    /// Returns the current world-units-per-pixel ratio along the X axis.
     #[must_use]
     pub fn world_units_per_pixel_x(&self) -> f64 {
         1.0 / self.zoom
     }
 
-    /// Suggests a “nice” grid spacing in world units for the current zoom.
+    /// Suggests a "nice" grid spacing in world units for the current zoom.
     ///
     /// The returned value is chosen so that grid lines appear roughly tens of
-    /// pixels apart (using a 1‑2‑5 ladder), with `base` treated as a lower
+    /// pixels apart (using a 1-2-5 ladder), with `base` treated as a lower
     /// bound on the spacing in world units.
     #[must_use]
     pub fn suggest_grid_spacing(&self, base: f64) -> f64 {
@@ -380,7 +380,7 @@ pub struct Viewport1DDebugInfo {
     pub view_span: Range<f64>,
     /// Optional world bounds for clamping and fitting.
     pub world_bounds: Option<Range<f64>>,
-    /// World‑space range currently visible through the view.
+    /// World-space range currently visible through the view.
     pub visible_world_range: Range<f64>,
     /// Current uniform zoom factor.
     pub zoom: f64,
