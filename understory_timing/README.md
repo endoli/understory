@@ -163,6 +163,23 @@ assert_eq!(target.window, 1);
 
 <!-- cargo-rdme end -->
 
+[`TimerInstant`]: https://docs.rs/understory_timing/latest/understory_timing/type.TimerInstant.html
+[`TimerDuration`]: https://docs.rs/understory_timing/latest/understory_timing/type.TimerDuration.html
+[`TimerQueue`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html
+[`TimerId`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerId.html
+[`TimerRepeat`]: https://docs.rs/understory_timing/latest/understory_timing/enum.TimerRepeat.html
+[`ExpiredTimer`]: https://docs.rs/understory_timing/latest/understory_timing/struct.ExpiredTimer.html
+[`TimerQueue::schedule`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.schedule
+[`TimerQueue::schedule_at`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.schedule_at
+[`TimerQueue::next_deadline`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.next_deadline
+[`TimerQueue::pop_expired`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.pop_expired
+[`ExpiredTimer::target`]: https://docs.rs/understory_timing/latest/understory_timing/struct.ExpiredTimer.html#method.target
+[`TimerQueue::rearm`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.rearm
+[`TimerQueue::retain_pending`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.retain_pending
+[`TimerQueue::cancel`]: https://docs.rs/understory_timing/latest/understory_timing/struct.TimerQueue.html#method.cancel
+[`alloc::collections::VecDeque`]: https://doc.rust-lang.org/alloc/collections/struct.VecDeque.html
+[`u64::MAX`]: https://doc.rust-lang.org/core/primitive.u64.html#associatedconstant.MAX
+
 ## Minimum supported Rust Version (MSRV)
 
 This crate has been verified to compile with **Rust 1.88** and later.
@@ -187,7 +204,7 @@ Please feel free to add your name to the [AUTHORS] file in any substantive pull 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
 as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-[LICENSE-APACHE]: ../LICENSE-APACHE
-[LICENSE-MIT]: ../LICENSE-MIT
+[LICENSE-APACHE]: https://github.com/forest-rs/understory/blob/main/LICENSE-APACHE
+[LICENSE-MIT]: https://github.com/forest-rs/understory/blob/main/LICENSE-MIT
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[AUTHORS]: ../AUTHORS
+[AUTHORS]: https://github.com/forest-rs/understory/blob/main/AUTHORS
