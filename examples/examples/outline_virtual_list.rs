@@ -166,7 +166,8 @@ fn print_visible_rows(
         strip.after_extent
     );
 
-    let visible_rows: Vec<_> = (strip.start..strip.end)
+    let visible_rows: Vec<_> = strip
+        .range()
         .filter_map(|index| outline.visible_row(index).map(|row| (row.key, row.depth)))
         .collect();
 

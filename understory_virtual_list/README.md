@@ -51,6 +51,9 @@ particular UI framework. Host frameworks are responsible for:
 - Owning the actual data and view/widget instances.
 - Calling [`VirtualList::visible_strip`] when scroll or viewport changes.
 - Diffing the returned `[start, end)` index range to create/destroy children.
+  Use [`VirtualList::visible_range`] for the materialized range including
+  overscan, and [`VirtualList::viewport_range`] for the range that overlaps
+  the viewport itself.
 - Feeding measured item sizes back into an [`ExtentModel`] (for example via
   [`PrefixSumExtentModel`]).
 
@@ -72,8 +75,13 @@ let strip = list.visible_strip();
 assert!(strip.start < strip.end);
 assert!(strip.content_extent > 0.0);
 
-// Host frameworks would now instantiate views for indices `start..end`
+// Host frameworks would now instantiate views for indices in `strip.range()`
 // and position them after `before_extent` worth of spacer.
+assert_eq!(strip.range(), list.visible_range());
+
+// To report the non-overscanned range that overlaps the viewport:
+let range_in_viewport = list.viewport_range();
+assert!(range_in_viewport.start <= range_in_viewport.end);
 ```
 
 For non-uniform item sizes, use either [`PrefixSumExtentModel`] if all items are readily
@@ -138,6 +146,8 @@ This crate is `no_std` and uses `alloc`.
 [`SparsePrefixSumExtentModel::total_extent_for_len`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.SparsePrefixSumExtentModel.html#method.total_extent_for_len
 [`TailAnchoredExtentModel`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.TailAnchoredExtentModel.html
 [`VirtualList`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html
+[`VirtualList::viewport_range`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html#method.viewport_range
+[`VirtualList::visible_range`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html#method.visible_range
 [`VirtualList::visible_strip`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VirtualList.html#method.visible_strip
 [`VisibleStrip`]: https://docs.rs/understory_virtual_list/latest/understory_virtual_list/struct.VisibleStrip.html
 

@@ -3,7 +3,7 @@
 
 //! Core extent model traits and helpers.
 
-use core::cmp;
+use core::{cmp, ops::Range};
 
 use crate::Scalar;
 
@@ -24,6 +24,18 @@ pub struct VisibleStrip<S: Scalar> {
 }
 
 impl<S: Scalar> VisibleStrip<S> {
+    /// Returns the half-open index range covered by this strip.
+    ///
+    /// The returned range is always `start..end`, with `end` excluded. Empty
+    /// strips are represented as `idx..idx`, matching Rust collection APIs.
+    #[must_use]
+    pub const fn range(&self) -> Range<usize> {
+        Range {
+            start: self.start,
+            end: self.end,
+        }
+    }
+
     /// Returns `true` if there are no visible items.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
@@ -324,12 +336,14 @@ mod tests {
         // Three items of 10 each, viewport at offset 5 with size 10 → items 0..2 visible.
         let mut model = SimpleModel::new(&[10.0, 10.0, 10.0]);
         let strip = compute_visible_strip(&mut model, 5.0, 10.0, 0.0, 0.0);
+        assert_eq!(strip.range(), 0..2);
         assert_eq!(strip.len(), 2);
         assert!((strip.visible_extent() - 20.0_f32).abs() < 1e-5);
 
         // Empty model → len 0, visible_extent 0.
         let mut model = SimpleModel::new(&[]);
         let strip = compute_visible_strip(&mut model, 0.0, 100.0, 0.0, 0.0);
+        assert_eq!(strip.range(), 0..0);
         assert_eq!(strip.len(), 0);
         assert!(strip.is_empty());
         assert!((strip.visible_extent() - 0.0_f32).abs() < 1e-5);
@@ -346,6 +360,7 @@ mod tests {
         assert_eq!(strip.after_extent, 0.0);
         assert_eq!(strip.content_extent, 30.0);
         assert_eq!(strip.visible_extent(), 0.0);
+        assert_eq!(strip.range(), 3..3);
     }
 
     #[test]
@@ -359,6 +374,7 @@ mod tests {
         assert_eq!(strip.after_extent, 20.0);
         assert_eq!(strip.content_extent, 30.0);
         assert_eq!(strip.visible_extent(), 0.0);
+        assert_eq!(strip.range(), 1..1);
     }
 
     #[test]

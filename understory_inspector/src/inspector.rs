@@ -136,8 +136,7 @@ where
     /// Returns the realized visible-row range for the current viewport and overscan.
     #[must_use]
     pub fn realized_range(&mut self) -> Range<usize> {
-        let strip = self.list.visible_strip();
-        strip.start..strip.end
+        self.list.visible_range()
     }
 
     /// Returns the current scroll offset.
