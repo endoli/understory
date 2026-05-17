@@ -8,33 +8,46 @@
 
 //! Understory Timing: host-agnostic timer queue primitives.
 //!
-//! This crate owns timer identity, ordering, cancellation, expiration, and
-//! repeat policy calculation. It explicitly does **not** own clocks, platform
-//! wakeups, event loops, widgets, rendering, or redraw policy.
+//! This crate provides a small, deterministic core for ordering timers by
+//! monotonic deadlines. It is intended for UI toolkits, event loops, and other
+//! host runtimes that want timer bookkeeping without taking on clocks, threads,
+//! async reactors, callbacks, or platform wakeups.
 //!
-//! The queue uses host-provided monotonic integer ticks. Most UI runtimes will
-//! use nanoseconds, but this crate treats the values as opaque monotonic labels.
-//! Callers decide how to convert from their platform clock into
-//! [`TimerInstant`] and [`TimerDuration`].
+//! The core concepts are:
 //!
-//! A host runtime typically keeps one [`TimerQueue`] next to its retained UI or
-//! task state:
+//! - [`TimerInstant`] and [`TimerDuration`]: host-provided integer ticks. Most
+//!   hosts use nanoseconds, but the queue treats them as opaque monotonic
+//!   labels.
+//! - [`TimerQueue`]: a deadline-ordered queue of pending timers.
+//! - [`TimerId`]: the queue-assigned id used for queue-local cancellation and
+//!   delivery recognition.
+//! - [`TimerRepeat`]: the policy for calculating a repeating timer's next
+//!   deadline.
+//! - [`ExpiredTimer`]: an owned record returned to the host once a timer is due.
 //!
-//! - call [`TimerQueue::schedule`] or [`TimerQueue::schedule_at`] when a
-//!   widget, controller, or task asks for a delayed wakeup,
-//! - pass the returned [`TimerId`] back to that owner if it needs to cancel a
-//!   pending timer or recognize the timer during later delivery,
-//! - use [`TimerQueue::next_deadline`] to configure the platform/event-loop
-//!   wakeup,
-//! - call [`TimerQueue::pop_expired`] with the current monotonic time when the
-//!   host wakes,
-//! - dispatch each owned expired record to the owner identified by
-//!   [`ExpiredTimer::target`]; because the record is owned, the host may also
-//!   schedule or cancel timers during dispatch,
-//! - call [`TimerQueue::rearm`] after dispatch if a repeating timer should keep
-//!   running,
-//! - use [`TimerQueue::retain_pending`] when an owner is removed and all of its
-//!   pending timers should be purged.
+//! This crate deliberately does **not** know about wall-clock time, sleeping,
+//! wakeup registration, async tasks, widgets, rendering, or redraw policy. Host
+//! runtimes are responsible for:
+//!
+//! - converting their clock into [`TimerInstant`] and [`TimerDuration`] values,
+//! - calling [`TimerQueue::schedule`] or [`TimerQueue::schedule_at`] when an
+//!   owner asks for a delayed wakeup,
+//! - using [`TimerQueue::next_deadline`] to arm the host wakeup mechanism,
+//! - storing callback or action state in or alongside the timer target payload,
+//! - calling [`TimerQueue::pop_expired`] with the current monotonic time when
+//!   the host wakes,
+//! - dispatching each owned expired record to the owner identified by
+//!   [`ExpiredTimer::target`],
+//! - calling [`TimerQueue::rearm`] after dispatch if a repeating timer should
+//!   keep running,
+//! - using [`TimerQueue::retain_pending`] when an owner is removed and all of
+//!   its pending timers should be purged.
+//!
+//! The queue is backed by a sorted [`alloc::collections::VecDeque`]. It favors a
+//! small dependency-free core and explicit ordering rules over high-volume timer
+//! scheduling machinery. It is a good fit for the modest timer counts common in
+//! UI toolkits and small runtime loops; hosts with very large timer sets can
+//! layer a heap or timing wheel above a different scheduling core.
 //!
 //! ## Invariants
 //!
@@ -44,7 +57,7 @@
 //! - Cancellation is idempotent, applies to pending timers, and reports whether
 //!   a pending timer was removed.
 //! - Expired timers are removed before they are returned to the host.
-//! - Deadline arithmetic saturates at [`u64::MAX`].
+//! - Relative deadline arithmetic saturates at [`u64::MAX`].
 //!
 //! ## Cancellation and delivery
 //!
@@ -61,12 +74,9 @@
 //! ## Target payloads
 //!
 //! Timer targets are host-defined owner handles. Use ids such as element,
-//! widget, or task ids when possible. Expired timers own their target handle so
-//! the queue is not borrowed while the host dispatches the timer.
-//!
-//! The queue is backed by a sorted [`alloc::collections::VecDeque`] and is
-//! intended for the modest timer counts typical of UI runtimes. It keeps the
-//! dependency surface small and the ordering rules explicit.
+//! widget, task, connection, or request ids when possible. Expired timers own
+//! their target handle so the queue is not borrowed while the host dispatches
+//! the timer.
 //!
 //! ## Minimal example
 //!

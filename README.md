@@ -57,7 +57,7 @@ The focus is on clean separation of concerns, pluggable performance trade‑offs
   - Intended to pair with `understory_box_tree` / `understory_precise_hit` for hit testing and `understory_responder` for event routing.
 
 - `understory_timing`
-  - Host-agnostic timer queue primitives for UI runtimes.
+  - Host-agnostic timer queue primitives.
   - Tracks timer ids, target payloads, deadline ordering, cancellation, expiration, and explicit repeat policies.
   - Uses caller-supplied monotonic ticks and deliberately does not own clocks, event loops, platform wakeups, widgets, or redraw policy.
 

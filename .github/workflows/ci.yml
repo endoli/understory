@@ -113,6 +113,9 @@ jobs:
       - name: check understory_view2d README
         run: cargo rdme --workspace-project=understory_view2d --heading-base-level=0 --check
 
+      - name: check understory_timing README
+        run: cargo rdme --workspace-project=understory_timing --heading-base-level=0 --check
+
       - name: check understory_virtual_list README
         run: cargo rdme --workspace-project=understory_virtual_list --heading-base-level=0 --check
 

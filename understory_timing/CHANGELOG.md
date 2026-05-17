@@ -25,7 +25,7 @@ This is the initial release.
 
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 
-[#158]: https://github.com/linebender/vello/pull/158
+[#158]: https://github.com/forest-rs/understory/pull/158
 
 [Unreleased]: https://github.com/forest-rs/understory/compare/understory_timing-v0.1.0...HEAD
 [0.1.0]: https://github.com/forest-rs/understory/releases/tag/understory_timing-v0.1.0
