@@ -10,8 +10,10 @@ categories = ["gui", "data-structures"]
 
 [dependencies]
 kurbo.workspace = true
-understory_box_tree = { path = "../understory_box_tree", default-features = false, optional = true }
-understory_index = { path = "../understory_index", optional = true }
+understory_box_tree = { workspace = true, optional = true }
+understory_index = { workspace = true, features = [
+  "backend_grid",
+], optional = true }
 
 [lints]
 workspace = true

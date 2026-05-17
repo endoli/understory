@@ -6,12 +6,12 @@ publish = false
 autobenches = false
 
 [dependencies]
-understory_index = { path = "../understory_index" }
-understory_box_tree = { path = "../understory_box_tree" }
-understory_inspector = { path = "../understory_inspector" }
-understory_outline = { path = "../understory_outline" }
-understory_property = { path = "../understory_property" }
-understory_style = { path = "../understory_style" }
+understory_box_tree = { workspace = true, features = ["std"] }
+understory_index = { workspace = true, features = ["backend_grid"] }
+understory_inspector = { workspace = true, features = ["std"] }
+understory_outline = { workspace = true, features = ["std"] }
+understory_property.workspace = true
+understory_style.workspace = true
 kurbo.workspace = true
 rstar = { version = "0.11", optional = true }
 

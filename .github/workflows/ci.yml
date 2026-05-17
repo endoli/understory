@@ -228,6 +228,45 @@ jobs:
       - name: cargo test --doc
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
 
+  package:
+    name: cargo package --list
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+
+      - name: restore cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
+
+      - name: cargo package --list
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This catches package-time manifest errors such as path dependencies
+          # without version requirements, while not requiring internal crates to
+          # already be published on crates.io.
+          read -ra package_args <<< "$RUST_MIN_VER_PKGS"
+          set -- "${package_args[@]}"
+          while [ "$#" -gt 0 ]; do
+            if [ "$1" != "-p" ]; then
+              echo "expected -p before package name, got: $1" >&2
+              exit 1
+            fi
+            shift
+            if [ "$#" -eq 0 ]; then
+              echo "missing package name after -p" >&2
+              exit 1
+            fi
+            cargo package -p "$1" --locked --list >/dev/null
+            shift
+          done
+
   test-stable-wasm:
     name: cargo test (wasm32)
     runs-on: ubuntu-latest

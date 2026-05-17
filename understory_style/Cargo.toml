@@ -9,7 +9,7 @@ keywords = ["style", "theme", "ui", "framework", "no_std"]
 categories = ["data-structures", "no-std"]
 
 [dependencies]
-understory_property = { path = "../understory_property" }
+understory_property.workspace = true
 
 [lints]
 workspace = true

@@ -11,7 +11,7 @@ categories = ["data-structures", "graphics", "no-std"]
 [dependencies]
 kurbo.workspace = true
 bitflags.workspace = true
-understory_index = { path = "../understory_index" }
+understory_index = { workspace = true, features = ["backend_grid"] }
 
 [lints]
 workspace = true

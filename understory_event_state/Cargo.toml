@@ -9,7 +9,7 @@ keywords = ["ui", "events", "state", "no_std", "understory"]
 categories = ["gui", "no-std"]
 
 [dependencies]
-kurbo = { workspace = true, default-features = false, optional = true }
+kurbo = { workspace = true, optional = true }
 
 
 [lints]
