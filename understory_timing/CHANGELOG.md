@@ -13,11 +13,19 @@ You can find its changes [documented below](#010-2026-05-14).
 
 ## [Unreleased]
 
+### Added
+
+- Added `TimerQueue::schedule_at` for scheduling timers with host-computed absolute deadlines. ([#158][] by [@waywardmonkeys][])
+
 ## [0.1.0][] (2026-05-14)
 
 This release has an [MSRV][] of 1.88.
 
 This is the initial release.
+
+[@waywardmonkeys]: https://github.com/waywardmonkeys
+
+[#158]: https://github.com/linebender/vello/pull/158
 
 [Unreleased]: https://github.com/forest-rs/understory/compare/understory_timing-v0.1.0...HEAD
 [0.1.0]: https://github.com/forest-rs/understory/releases/tag/understory_timing-v0.1.0

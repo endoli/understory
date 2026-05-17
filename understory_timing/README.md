@@ -10,9 +10,10 @@ The queue uses host-provided monotonic integer ticks. Most UI runtimes will use
 nanoseconds, but the crate treats the values as opaque monotonic labels.
 
 Hosts usually keep one queue next to retained UI or task state. Schedule a
-timer when an owner asks for a delayed wakeup, use `next_deadline` to arm the
-platform wakeup, and call `pop_expired` with the current monotonic time when
-the host wakes. The expired record's target is the owner handle to notify.
+timer with either a relative delay or an absolute deadline, use `next_deadline`
+to arm the platform wakeup, and call `pop_expired` with the current monotonic
+time when the host wakes. The expired record's target is the owner handle to
+notify.
 
 Cancellation removes pending timers only. Once a timer has been returned by
 `pop_expired`, it is no longer pending; hosts that batch expired timers before

@@ -20,8 +20,8 @@
 //! A host runtime typically keeps one [`TimerQueue`] next to its retained UI or
 //! task state:
 //!
-//! - call [`TimerQueue::schedule`] when a widget, controller, or task asks for a
-//!   delayed wakeup,
+//! - call [`TimerQueue::schedule`] or [`TimerQueue::schedule_at`] when a
+//!   widget, controller, or task asks for a delayed wakeup,
 //! - pass the returned [`TimerId`] back to that owner if it needs to cancel a
 //!   pending timer or recognize the timer during later delivery,
 //! - use [`TimerQueue::next_deadline`] to configure the platform/event-loop
@@ -418,15 +418,29 @@ impl<Target> TimerQueue<Target> {
         delay: TimerDuration,
         repeat: TimerRepeat,
     ) -> TimerId {
-        let id = TimerId(self.next_id);
-        self.next_id = self
-            .next_id
-            .checked_add(1)
-            .expect("timer id space exhausted");
+        self.schedule_at(target, now.saturating_add(delay), repeat)
+    }
+
+    /// Schedules a timer at an absolute deadline.
+    ///
+    /// `deadline` is in the same host-provided monotonic tick space as the
+    /// `now` value passed to [`TimerQueue::pop_expired`]. If the host later
+    /// pops expired timers at a time greater than or equal to `deadline`, this
+    /// timer is due. Equal deadlines still fire in scheduling order.
+    ///
+    /// This method performs no arithmetic. Use [`TimerQueue::schedule`] when
+    /// the host has a relative delay instead of an absolute deadline.
+    pub fn schedule_at(
+        &mut self,
+        target: Target,
+        deadline: TimerInstant,
+        repeat: TimerRepeat,
+    ) -> TimerId {
+        let id = self.next_timer_id();
         let entry = PendingTimer {
             id,
             target,
-            deadline: now.saturating_add(delay),
+            deadline,
             repeat,
         };
         self.insert_entry(entry);
@@ -509,6 +523,15 @@ impl<Target> TimerQueue<Target> {
         true
     }
 
+    fn next_timer_id(&mut self) -> TimerId {
+        let id = TimerId(self.next_id);
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .expect("timer id space exhausted");
+        id
+    }
+
     fn insert_entry(&mut self, entry: PendingTimer<Target>) {
         self.insert_entry_after(entry, 0);
     }
@@ -562,6 +585,22 @@ mod tests {
             fired.push(timer.id());
         }
         assert_eq!(fired, alloc::vec![early, same, late]);
+        assert!(timers.is_empty());
+    }
+
+    #[test]
+    fn schedule_at_uses_absolute_deadlines() {
+        let mut timers = TimerQueue::new();
+        let late = timers.schedule_at("late", 30, TimerRepeat::None);
+        let early = timers.schedule_at("early", 10, TimerRepeat::None);
+        let same = timers.schedule_at("same", 10, TimerRepeat::None);
+
+        assert_eq!(timers.next_deadline(), Some(10));
+        assert_eq!(timers.pop_expired(9), None);
+        assert_eq!(timers.pop_expired(10).map(|timer| timer.id()), Some(early));
+        assert_eq!(timers.pop_expired(10).map(|timer| timer.id()), Some(same));
+        assert_eq!(timers.pop_expired(10), None);
+        assert_eq!(timers.pop_expired(30).map(|timer| timer.id()), Some(late));
         assert!(timers.is_empty());
     }
 
