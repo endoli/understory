@@ -180,11 +180,24 @@ where
 
     if max <= min {
         // Very small viewport / overscan, or near-zero content.
+        let anchor = min.min(content_extent);
+        if anchor >= content_extent {
+            return VisibleStrip {
+                start: len,
+                end: len,
+                before_extent: content_extent,
+                after_extent: S::<M>::zero(),
+                content_extent,
+            };
+        }
+
+        let index = cmp::min(model.index_at_offset(anchor), len.saturating_sub(1));
+        let before_extent = model.offset_of(index);
         return VisibleStrip {
-            start: 0,
-            end: 0,
-            before_extent: min,
-            after_extent: (content_extent - min).max(S::<M>::zero()),
+            start: index,
+            end: index,
+            before_extent,
+            after_extent: (content_extent - before_extent).max(S::<M>::zero()),
             content_extent,
         };
     }
@@ -318,6 +331,32 @@ mod tests {
         assert_eq!(strip.len(), 0);
         assert!(strip.is_empty());
         assert!((strip.visible_extent() - 0.0_f32).abs() < 1e-5);
+    }
+
+    #[test]
+    fn empty_visible_range_beyond_content_has_coherent_spacers() {
+        let mut model = SimpleModel::new(&[10.0, 10.0, 10.0]);
+        let strip = compute_visible_strip(&mut model, 100.0, 0.0, 0.0, 0.0);
+
+        assert_eq!(strip.start, 3);
+        assert_eq!(strip.end, 3);
+        assert_eq!(strip.before_extent, 30.0);
+        assert_eq!(strip.after_extent, 0.0);
+        assert_eq!(strip.content_extent, 30.0);
+        assert_eq!(strip.visible_extent(), 0.0);
+    }
+
+    #[test]
+    fn empty_visible_range_inside_content_has_coherent_spacers() {
+        let mut model = SimpleModel::new(&[10.0, 10.0, 10.0]);
+        let strip = compute_visible_strip(&mut model, 15.0, 0.0, 0.0, 0.0);
+
+        assert_eq!(strip.start, 1);
+        assert_eq!(strip.end, 1);
+        assert_eq!(strip.before_extent, 10.0);
+        assert_eq!(strip.after_extent, 20.0);
+        assert_eq!(strip.content_extent, 30.0);
+        assert_eq!(strip.visible_extent(), 0.0);
     }
 
     #[test]

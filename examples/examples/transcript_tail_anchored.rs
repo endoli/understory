@@ -56,9 +56,7 @@ fn sync_tail_anchored(
     list.model_mut()
         .inner_mut()
         .rebuild(transcript.iter().cloned(), &entry_extent);
-    if was_at_tail {
-        list.scroll_to_tail();
-    }
+    list.restore_tail_anchor(was_at_tail);
 }
 
 fn entry_extent(entry: &TranscriptEntry) -> f32 {

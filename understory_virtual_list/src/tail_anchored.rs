@@ -51,9 +51,7 @@
 //! }
 //!
 //! // If we were at the tail before, keep the view pinned after the update.
-//! if was_at_tail {
-//!     list.scroll_to_tail();
-//! }
+//! list.restore_tail_anchor(was_at_tail);
 //! assert!(list.is_at_tail());
 //! ```
 

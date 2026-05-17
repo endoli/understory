@@ -318,12 +318,32 @@ impl<M: ExtentModel> VirtualList<TailAnchoredExtentModel<M>> {
         self.set_scroll_offset(tail);
     }
 
-    /// If the list is currently anchored to the tail, re-aligns the scroll offset
-    /// to the current tail position. Otherwise, leaves the scroll offset unchanged.
+    /// Convenience helper for applying a tail-anchor state captured before
+    /// mutating the model.
     ///
-    /// This is useful when item extents change or items are appended: call this
-    /// after updating the underlying model to keep the view pinned to the tail
-    /// only when the user was already at (or near) the end of the list.
+    /// Call [`VirtualList::is_at_tail`] before appending items or changing
+    /// extents, update the model, then pass the captured value here. This is
+    /// equivalent to calling [`VirtualList::scroll_to_tail`] when
+    /// `was_at_tail` is `true`.
+    pub fn restore_tail_anchor(&mut self, was_at_tail: bool) {
+        if was_at_tail {
+            self.scroll_to_tail();
+        }
+    }
+
+    /// If the list is currently anchored to the tail, re-aligns the scroll
+    /// offset to the current tail position. Otherwise, leaves the scroll offset
+    /// unchanged.
+    ///
+    /// This checks anchoring against the current model state, which is wrong
+    /// for the common append/update path: after the model changes, a scroll
+    /// offset that was previously anchored may no longer be near the new tail.
+    /// Capture [`VirtualList::is_at_tail`] before the mutation and call
+    /// [`VirtualList::restore_tail_anchor`] after the mutation instead.
+    #[deprecated(
+        since = "0.1.1",
+        note = "checks anchoring after the model has changed; capture is_at_tail() before mutation and call restore_tail_anchor() afterward"
+    )]
     pub fn stick_to_tail_if_anchored(&mut self) {
         if self.is_at_tail() {
             self.scroll_to_tail();
@@ -473,13 +493,54 @@ mod tests {
         // should pull us back to the exact tail offset.
         list.set_scroll_offset(69.5_f32);
         assert!(list.is_at_tail());
+        #[allow(
+            deprecated,
+            reason = "verify compatibility behavior for deprecated method"
+        )]
         list.stick_to_tail_if_anchored();
         assert!((list.scroll_offset() - 70.0_f32).abs() < 1e-5);
 
         // Move far from tail; stick_to_tail_if_anchored should leave offset unchanged.
         list.set_scroll_offset(10.0_f32);
         assert!(!list.is_at_tail());
+        #[allow(
+            deprecated,
+            reason = "verify compatibility behavior for deprecated method"
+        )]
         list.stick_to_tail_if_anchored();
         assert!((list.scroll_offset() - 10.0_f32).abs() < 1e-5);
+    }
+
+    #[test]
+    fn restore_tail_anchor_uses_state_captured_before_append() {
+        let inner = FixedExtentModel::new(10, 10.0_f32);
+        let ta = TailAnchoredExtentModel::with_default_epsilon(inner);
+        let mut list = VirtualList::new(ta, 30.0_f32, 0.0);
+
+        list.scroll_to_tail();
+        assert!((list.scroll_offset() - 70.0_f32).abs() < 1e-5);
+        let was_at_tail = list.is_at_tail();
+
+        list.model_mut().inner_mut().set_len(11);
+        list.restore_tail_anchor(was_at_tail);
+
+        assert!((list.scroll_offset() - 80.0_f32).abs() < 1e-5);
+        assert!(list.is_at_tail());
+    }
+
+    #[test]
+    fn restore_tail_anchor_keeps_scroll_when_not_previously_anchored() {
+        let inner = FixedExtentModel::new(10, 10.0_f32);
+        let ta = TailAnchoredExtentModel::with_default_epsilon(inner);
+        let mut list = VirtualList::new(ta, 30.0_f32, 0.0);
+
+        list.set_scroll_offset(10.0_f32);
+        let was_at_tail = list.is_at_tail();
+
+        list.model_mut().inner_mut().set_len(11);
+        list.restore_tail_anchor(was_at_tail);
+
+        assert!((list.scroll_offset() - 10.0_f32).abs() < 1e-5);
+        assert!(!list.is_at_tail());
     }
 }
