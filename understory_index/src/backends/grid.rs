@@ -299,22 +299,51 @@ impl<T: GridScalar> Backend<T> for Grid<T> {
     }
 
     fn visit_rect<F: FnMut(usize)>(&self, rect: Aabb2D<T>, mut f: F) {
+        fn process_cell<F: FnMut(usize), T: GridScalar>(
+            grid: &Grid<T>,
+            rect: Aabb2D<T>,
+            mut f: F,
+            seen: &mut HashSet<usize>,
+            cell: &Cell,
+        ) {
+            for &slot in &cell.slots {
+                if !seen.insert(slot) {
+                    continue;
+                }
+                let entry = grid.slot_entry(slot);
+                if entry.aabb.overlaps(&rect) {
+                    f(slot);
+                }
+            }
+        }
+
         let (ix0, ix1) = self.cell_range(rect.min_x, rect.max_x, self.origin_x);
         let (iy0, iy1) = self.cell_range(rect.min_y, rect.max_y, self.origin_y);
 
         let mut seen: HashSet<usize> = HashSet::new();
 
-        for ix in ix0..=ix1 {
-            for iy in iy0..=iy1 {
-                if let Some(cell) = self.cells.get(&(ix, iy)) {
-                    for &slot in &cell.slots {
-                        if !seen.insert(slot) {
-                            continue;
-                        }
-                        let entry = self.slot_entry(slot);
-                        if entry.aabb.overlaps(&rect) {
-                            f(slot);
-                        }
+        // If the number of cells covered by the `rect` is larger than the number of cells actually
+        // occupied in the grid, just iterate over all occupied grids.
+        //
+        // Perhaps if
+        // `https://doc.rust-lang.org/stable/std/collections/struct.BTreeMap.html#method.lower_bound`
+        // gets stabilized, using a `BTreeMap` as the internal cell representation could be
+        // considered.
+        //
+        // In the meantime, this prevents runtime from exploding if the input `rect` is huge.
+        let cell_span = ((ix1 as i64 - ix0 as i64) as u64 + 1)
+            .saturating_mul((iy1 as i64 - iy0 as i64) as u64 + 1);
+        if cell_span >= self.cells.len() as u64 {
+            for ((x, y), cell) in self.cells.iter() {
+                if (ix0..=ix1).contains(x) && (iy0..=iy1).contains(y) {
+                    process_cell(self, rect, &mut f, &mut seen, cell);
+                }
+            }
+        } else {
+            for ix in ix0..=ix1 {
+                for iy in iy0..=iy1 {
+                    if let Some(cell) = self.cells.get(&(ix, iy)) {
+                        process_cell(self, rect, &mut f, &mut seen, cell);
                     }
                 }
             }
